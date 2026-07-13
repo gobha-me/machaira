@@ -37,6 +37,7 @@ export interface VerseNote {
 export type VerseSegment =
   | { kind: 'text'; text: string }
   | { kind: 'note'; label: string; text: string }
+  | { kind: 'word'; text: string; strongs: string[] }
 
 export interface ChapterVerse {
   n: number

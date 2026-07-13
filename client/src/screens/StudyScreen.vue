@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useReader } from '../stores/reader'
 import { useUi } from '../stores/ui'
 import { api, ApiError, type CompareRow, type StrongsPayload } from '../services/api'
+import StrongsCard from '../components/StrongsCard.vue'
 
 const reader = useReader()
 const ui = useUi()
@@ -12,10 +13,17 @@ const rows = ref<CompareRow[]>([])
 const comparing = ref(false)
 const compareError = ref<string | null>(null)
 
-const strongsKey = ref('')
+const strongsKey = ref<string | null>(null)
 const strongs = ref<StrongsPayload | null>(null)
 const strongsError = ref<string | null>(null)
 const strongsLoading = ref(false)
+
+// A marker attaches to the preceding word; the next text segment gets a leading space
+// unless it opens with closing punctuation (mirrors ReadScreen's inline spacing).
+const CLOSE_PUNCT = /^[\s,.;:!?)\]}”’»…]/
+function segLead(text: string, i: number): string {
+  return i > 0 && !CLOSE_PUNCT.test(text) ? ' ' : ''
+}
 
 onMounted(async () => {
   if (!reader.ready) await reader.init()
@@ -54,23 +62,25 @@ async function setFocus(n: number) {
   await loadCompare()
 }
 
-async function lookupStrongs() {
-  const key = strongsKey.value.trim().toUpperCase()
-  if (!/^[GH]\d+$/.test(key)) {
-    strongsError.value = 'Enter a Strong’s number like G2638 or H0430.'
-    strongs.value = null
-    return
-  }
+// Tapping a word both focuses its verse (so the comparison follows) and looks it up.
+async function studyWord(n: number, keys: string[]) {
+  if (focus.value !== n) await setFocus(n)
+  await tapWord(keys)
+}
+
+async function tapWord(keys: string[]) {
+  const key = keys[0]
+  if (!key) return
+  strongsKey.value = key
   strongsLoading.value = true
   strongsError.value = null
+  strongs.value = null
   try {
     strongs.value = await api.strongs(key)
   } catch (e) {
     strongs.value = null
     strongsError.value =
-      e instanceof ApiError && e.status === 409
-        ? e.message
-        : `No entry for ${key}.`
+      e instanceof ApiError && e.status === 409 ? e.message : `No entry for ${key}.`
   } finally {
     strongsLoading.value = false
   }
@@ -102,30 +112,17 @@ async function lookupStrongs() {
           Install more than one translation in the Library to compare renderings.
         </div>
 
-        <!-- Word study (real Strong's lookup) -->
-        <div class="section-label">Word study · Strong’s lexicon</div>
+        <!-- Word study (tap a word in the passage below) -->
+        <div class="section-label">
+          Word study · Strong’s lexicon<template v-if="strongsKey"> · {{ strongsKey }}</template>
+        </div>
         <div class="strongs-box">
-          <div class="strongs-input">
-            <input
-              v-model="strongsKey"
-              class="focus-accent"
-              placeholder="e.g. G2638"
-              @keydown.enter="lookupStrongs"
-            />
-            <button class="lookup" @click="lookupStrongs">Look up</button>
-          </div>
           <p v-if="strongsError" class="strongs-error">{{ strongsError }}</p>
           <div v-else-if="strongsLoading" class="loading">Looking up…</div>
-          <div v-else-if="strongs" class="strongs-result">
-            <div class="strongs-head">
-              <span class="strongs-word serif">{{ strongs.transcription || strongs.key }}</span>
-              <span class="strongs-phon">{{ strongs.phonetic }}</span>
-              <span class="strongs-key">{{ strongs.key }}</span>
-            </div>
-            <div class="strongs-def">{{ strongs.definition }}</div>
-          </div>
+          <StrongsCard v-else-if="strongs" :entry="strongs" class="strongs-result" />
           <p v-else class="strongs-hint">
-            Look up any Greek (G####) or Hebrew (H####) number. Requires the Strong’s modules from the Library.
+            Tap any word in the passage below to open its Greek or Hebrew entry. Needs a
+            Strong’s-tagged translation (e.g. KJVA) and the Strong’s modules from the Library.
           </p>
         </div>
 
@@ -138,7 +135,17 @@ async function lookupStrongs() {
             class="cverse"
             :style="{ background: v.n === focus ? 'color-mix(in oklab, var(--accent) 12%, transparent)' : 'transparent' }"
             @click="setFocus(v.n)"
-          ><sup class="cvnum">{{ v.n }}</sup>{{ v.text }} </span>
+          ><sup class="cvnum">{{ v.n }}</sup><template
+              v-for="(seg, i) in v.segments"
+              :key="i"
+            ><template v-if="seg.kind === 'word'"
+            >{{ segLead(seg.text, i) }}<span
+                class="wtap"
+                @click.stop="studyWord(v.n, seg.strongs)"
+              >{{ seg.text }}</span></template><template
+              v-else-if="seg.kind === 'note'"
+            ></template><template v-else
+            >{{ segLead(seg.text, i) + seg.text }}</template></template>{{ ' ' }}</span>
         </div>
       </div>
     </div>
@@ -257,30 +264,6 @@ async function lookupStrongs() {
   padding: 16px 18px;
   margin-bottom: 6px;
 }
-.strongs-input {
-  display: flex;
-  gap: 8px;
-}
-.strongs-input input {
-  flex: 1;
-  background: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 9px 12px;
-  font-size: 13px;
-  color: var(--ink);
-  outline: none;
-}
-.lookup {
-  background: var(--accent);
-  color: var(--on-accent);
-  border: none;
-  border-radius: 8px;
-  padding: 9px 14px;
-  font-size: 12.5px;
-  font-weight: 600;
-  cursor: pointer;
-}
 .strongs-hint,
 .strongs-error {
   font-size: 12.5px;
@@ -294,32 +277,6 @@ async function lookupStrongs() {
 .strongs-result {
   margin-top: 12px;
 }
-.strongs-head {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-.strongs-word {
-  font-size: 23px;
-}
-.strongs-phon {
-  font-size: 12px;
-  color: var(--muted);
-}
-.strongs-key {
-  font-size: 10.5px;
-  font-weight: 700;
-  color: var(--accent);
-  border: 1px solid color-mix(in oklab, var(--accent) 40%, transparent);
-  border-radius: 5px;
-  padding: 2px 6px;
-}
-.strongs-def {
-  font-size: 13.5px;
-  line-height: 1.65;
-  margin-top: 10px;
-}
 .context {
   font-size: 16px;
   line-height: 1.8;
@@ -329,6 +286,14 @@ async function lookupStrongs() {
   cursor: pointer;
   border-radius: 3px;
   padding: 1px 2px;
+}
+.wtap {
+  cursor: pointer;
+  border-radius: 3px;
+  transition: background 0.12s;
+}
+.wtap:hover {
+  background: color-mix(in oklab, var(--accent) 12%, transparent);
 }
 .cvnum {
   font-size: 0.58em;

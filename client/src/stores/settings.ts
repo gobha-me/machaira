@@ -20,6 +20,7 @@ interface SettingsState {
   drawApocrypha: boolean
   alwaysCite: boolean
   showFootnotes: boolean
+  showStrongs: boolean
 }
 
 function load(): Partial<SettingsState> {
@@ -41,6 +42,7 @@ export const useSettings = defineStore('settings', {
     drawApocrypha: true,
     alwaysCite: true,
     showFootnotes: true,
+    showStrongs: false,
     ...load()
   }),
   getters: {
@@ -74,7 +76,14 @@ export const useSettings = defineStore('settings', {
       this.persist()
     },
     toggle(
-      key: 'lineFocus' | 'extraSpacing' | 'followAlong' | 'drawApocrypha' | 'alwaysCite' | 'showFootnotes'
+      key:
+        | 'lineFocus'
+        | 'extraSpacing'
+        | 'followAlong'
+        | 'drawApocrypha'
+        | 'alwaysCite'
+        | 'showFootnotes'
+        | 'showStrongs'
     ) {
       this[key] = !this[key]
       this.persist()

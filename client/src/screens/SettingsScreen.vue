@@ -123,6 +123,14 @@ function download(filename: string, content: string, type: string) {
           <div class="spacer"></div>
           <Toggle :model-value="settings.showFootnotes" @update:model-value="settings.toggle('showFootnotes')" />
         </div>
+        <div class="row">
+          <div class="row-text">
+            <div class="row-title">Strong’s numbers</div>
+            <div class="row-sub">Tap a word to open its lexicon entry — on tagged translations (e.g. KJVA)</div>
+          </div>
+          <div class="spacer"></div>
+          <Toggle :model-value="settings.showStrongs" @update:model-value="settings.toggle('showStrongs')" />
+        </div>
       </div>
 
       <!-- Listening -->

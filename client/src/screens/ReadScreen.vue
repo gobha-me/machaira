@@ -5,7 +5,8 @@ import { useUi } from '../stores/ui'
 import { useSettings } from '../stores/settings'
 import { useReadingPlan } from '../stores/readingPlan'
 import { PLAN_DAYS } from '../services/plan'
-import type { BookEntry } from '../services/api'
+import { api, ApiError, type BookEntry, type StrongsPayload } from '../services/api'
+import StrongsCard from '../components/StrongsCard.vue'
 
 const reader = useReader()
 const ui = useUi()
@@ -171,6 +172,36 @@ const chapterNotes = computed(() => {
   }
   return out
 })
+
+// ── Strong's word study: tap a tagged word → lexicon entry in the rail ──
+const strongsKey = ref<string | null>(null)
+const strongsEntry = ref<StrongsPayload | null>(null)
+const strongsError = ref<string | null>(null)
+const strongsLoading = ref(false)
+
+async function tapWord(keys: string[]) {
+  const key = keys[0]
+  if (!key) return
+  strongsKey.value = key
+  strongsLoading.value = true
+  strongsError.value = null
+  strongsEntry.value = null
+  try {
+    strongsEntry.value = await api.strongs(key)
+  } catch (e) {
+    strongsEntry.value = null
+    strongsError.value =
+      e instanceof ApiError && e.status === 409 ? e.message : `No entry for ${key}.`
+  } finally {
+    strongsLoading.value = false
+  }
+}
+
+function clearStrongs() {
+  strongsKey.value = null
+  strongsEntry.value = null
+  strongsError.value = null
+}
 </script>
 
 <template>
@@ -274,14 +305,21 @@ const chapterNotes = computed(() => {
                 :style="{ background: verseBg(v.n), opacity: verseOpacity(v.n) }"
                 @click="reader.selectVerse(v.n)"
               ><sup class="vnum">{{ v.n }}</sup><template
-                  v-if="settings.showFootnotes && v.notes.length"
+                  v-if="(settings.showFootnotes && v.notes.length) || settings.showStrongs"
                 ><template v-for="(seg, i) in v.segments" :key="i"><template
-                    v-if="seg.kind === 'text'"
-                  >{{ segLead(seg.text, i) + seg.text }}</template><sup
-                    v-else
+                    v-if="seg.kind === 'word' && settings.showStrongs"
+                  >{{ segLead(seg.text, i) }}<span
+                      class="wtap"
+                      @click.stop="tapWord(seg.strongs)"
+                    >{{ seg.text }}</span></template><sup
+                    v-else-if="seg.kind === 'note' && settings.showFootnotes"
                     class="noteref"
                     :title="seg.text"
-                  >{{ seg.label }}</sup></template></template><template v-else>{{ v.text }}</template>{{ ' ' }}</span>
+                  >{{ seg.label }}</sup><template
+                    v-else-if="seg.kind === 'note'"
+                  ></template><template
+                    v-else
+                  >{{ segLead(seg.text, i) + seg.text }}</template></template></template><template v-else>{{ v.text }}</template>{{ ' ' }}</span>
             </div>
 
             <div v-if="settings.showFootnotes && chapterNotes.length" class="notes">
@@ -306,6 +344,19 @@ const chapterNotes = computed(() => {
         </div>
 
         <aside class="rail-side">
+          <div
+            v-if="settings.showStrongs && (strongsEntry || strongsLoading || strongsError)"
+            class="word-card"
+          >
+            <div class="word-card-head">
+              <span class="word-card-label">Word study<template v-if="strongsKey"> · {{ strongsKey }}</template></span>
+              <button class="word-card-close hover-ink" @click="clearStrongs">✕</button>
+            </div>
+            <div v-if="strongsLoading" class="word-card-state">Looking up…</div>
+            <p v-else-if="strongsError" class="word-card-error">{{ strongsError }}</p>
+            <StrongsCard v-else-if="strongsEntry" :entry="strongsEntry" />
+          </div>
+
           <div class="hint-card">
             <div class="hint-label">Reading</div>
             <div class="hint-body">
@@ -597,6 +648,14 @@ h1 {
   cursor: help;
   font-family: 'Instrument Sans', sans-serif;
 }
+.wtap {
+  cursor: pointer;
+  border-radius: 3px;
+  transition: background 0.12s;
+}
+.wtap:hover {
+  background: color-mix(in oklab, var(--accent) 12%, transparent);
+}
 .notes {
   margin-top: 40px;
   padding-top: 20px;
@@ -665,6 +724,43 @@ h1 {
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+.word-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+.word-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.word-card-label {
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.word-card-close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--muted);
+  padding: 0 2px;
+}
+.word-card-state {
+  font-size: 13px;
+  color: var(--muted);
+}
+.word-card-error {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--accent);
+  margin: 0;
 }
 .hint-card {
   background: var(--card);
