@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # node-sword-interface compiles a native addon on install; it needs the
+      # libsword build toolchain. Must run before `npm ci`.
+      - name: Install libsword build toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake pkg-config subversion \
+            libcurl4-openssl-dev libicu-dev zlib1g-dev
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck client
+        working-directory: client
+        run: npx vue-tsc --noEmit
+
+      - name: Typecheck server
+        working-directory: server
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build

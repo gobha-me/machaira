@@ -15,6 +15,7 @@
     "node-sword-interface": "^1.0.124"
   },
   "devDependencies": {
+    "@types/node": "^22.20.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   }
