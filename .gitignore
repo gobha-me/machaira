@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.log
+
+# SWORD module install path (downloaded content lives here at runtime)
+server/data/
+
+# editor / os / tooling
+.DS_Store
+.vscode/
+.claude/
+*.local

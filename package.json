@@ -1,0 +1,20 @@
+{
+  "name": "machaira",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sword — a SWORD-family Bible study tool (Vue 3 + Vite frontend, Node SWORD backend)",
+  "license": "GPL-2.0-or-later",
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,client -c cyan,magenta \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "npm -w server run dev",
+    "dev:client": "npm -w client run dev",
+    "build": "npm -w server run build && npm -w client run build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}

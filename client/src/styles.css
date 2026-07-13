@@ -1,0 +1,34 @@
+html, body { margin: 0; padding: 0; height: 100%; }
+body {
+  font-family: 'Instrument Sans', sans-serif;
+  background: #F6F2EA;
+}
+#app { height: 100%; }
+* { box-sizing: border-box; }
+
+a { color: var(--accent, #8A3B34); text-decoration: none; }
+a:hover { filter: brightness(0.85); }
+::selection { background: rgba(201, 162, 39, 0.3); }
+button { font-family: 'Instrument Sans', sans-serif; }
+input, textarea { font-family: 'Instrument Sans', sans-serif; }
+
+/* Hover/focus interactions transcribed from the prototype's style-hover / style-focus. */
+.hover-line:hover { border-color: var(--muted) !important; }
+.hover-accent:hover { border-color: var(--accent) !important; }
+.hover-soft:hover { background: var(--soft) !important; }
+.hover-ink:hover { color: var(--ink) !important; }
+.hover-accent-text:hover { color: var(--accent) !important; }
+.hover-dim:hover { opacity: 0.9; }
+.focus-accent:focus { border-color: var(--accent) !important; }
+
+.serif { font-family: 'Newsreader', Georgia, serif; }
+
+/* Thin, unobtrusive scrollbars to match the calm aesthetic. */
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 6px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover { background: var(--muted); background-clip: content-box; }

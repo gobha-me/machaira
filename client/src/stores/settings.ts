@@ -1,0 +1,83 @@
+import { defineStore } from 'pinia'
+import {
+  DEFAULT_ACCENT_DARK,
+  DEFAULT_ACCENT_LIGHT,
+  TEXT_SCALE_MAX,
+  TEXT_SCALE_MIN,
+  TEXT_SCALE_STEP,
+  type ThemeId
+} from '../theme'
+
+const KEY = 'sword.settings.v1'
+
+interface SettingsState {
+  theme: ThemeId
+  accent: string
+  textScale: number
+  lineFocus: boolean
+  extraSpacing: boolean
+  followAlong: boolean
+  drawApocrypha: boolean
+  alwaysCite: boolean
+  showFootnotes: boolean
+}
+
+function load(): Partial<SettingsState> {
+  try {
+    return JSON.parse(localStorage.getItem(KEY) ?? '{}')
+  } catch {
+    return {}
+  }
+}
+
+export const useSettings = defineStore('settings', {
+  state: (): SettingsState => ({
+    theme: 'paper',
+    accent: DEFAULT_ACCENT_LIGHT,
+    textScale: 1,
+    lineFocus: false,
+    extraSpacing: false,
+    followAlong: true,
+    drawApocrypha: true,
+    alwaysCite: true,
+    showFootnotes: true,
+    ...load()
+  }),
+  getters: {
+    // The effective accent (prototype falls back to a warmer accent in dark mode).
+    effectiveAccent(state): string {
+      if (state.accent) return state.accent
+      return state.theme === 'ink' ? DEFAULT_ACCENT_DARK : DEFAULT_ACCENT_LIGHT
+    },
+    textScalePct(state): string {
+      return `${Math.round(state.textScale * 100)}%`
+    }
+  },
+  actions: {
+    persist() {
+      localStorage.setItem(KEY, JSON.stringify(this.$state))
+    },
+    setTheme(theme: ThemeId) {
+      this.theme = theme
+      this.persist()
+    },
+    setAccent(accent: string) {
+      this.accent = accent
+      this.persist()
+    },
+    bumpTextScale(delta: number) {
+      const next = Math.min(
+        TEXT_SCALE_MAX,
+        Math.max(TEXT_SCALE_MIN, Math.round((this.textScale + delta) / TEXT_SCALE_STEP) * TEXT_SCALE_STEP)
+      )
+      this.textScale = Math.round(next * 100) / 100
+      this.persist()
+    },
+    toggle(
+      key: 'lineFocus' | 'extraSpacing' | 'followAlong' | 'drawApocrypha' | 'alwaysCite' | 'showFootnotes'
+    ) {
+      this[key] = !this[key]
+      this.persist()
+    }
+  }
+})
