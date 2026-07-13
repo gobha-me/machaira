@@ -18,6 +18,22 @@ interface ReaderState {
 
 const HL_COLOR = 'rgba(201,162,39,0.25)'
 
+const POS_KEY = 'sword.reader.pos.v1'
+
+function loadPos(): { moduleName: string; book: string; chapter: number } | null {
+  try {
+    const raw = localStorage.getItem(POS_KEY)
+    if (!raw) return null
+    const p = JSON.parse(raw)
+    if (typeof p?.moduleName === 'string' && p.moduleName && typeof p?.book === 'string' && p.book && typeof p?.chapter === 'number') {
+      return { moduleName: p.moduleName, book: p.book, chapter: p.chapter }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
 export const useReader = defineStore('reader', {
   state: (): ReaderState => ({
     moduleName: null,
@@ -61,8 +77,17 @@ export const useReader = defineStore('reader', {
         this.ready = true
         return
       }
-      const preferred = bibles.find((m) => m.name.toUpperCase() === 'WEB') ?? bibles[0]
-      await this.setModule(preferred.name)
+      const saved = loadPos()
+      if (saved && bibles.some((m) => m.name === saved.moduleName)) {
+        // Set book/chapter first so setModule's `keep` check preserves them
+        // (or drops to John 1 if the saved module lacks the saved book).
+        this.book = saved.book
+        this.chapter = saved.chapter
+        await this.setModule(saved.moduleName)
+      } else {
+        const preferred = bibles.find((m) => m.name.toUpperCase() === 'WEB') ?? bibles[0]
+        await this.setModule(preferred.name)
+      }
       this.ready = true
     },
     async loadHighlights(): Promise<void> {
@@ -121,12 +146,20 @@ export const useReader = defineStore('reader', {
       try {
         this.data = await api.chapter(this.moduleName, this.book, this.chapter)
         this.selectedVerse = null
+        this.persistPos()
       } catch (e) {
         this.data = null
         this.error = (e as Error).message
       } finally {
         this.loadingChapter = false
       }
+    },
+    persistPos(): void {
+      if (!this.moduleName || !this.book) return
+      localStorage.setItem(
+        POS_KEY,
+        JSON.stringify({ moduleName: this.moduleName, book: this.book, chapter: this.chapter })
+      )
     },
     selectVerse(n: number): void {
       this.selectedVerse = this.selectedVerse === n ? null : n
