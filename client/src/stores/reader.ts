@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { api, type BookEntry, type ChapterPayload } from '../services/api'
 import { highlightsDb } from '../services/db'
 import { useLibrary } from './library'
+import { useSettings } from './settings'
 
 interface ReaderState {
   moduleName: string | null
@@ -85,7 +86,12 @@ export const useReader = defineStore('reader', {
         this.chapter = saved.chapter
         await this.setModule(saved.moduleName)
       } else {
-        const preferred = bibles.find((m) => m.name.toUpperCase() === 'WEB') ?? bibles[0]
+        const settings = useSettings()
+        const preferred =
+          (settings.defaultModuleName &&
+            bibles.find((m) => m.name === settings.defaultModuleName)) ||
+          bibles.find((m) => m.name.toUpperCase() === 'WEB') ||
+          bibles[0]
         await this.setModule(preferred.name)
       }
       this.ready = true

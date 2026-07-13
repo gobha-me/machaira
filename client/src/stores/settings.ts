@@ -21,6 +21,7 @@ interface SettingsState {
   alwaysCite: boolean
   showFootnotes: boolean
   showStrongs: boolean
+  defaultModuleName: string | null
 }
 
 function load(): Partial<SettingsState> {
@@ -43,6 +44,7 @@ export const useSettings = defineStore('settings', {
     alwaysCite: true,
     showFootnotes: true,
     showStrongs: false,
+    defaultModuleName: null,
     ...load()
   }),
   getters: {
@@ -65,6 +67,10 @@ export const useSettings = defineStore('settings', {
     },
     setAccent(accent: string) {
       this.accent = accent
+      this.persist()
+    },
+    setDefaultModule(name: string | null) {
+      this.defaultModuleName = name
       this.persist()
     },
     bumpTextScale(delta: number) {

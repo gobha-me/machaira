@@ -2,12 +2,14 @@
 import { ref } from 'vue'
 import { useSettings } from '../stores/settings'
 import { useReadingPlan } from '../stores/readingPlan'
+import { useReader } from '../stores/reader'
 import { ACCENTS } from '../theme'
 import { exportAll } from '../services/db'
 import Toggle from '../components/ui/Toggle.vue'
 
 const settings = useSettings()
 const readingPlan = useReadingPlan()
+const reader = useReader()
 const exporting = ref(false)
 
 function resetPlan() {
@@ -114,6 +116,23 @@ function download(filename: string, content: string, type: string) {
           </div>
           <div class="spacer"></div>
           <Toggle :model-value="settings.extraSpacing" @update:model-value="settings.toggle('extraSpacing')" />
+        </div>
+        <div class="row bordered">
+          <div class="row-text">
+            <div class="row-title">Default translation</div>
+            <div class="row-sub">Opens on a fresh start when no reading position is saved</div>
+          </div>
+          <div class="spacer"></div>
+          <select
+            class="setting-select"
+            :value="settings.defaultModuleName ?? ''"
+            @change="settings.setDefaultModule(($event.target as HTMLSelectElement).value || null)"
+          >
+            <option value="">Automatic (WEB)</option>
+            <option v-for="m in reader.installedBibles" :key="m.name" :value="m.name">
+              {{ m.name }} — {{ m.description }}
+            </option>
+          </select>
         </div>
         <div class="row">
           <div class="row-text">
@@ -353,6 +372,17 @@ h1 {
   font-size: 12.5px;
   font-weight: 600;
   color: var(--ink);
+}
+.setting-select {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 13px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+  max-width: 260px;
 }
 .pill.disabled {
   color: var(--muted);
