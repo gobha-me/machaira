@@ -1,12 +1,20 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useSettings } from '../stores/settings'
+import { useReadingPlan } from '../stores/readingPlan'
 import { ACCENTS } from '../theme'
 import { exportAll } from '../services/db'
 import Toggle from '../components/ui/Toggle.vue'
 
 const settings = useSettings()
+const readingPlan = useReadingPlan()
 const exporting = ref(false)
+
+function resetPlan() {
+  if (window.confirm('Reset reading-plan progress? This restarts the plan from today.')) {
+    readingPlan.reset()
+  }
+}
 
 async function doExport() {
   exporting.value = true
@@ -135,6 +143,30 @@ function download(filename: string, content: string, type: string) {
           </div>
           <div class="spacer"></div>
           <Toggle :model-value="settings.followAlong" @update:model-value="settings.toggle('followAlong')" />
+        </div>
+      </div>
+
+      <!-- Reading plan -->
+      <div class="section-label">Reading plan</div>
+      <div class="card">
+        <div class="row" :class="{ bordered: readingPlan.enabled }">
+          <div class="row-text">
+            <div class="row-title">Bible in a year</div>
+            <div class="row-sub">Read Genesis to Revelation over 365 days — adds a Plan tab and a card in Read</div>
+          </div>
+          <div class="spacer"></div>
+          <Toggle :model-value="readingPlan.enabled" @update:model-value="readingPlan.toggle()" />
+        </div>
+        <div v-if="readingPlan.enabled" class="row">
+          <div class="row-text">
+            <div class="row-title">Progress</div>
+            <div class="row-sub">
+              Day {{ readingPlan.currentDay }} of 365 · {{ readingPlan.chaptersRead }} of
+              {{ readingPlan.totalChapters }} chapters read
+            </div>
+          </div>
+          <div class="spacer"></div>
+          <button class="pill action hover-line" @click="resetPlan">Reset</button>
         </div>
       </div>
 

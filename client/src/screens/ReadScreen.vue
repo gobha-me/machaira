@@ -3,11 +3,19 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useReader } from '../stores/reader'
 import { useUi } from '../stores/ui'
 import { useSettings } from '../stores/settings'
+import { useReadingPlan } from '../stores/readingPlan'
+import { PLAN_DAYS } from '../services/plan'
 import type { BookEntry } from '../services/api'
 
 const reader = useReader()
 const ui = useUi()
 const settings = useSettings()
+const plan = useReadingPlan()
+
+function openTodayReading() {
+  const first = plan.firstUnreadToday
+  if (first && reader.moduleName) reader.openRef(reader.moduleName, first.book, first.chapter)
+}
 
 const versesStyle = computed(() => ({
   fontSize: 'calc(20px * var(--vs))',
@@ -94,6 +102,8 @@ function startPlayback() {
     if (i >= verses.length) {
       playing.value = false
       spokenVerse.value = null
+      // Finished reading the chapter aloud — count it toward the reading plan.
+      if (plan.enabled && reader.book) plan.markChapterRead(reader.book, reader.chapter)
       return
     }
     const v = verses[i]
@@ -302,6 +312,25 @@ const chapterNotes = computed(() => {
               {{ reader.moduleName }} · {{ reader.bookName }} {{ reader.chapter }}
             </div>
           </div>
+
+          <div v-if="plan.enabled" class="plan-card">
+            <div class="plan-label">Reading plan · Day {{ plan.currentDay }}/{{ PLAN_DAYS }}</div>
+            <div class="plan-today">{{ plan.todayLabel }}</div>
+            <div class="plan-track"><div class="plan-fill" :style="{ width: plan.percent + '%' }"></div></div>
+            <div class="plan-meta">
+              {{ plan.chaptersRead }}/{{ plan.totalChapters }} chapters
+              <span :class="{ ok: plan.onTrack }">· {{ plan.onTrack ? 'on track' : `${plan.behindBy} behind` }}</span>
+            </div>
+            <div class="plan-actions">
+              <button class="plan-open" @click="openTodayReading">Open today</button>
+              <button
+                class="plan-mark"
+                :class="{ done: plan.todayComplete }"
+                @click="plan.markDayRead(plan.currentDayIndex)"
+              >{{ plan.todayComplete ? 'Read ✓' : 'Mark read' }}</button>
+            </div>
+          </div>
+
           <div class="hint-text">Select any verse to compare, highlight, or start a note.</div>
         </aside>
       </div>
@@ -401,12 +430,12 @@ const chapterNotes = computed(() => {
   z-index: 40;
 }
 .trans-panel {
-  width: 280px;
+  width: 330px;
   padding: 6px;
 }
 .trans-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   width: 100%;
   background: none;
@@ -421,20 +450,20 @@ const chapterNotes = computed(() => {
   height: 5px;
   border-radius: 50%;
   flex-shrink: 0;
+  margin-top: 6px;
 }
 .trans-tag {
   font-size: 13px;
   font-weight: 700;
   color: var(--ink);
-  width: 52px;
+  min-width: 48px;
   flex-shrink: 0;
 }
 .trans-name {
   font-size: 12.5px;
   color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  line-height: 1.35;
 }
 .trans-foot {
   border-top: 1px solid var(--line);
@@ -654,6 +683,75 @@ h1 {
 .hint-body {
   font-size: 13px;
   line-height: 1.55;
+}
+.plan-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+.plan-label {
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.plan-today {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  margin-bottom: 10px;
+}
+.plan-track {
+  height: 4px;
+  background: var(--soft);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.plan-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s;
+}
+.plan-meta {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 6px 0 10px;
+}
+.plan-meta .ok {
+  color: var(--gold);
+}
+.plan-actions {
+  display: flex;
+  gap: 6px;
+}
+.plan-open {
+  flex: 1;
+  background: var(--accent);
+  color: var(--on-accent);
+  border: none;
+  border-radius: 6px;
+  padding: 7px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.plan-mark {
+  flex: 1;
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 7px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+}
+.plan-mark.done {
+  color: var(--gold);
+  border-color: var(--gold);
 }
 .hint-text {
   font-size: 11.5px;

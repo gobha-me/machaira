@@ -1,10 +1,16 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useLibrary } from '../stores/library'
 import SourceRow from '../components/ui/SourceRow.vue'
 
 const lib = useLibrary()
 const showAll = ref(false)
+
+// Everything on the user's machine, pinned to the top of the catalog.
+const installedSources = computed(() => [...lib.installedBibles, ...lib.installedDicts])
+const availableBibles = computed(() => lib.featuredBibles.length + lib.otherBibles.length)
+// When nothing featured remains (all featured already installed), show the rest directly.
+const showOthers = computed(() => showAll.value || lib.featuredBibles.length === 0)
 
 onMounted(() => lib.load())
 </script>
@@ -94,57 +100,79 @@ onMounted(() => lib.load())
       </template>
 
       <template v-else-if="lib.loaded">
-        <!-- Translations -->
-        <div class="section-label">Translations</div>
-        <div class="card">
-          <SourceRow
-            v-for="(m, i) in lib.featuredBibles"
-            :key="m.name"
-            :module="m"
-            :installed="lib.isInstalled(m.name)"
-            :installing="lib.installing.has(m.name)"
-            :progress="lib.progress[m.name] ?? 0"
-            :last="!showAll && i === lib.featuredBibles.length - 1"
-            @install="lib.install"
-            @uninstall="lib.uninstall"
-          />
-          <template v-if="showAll">
+        <!-- On your machine: everything installed, surfaced first -->
+        <template v-if="installedSources.length">
+          <div class="section-label">On your machine</div>
+          <div class="card">
             <SourceRow
-              v-for="(m, i) in lib.otherBibles"
+              v-for="(m, i) in installedSources"
               :key="m.name"
               :module="m"
-              :installed="lib.isInstalled(m.name)"
+              :installed="true"
               :installing="lib.installing.has(m.name)"
               :progress="lib.progress[m.name] ?? 0"
-              :last="i === lib.otherBibles.length - 1"
+              :last="i === installedSources.length - 1"
               @install="lib.install"
               @uninstall="lib.uninstall"
             />
-          </template>
-        </div>
-        <button
-          v-if="lib.otherBibles.length"
-          class="more hover-accent-text"
-          @click="showAll = !showAll"
-        >
-          {{ showAll ? 'Show fewer' : `Show all ${lib.bibles.length} translations` }}
-        </button>
+          </div>
+        </template>
 
-        <!-- Originals & lexicons -->
+        <!-- Translations (available to add) -->
+        <template v-if="availableBibles">
+          <div class="section-label">Translations</div>
+          <div class="card">
+            <SourceRow
+              v-for="(m, i) in lib.featuredBibles"
+              :key="m.name"
+              :module="m"
+              :installed="false"
+              :installing="lib.installing.has(m.name)"
+              :progress="lib.progress[m.name] ?? 0"
+              :last="!showOthers && i === lib.featuredBibles.length - 1"
+              @install="lib.install"
+              @uninstall="lib.uninstall"
+            />
+            <template v-if="showOthers">
+              <SourceRow
+                v-for="(m, i) in lib.otherBibles"
+                :key="m.name"
+                :module="m"
+                :installed="false"
+                :installing="lib.installing.has(m.name)"
+                :progress="lib.progress[m.name] ?? 0"
+                :last="i === lib.otherBibles.length - 1"
+                @install="lib.install"
+                @uninstall="lib.uninstall"
+              />
+            </template>
+          </div>
+          <button
+            v-if="lib.otherBibles.length && lib.featuredBibles.length"
+            class="more hover-accent-text"
+            @click="showAll = !showAll"
+          >
+            {{ showAll ? 'Show fewer' : `Show all ${availableBibles} translations` }}
+          </button>
+        </template>
+
+        <!-- Originals & lexicons (available to add) -->
         <div class="section-label">Originals &amp; lexicons</div>
         <div class="card">
           <SourceRow
             v-for="(m, i) in lib.lexicons"
             :key="m.name"
             :module="m"
-            :installed="lib.isInstalled(m.name)"
+            :installed="false"
             :installing="lib.installing.has(m.name)"
             :progress="lib.progress[m.name] ?? 0"
             :last="i === lib.lexicons.length - 1"
             @install="lib.install"
             @uninstall="lib.uninstall"
           />
-          <div v-if="!lib.lexicons.length" class="empty">No lexicon modules offered by the configured repositories.</div>
+          <div v-if="!lib.lexicons.length" class="empty">
+            {{ lib.installedDicts.length ? 'All available lexicons are installed.' : 'No lexicon modules offered by the configured repositories.' }}
+          </div>
         </div>
 
         <!-- Honest disabled sections -->

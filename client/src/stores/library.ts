@@ -49,9 +49,21 @@ function matchesQuery(m: ModuleInfo, q: string): boolean {
   return terms.every((t) => hay.includes(t))
 }
 
-function order(mods: ModuleInfo[], featured: string[]): ModuleInfo[] {
+// The catalog lists a module once per repo that offers it, so an installed module
+// (unique on disk) can appear multiple times. Keep the first of each name.
+function dedupeByName(mods: ModuleInfo[]): ModuleInfo[] {
+  const seen = new Set<string>()
+  return mods.filter((m) => (seen.has(m.name) ? false : (seen.add(m.name), true)))
+}
+
+function order(mods: ModuleInfo[], featured: string[], installed?: Set<string>): ModuleInfo[] {
   const rank = new Map(featured.map((n, i) => [n.toLowerCase(), i]))
   return [...mods].sort((a, b) => {
+    if (installed) {
+      const ia = installed.has(a.name) ? 0 : 1
+      const ib = installed.has(b.name) ? 0 : 1
+      if (ia !== ib) return ia - ib
+    }
     const ra = rank.has(a.name.toLowerCase()) ? rank.get(a.name.toLowerCase())! : Infinity
     const rb = rank.has(b.name.toLowerCase()) ? rank.get(b.name.toLowerCase())! : Infinity
     if (ra !== rb) return ra - rb
@@ -91,7 +103,8 @@ export const useLibrary = defineStore('library', {
         state.bibles.filter(
           (m) => (!state.language || m.language === state.language) && matchesQuery(m, state.query)
         ),
-        FEATURED_BIBLES
+        FEATURED_BIBLES,
+        state.installedNames
       )
     },
     filteredDicts(state): ModuleInfo[] {
@@ -99,28 +112,47 @@ export const useLibrary = defineStore('library', {
         state.dicts.filter(
           (m) => (!state.language || m.language === state.language) && matchesQuery(m, state.query)
         ),
-        FEATURED_DICTS
+        FEATURED_DICTS,
+        state.installedNames
       )
     },
+    // Featured/other/lexicon sections list only what's NOT installed — installed sources
+    // are surfaced separately in the pinned "On your machine" section, so nothing repeats.
     featuredBibles(state): ModuleInfo[] {
       const set = new Set(FEATURED_BIBLES.map((n) => n.toLowerCase()))
       return order(
-        state.bibles.filter((m) => set.has(m.name.toLowerCase())),
+        state.bibles.filter((m) => set.has(m.name.toLowerCase()) && !state.installedNames.has(m.name)),
         FEATURED_BIBLES
       )
     },
     otherBibles(state): ModuleInfo[] {
       const set = new Set(FEATURED_BIBLES.map((n) => n.toLowerCase()))
       return order(
-        state.bibles.filter((m) => !set.has(m.name.toLowerCase())),
+        state.bibles.filter((m) => !set.has(m.name.toLowerCase()) && !state.installedNames.has(m.name)),
         []
       )
     },
     lexicons(state): ModuleInfo[] {
-      return order(state.dicts, FEATURED_DICTS)
+      return order(
+        state.dicts.filter((m) => !state.installedNames.has(m.name)),
+        FEATURED_DICTS
+      )
     },
     installedBibles(state): ModuleInfo[] {
-      return state.bibles.filter((m) => state.installedNames.has(m.name))
+      return dedupeByName(
+        order(
+          state.bibles.filter((m) => state.installedNames.has(m.name)),
+          FEATURED_BIBLES
+        )
+      )
+    },
+    installedDicts(state): ModuleInfo[] {
+      return dedupeByName(
+        order(
+          state.dicts.filter((m) => state.installedNames.has(m.name)),
+          FEATURED_DICTS
+        )
+      )
     },
     installedCount(state): number {
       return state.installedNames.size

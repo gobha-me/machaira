@@ -1,7 +1,13 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useUi, SCREENS } from '../stores/ui'
+import { useReadingPlan } from '../stores/readingPlan'
 
 const ui = useUi()
+const plan = useReadingPlan()
+
+// The Plan tab is opt-in — it only appears once the reading plan is turned on.
+const visibleScreens = computed(() => SCREENS.filter((s) => s.id !== 'plan' || plan.enabled))
 </script>
 
 <template>
@@ -12,7 +18,7 @@ const ui = useUi()
     </div>
     <div class="rail-items">
       <button
-        v-for="s in SCREENS"
+        v-for="s in visibleScreens"
         :key="s.id"
         class="rail-btn hover-soft"
         @click="ui.go(s.id)"
