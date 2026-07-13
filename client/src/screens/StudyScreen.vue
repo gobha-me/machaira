@@ -36,17 +36,24 @@ watch(
   () => loadCompare()
 )
 
-const installedNames = computed(() => reader.installedBibles.map((m) => m.name))
+// Primary/accented compare row follows the reading translation: order reader.moduleName
+// first, then the remaining installed bibles keep their featured order.
+const compareNames = computed(() => {
+  const names = reader.installedBibles.map((m) => m.name)
+  const primary = reader.moduleName
+  if (!primary || !names.includes(primary)) return names
+  return [primary, ...names.filter((n) => n !== primary)]
+})
 
 async function loadCompare() {
-  if (!reader.book || installedNames.value.length === 0) {
+  if (!reader.book || compareNames.value.length === 0) {
     rows.value = []
     return
   }
   comparing.value = true
   compareError.value = null
   try {
-    const res = await api.compare(reader.book, reader.chapter, focus.value, installedNames.value)
+    const res = await api.compare(reader.book, reader.chapter, focus.value, compareNames.value)
     rows.value = res.translations
   } catch (e) {
     compareError.value = (e as Error).message
