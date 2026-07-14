@@ -4,6 +4,7 @@ import { useReader } from '../stores/reader'
 import { useUi } from '../stores/ui'
 import { useSettings } from '../stores/settings'
 import { useReadingPlan } from '../stores/readingPlan'
+import { useNotes } from '../stores/notes'
 import { PLAN_DAYS } from '../services/plan'
 import { api, ApiError, type BookEntry, type StrongsPayload } from '../services/api'
 import StrongsCard from '../components/StrongsCard.vue'
@@ -12,6 +13,7 @@ const reader = useReader()
 const ui = useUi()
 const settings = useSettings()
 const plan = useReadingPlan()
+const notes = useNotes()
 
 function openTodayReading() {
   const first = plan.firstUnreadToday
@@ -33,7 +35,10 @@ const transOpen = ref(false)
 const bookOpen = ref(false)
 const draftBook = ref<string | null>(null)
 
-onMounted(() => reader.init())
+onMounted(() => {
+  reader.init()
+  notes.load()
+})
 
 const sectionLabels: Record<BookEntry['section'], string> = {
   ot: 'Old Testament',
@@ -202,6 +207,51 @@ function clearStrongs() {
   strongsEntry.value = null
   strongsError.value = null
 }
+
+// ── Notes: quick-capture in the rail, anchored to the current passage ──
+const noteTitle = ref('')
+const noteBody = ref('')
+const noteBodyEl = ref<HTMLTextAreaElement | null>(null)
+const noteSaved = ref(false)
+let savedTimer: ReturnType<typeof setTimeout> | undefined
+
+const passageNotes = computed(() => {
+  // Anchored to the selected verse when one is chosen; otherwise the whole chapter.
+  if (reader.selectedVerse) {
+    const verse = `${reader.bookName} ${reader.chapter}:${reader.selectedVerse}`
+    return notes.list.filter((n) => n.refs.some((r) => r.split(' · ')[0].trim() === verse))
+  }
+  const chapter = `${reader.bookName} ${reader.chapter}`
+  return notes.list.filter((n) => n.refs.some((r) => r.split(' · ')[0].split(':')[0].trim() === chapter))
+})
+
+async function saveNote() {
+  const body = noteBody.value.trim()
+  if (!body) return
+  await notes.create({
+    title: noteTitle.value.trim() || reader.currentRef,
+    body,
+    refs: [reader.currentRef]
+  })
+  noteTitle.value = ''
+  noteBody.value = ''
+  noteSaved.value = true
+  clearTimeout(savedTimer)
+  savedTimer = setTimeout(() => (noteSaved.value = false), 1800)
+}
+
+function openNote(id: string) {
+  notes.select(id)
+  ui.go('journal')
+}
+
+function focusNoteComposer() {
+  noteBodyEl.value?.focus()
+}
+
+function noteRelDate(ts: number): string {
+  return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
 </script>
 
 <template>
@@ -338,7 +388,7 @@ function clearStrongs() {
               <button class="act hover-soft" @click="reader.toggleHighlight(reader.selectedVerse)">
                 {{ reader.highlightColor(reader.selectedVerse) ? 'Unhighlight' : 'Highlight' }}
               </button>
-              <button class="act hover-soft" @click="ui.go('journal')">Note</button>
+              <button class="act hover-soft" @click="focusNoteComposer">Note</button>
             </div>
           </template>
         </div>
@@ -355,6 +405,42 @@ function clearStrongs() {
             <div v-if="strongsLoading" class="word-card-state">Looking up…</div>
             <p v-else-if="strongsError" class="word-card-error">{{ strongsError }}</p>
             <StrongsCard v-else-if="strongsEntry" :entry="strongsEntry" />
+          </div>
+
+          <div class="note-card">
+            <div class="note-card-head">
+              <span class="note-card-label">Notes</span>
+              <span v-if="noteSaved" class="note-saved">Saved ✓</span>
+            </div>
+            <div v-if="reader.currentRef" class="note-anchor">{{ reader.currentRef }}</div>
+            <input
+              v-model="noteTitle"
+              class="note-title-input"
+              type="text"
+              placeholder="Title (optional)"
+            />
+            <textarea
+              ref="noteBodyEl"
+              v-model="noteBody"
+              class="note-input"
+              placeholder="Jot a note on this passage…"
+            ></textarea>
+            <button class="note-save" :disabled="!noteBody.trim()" @click="saveNote">Save note</button>
+
+            <div v-if="passageNotes.length" class="note-list">
+              <div class="note-list-label">On this passage</div>
+              <div class="note-list-scroll">
+                <button
+                  v-for="n in passageNotes"
+                  :key="n.id"
+                  class="note-list-item hover-soft"
+                  @click="openNote(n.id)"
+                >
+                  <span class="note-list-title">{{ n.title }}</span>
+                  <span class="note-list-date">{{ noteRelDate(n.updatedAt) }}</span>
+                </button>
+              </div>
+            </div>
           </div>
 
           <div class="hint-card">
@@ -761,6 +847,118 @@ h1 {
   line-height: 1.5;
   color: var(--accent);
   margin: 0;
+}
+.note-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+.note-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.note-card-label {
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.note-saved {
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+.note-anchor {
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.note-title-input,
+.note-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12.5px;
+  color: var(--ink);
+  font-family: inherit;
+}
+.note-title-input {
+  margin-bottom: 6px;
+}
+.note-input {
+  min-height: 68px;
+  line-height: 1.5;
+  resize: vertical;
+}
+.note-title-input:focus,
+.note-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.note-save {
+  width: 100%;
+  margin-top: 8px;
+  background: var(--accent);
+  color: var(--on-accent);
+  border: none;
+  border-radius: 6px;
+  padding: 7px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.note-save:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.note-list {
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.note-list-label {
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.note-list-scroll {
+  max-height: 132px;
+  overflow-y: auto;
+}
+.note-list-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 4px;
+  text-align: left;
+  cursor: pointer;
+  color: var(--ink);
+}
+.note-list-title {
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.note-list-date {
+  font-size: 11px;
+  color: var(--muted);
+  flex-shrink: 0;
 }
 .hint-card {
   background: var(--card);

@@ -61,6 +61,10 @@ export const useReader = defineStore('reader', {
     bookName(): string {
       return this.currentBook?.name ?? this.book ?? ''
     },
+    currentRef(): string {
+      if (!this.book) return ''
+      return `${this.bookName} ${this.chapter}${this.selectedVerse ? ':' + this.selectedVerse : ''} · ${this.moduleName}`
+    },
     highlightColor(state) {
       return (verse: number): string | null => {
         if (!state.moduleName || !state.book) return null

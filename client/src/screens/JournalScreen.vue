@@ -38,7 +38,7 @@ function removeTag(t: string) {
 }
 function linkPassage() {
   if (!notes.current || !reader.book) return
-  const ref = `${reader.bookName} ${reader.chapter}${reader.selectedVerse ? ':' + reader.selectedVerse : ''} · ${reader.moduleName}`
+  const ref = reader.currentRef
   if (!notes.current.refs.includes(ref)) notes.save({ refs: [...notes.current.refs, ref] })
 }
 function removeRef(r: string) {
