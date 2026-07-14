@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useReader } from '../stores/reader'
 import { useUi } from '../stores/ui'
 import { api, ApiError, type CompareRow, type StrongsPayload } from '../services/api'
@@ -12,6 +12,11 @@ const focus = ref<number>(1)
 const rows = ref<CompareRow[]>([])
 const comparing = ref(false)
 const compareError = ref<string | null>(null)
+
+// Guards a chapter roll-over from re-triggering the compare watch mid-step, and drops
+// out-of-order compare responses when the user steps quickly.
+let advancing = false
+let compareSeq = 0
 
 const strongsKey = ref<string | null>(null)
 const strongs = ref<StrongsPayload | null>(null)
@@ -26,14 +31,20 @@ function segLead(text: string, i: number): string {
 }
 
 onMounted(async () => {
+  window.addEventListener('keydown', onKey)
   if (!reader.ready) await reader.init()
   focus.value = reader.selectedVerse ?? 1
   await loadCompare()
 })
 
+onUnmounted(() => window.removeEventListener('keydown', onKey))
+
 watch(
   () => [reader.moduleName, reader.book, reader.chapter],
-  () => loadCompare()
+  () => {
+    if (advancing) return
+    loadCompare()
+  }
 )
 
 // Primary/accented compare row follows the reading translation: order reader.moduleName
@@ -45,21 +56,34 @@ const compareNames = computed(() => {
   return [primary, ...names.filter((n) => n !== primary)]
 })
 
+// Verse-stepping bounds. Prev/next roll over between chapters within the current book and
+// stop (disable) at the book's first chapter / verse 1 and last chapter / last verse.
+const verseNums = computed(() => (reader.data?.verses ?? []).map((v) => v.n))
+const focusIdx = computed(() => verseNums.value.indexOf(focus.value))
+const chapterCount = computed(() => reader.currentBook?.chapters ?? 1)
+const atStart = computed(() => focusIdx.value <= 0 && reader.chapter <= 1)
+const atEnd = computed(
+  () => focusIdx.value === verseNums.value.length - 1 && reader.chapter >= chapterCount.value
+)
+
 async function loadCompare() {
   if (!reader.book || compareNames.value.length === 0) {
     rows.value = []
     return
   }
+  const seq = ++compareSeq
   comparing.value = true
   compareError.value = null
   try {
     const res = await api.compare(reader.book, reader.chapter, focus.value, compareNames.value)
+    if (seq !== compareSeq) return
     rows.value = res.translations
   } catch (e) {
+    if (seq !== compareSeq) return
     compareError.value = (e as Error).message
     rows.value = []
   } finally {
-    comparing.value = false
+    if (seq === compareSeq) comparing.value = false
   }
 }
 
@@ -67,6 +91,36 @@ async function setFocus(n: number) {
   focus.value = n
   reader.selectVerse(n)
   await loadCompare()
+}
+
+// Step the focused verse ±1, rolling into the adjacent chapter (within the book) at edges.
+async function stepVerse(delta: number) {
+  const nums = verseNums.value
+  const target = focusIdx.value + delta
+  if (target >= 0 && target < nums.length) {
+    await setFocus(nums[target])
+    return
+  }
+  const nextChapter = reader.chapter + delta
+  if (nextChapter < 1 || nextChapter > chapterCount.value) return
+  advancing = true
+  await reader.setChapter(nextChapter)
+  advancing = false
+  const newNums = verseNums.value
+  const landing = delta > 0 ? newNums[0] : newNums[newNums.length - 1]
+  if (landing != null) await setFocus(landing)
+}
+
+function onKey(e: KeyboardEvent) {
+  const el = document.activeElement
+  if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return
+  if (e.key === 'ArrowRight') {
+    e.preventDefault()
+    stepVerse(1)
+  } else if (e.key === 'ArrowLeft') {
+    e.preventDefault()
+    stepVerse(-1)
+  }
 }
 
 // Tapping a word both focuses its verse (so the comparison follows) and looks it up.
@@ -100,6 +154,22 @@ async function tapWord(keys: string[]) {
     <div class="left">
       <div class="topbar">
         <span class="ref">{{ reader.bookName }} {{ reader.chapter }}:{{ focus }}</span>
+        <div class="stepper">
+          <button
+            class="step hover-ink"
+            :disabled="atStart"
+            @click="stepVerse(-1)"
+            title="Previous verse"
+            aria-label="Previous verse"
+          >‹</button>
+          <button
+            class="step hover-ink"
+            :disabled="atEnd"
+            @click="stepVerse(1)"
+            title="Next verse"
+            aria-label="Next verse"
+          >›</button>
+        </div>
         <span class="sub">comparing {{ rows.length }} translation{{ rows.length === 1 ? '' : 's' }}</span>
         <div class="spacer"></div>
         <button class="back hover-ink" @click="ui.go('read')">← Back to reading</button>
@@ -208,6 +278,28 @@ async function tapWord(keys: string[]) {
 .ref {
   font-size: 14px;
   font-weight: 700;
+}
+.stepper {
+  display: flex;
+  gap: 4px;
+}
+.step {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--ink);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+.step:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 .sub {
   font-size: 12px;
