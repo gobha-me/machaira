@@ -269,9 +269,12 @@ export function readChapter(
 ): Promise<ReadChapterResult | null> {
   return withSword(() => {
     const raw = readChapterMarkupSync(module, book, chapter)
-    if (!raw || raw.length === 0) return null
+    // getChapterText over-reads single-chapter books (Jude, Philemon, …) into the next
+    // book's chapter 1. Keep only verses belonging to the requested book.
+    const inBook = raw.filter((v) => v.bibleBookShortTitle === book)
+    if (inBook.length === 0) return null
     return {
-      verses: raw.map((v) => {
+      verses: inBook.map((v) => {
         const parsed = parseVerseMarkup(v.content)
         return { n: v.verseNr, text: parsed.text, notes: parsed.notes, segments: parsed.segments }
       })
