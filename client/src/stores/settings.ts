@@ -22,6 +22,7 @@ interface SettingsState {
   showFootnotes: boolean
   showStrongs: boolean
   defaultModuleName: string | null
+  compareModuleNames: string[] | null
 }
 
 function load(): Partial<SettingsState> {
@@ -45,6 +46,7 @@ export const useSettings = defineStore('settings', {
     showFootnotes: true,
     showStrongs: false,
     defaultModuleName: null,
+    compareModuleNames: null,
     ...load()
   }),
   getters: {
@@ -71,6 +73,10 @@ export const useSettings = defineStore('settings', {
     },
     setDefaultModule(name: string | null) {
       this.defaultModuleName = name
+      this.persist()
+    },
+    setCompareModules(names: string[]) {
+      this.compareModuleNames = names
       this.persist()
     },
     bumpTextScale(delta: number) {

@@ -29,6 +29,20 @@ async function doExport() {
   }
 }
 
+function inCompare(name: string): boolean {
+  if (name === reader.effectiveDefaultModule) return true // default translation is always compared
+  const s = settings.compareModuleNames
+  return s === null ? true : s.includes(name) // null = all installed
+}
+
+function toggleCompare(name: string) {
+  const installed = reader.installedBibles.map((m) => m.name)
+  const current = settings.compareModuleNames ?? installed.slice() // materialize on first edit
+  settings.setCompareModules(
+    current.includes(name) ? current.filter((n) => n !== name) : [...current, name]
+  )
+}
+
 function download(filename: string, content: string, type: string) {
   const blob = new Blob([content], { type })
   const url = URL.createObjectURL(blob)
@@ -149,6 +163,40 @@ function download(filename: string, content: string, type: string) {
           </div>
           <div class="spacer"></div>
           <Toggle :model-value="settings.showStrongs" @update:model-value="settings.toggle('showStrongs')" />
+        </div>
+      </div>
+
+      <!-- Compare -->
+      <div class="section-label">Compare</div>
+      <div class="card">
+        <div class="row bordered">
+          <div class="row-text">
+            <div class="row-title">Translations to compare</div>
+            <div class="row-sub">
+              Which translations appear side-by-side in Compare. Your reading translation is
+              always included.
+            </div>
+          </div>
+        </div>
+        <div
+          v-for="(m, i) in reader.installedBibles"
+          :key="m.name"
+          class="row"
+          :class="{ bordered: i < reader.installedBibles.length - 1 }"
+        >
+          <div class="row-text">
+            <div class="row-title">
+              {{ m.name }}
+              <span v-if="m.name === reader.effectiveDefaultModule" class="badge">Primary</span>
+            </div>
+            <div class="row-sub">{{ m.description }}</div>
+          </div>
+          <div class="spacer"></div>
+          <Toggle
+            :model-value="inCompare(m.name)"
+            :disabled="m.name === reader.effectiveDefaultModule"
+            @update:model-value="toggleCompare(m.name)"
+          />
         </div>
       </div>
 
@@ -372,6 +420,19 @@ h1 {
   font-size: 12.5px;
   font-weight: 600;
   color: var(--ink);
+}
+.badge {
+  margin-left: 7px;
+  padding: 1px 7px;
+  border-radius: 6px;
+  background: var(--soft);
+  border: 1px solid var(--line);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  vertical-align: middle;
 }
 .setting-select {
   background: var(--card);

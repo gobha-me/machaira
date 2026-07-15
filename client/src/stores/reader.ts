@@ -57,6 +57,17 @@ export const useReader = defineStore('reader', {
         description: m.description
       }))
     },
+    // The effective default translation: the configured default if installed, else WEB, else
+    // the first installed bible. Mirrors the fresh-start pick in init() and anchors compare.
+    effectiveDefaultModule(): string | null {
+      const bibles = this.installedBibles
+      const settings = useSettings()
+      const preferred =
+        (settings.defaultModuleName && bibles.find((m) => m.name === settings.defaultModuleName)) ||
+        bibles.find((m) => m.name.toUpperCase() === 'WEB') ||
+        bibles[0]
+      return preferred?.name ?? null
+    },
     currentBook(state): BookEntry | undefined {
       return state.books.find((b) => b.code === state.book)
     },
@@ -111,13 +122,8 @@ export const useReader = defineStore('reader', {
         this.chapter = saved.chapter
         await this.setModule(saved.moduleName)
       } else {
-        const settings = useSettings()
-        const preferred =
-          (settings.defaultModuleName &&
-            bibles.find((m) => m.name === settings.defaultModuleName)) ||
-          bibles.find((m) => m.name.toUpperCase() === 'WEB') ||
-          bibles[0]
-        await this.setModule(preferred.name)
+        const preferred = this.effectiveDefaultModule
+        if (preferred) await this.setModule(preferred)
       }
       this.ready = true
     },

@@ -1,6 +1,7 @@
 import { computed, onMounted, onUnmounted, ref, watch, type Ref } from 'vue'
 import { api, type CompareRow } from '../services/api'
 import { useReader } from '../stores/reader'
+import { useSettings } from '../stores/settings'
 
 interface UseCompareOptions {
   // When false, loadCompare is a no-op so a pane can host compare lazily (Read opens it on
@@ -14,6 +15,7 @@ interface UseCompareOptions {
 // capability without a third copy. Reader-coupled: follows reader.moduleName/book/chapter.
 export function useCompare(opts: UseCompareOptions = {}) {
   const reader = useReader()
+  const settings = useSettings()
   const active = opts.active ?? ref(true)
 
   const focus = ref<number>(1)
@@ -26,13 +28,20 @@ export function useCompare(opts: UseCompareOptions = {}) {
   let advancing = false
   let compareSeq = 0
 
-  // Primary/accented compare row follows the reading translation: order reader.moduleName
-  // first, then the remaining installed bibles keep their featured order.
+  // Which translations participate in compare: the configured subset (settings.compareModuleNames)
+  // intersected with what's installed, or all installed when unconfigured (null). The default
+  // translation is always available (it's locked in Settings); the reading translation is pinned
+  // first and accented (#15), even if neither is in the configured set.
   const compareNames = computed(() => {
-    const names = reader.installedBibles.map((m) => m.name)
+    const installed = reader.installedBibles.map((m) => m.name)
+    const configured = settings.compareModuleNames
+    const base = configured === null ? installed : installed.filter((n) => configured.includes(n))
+    const anchor = reader.effectiveDefaultModule
+    const withAnchor =
+      anchor && installed.includes(anchor) && !base.includes(anchor) ? [...base, anchor] : base
     const primary = reader.moduleName
-    if (!primary || !names.includes(primary)) return names
-    return [primary, ...names.filter((n) => n !== primary)]
+    if (!primary || !installed.includes(primary)) return withAnchor
+    return [primary, ...withAnchor.filter((n) => n !== primary)]
   })
 
   // Verse-stepping bounds. Prev/next roll over between chapters within the current book and
