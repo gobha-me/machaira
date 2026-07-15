@@ -11,6 +11,7 @@ interface ReaderState {
   chapter: number
   data: ChapterPayload | null
   selectedVerse: number | null
+  rangeEnd: number | null
   highlights: Record<string, string>
   loadingChapter: boolean
   error: string | null
@@ -43,6 +44,7 @@ export const useReader = defineStore('reader', {
     chapter: 1,
     data: null,
     selectedVerse: null,
+    rangeEnd: null,
     highlights: {},
     loadingChapter: false,
     error: null,
@@ -63,7 +65,26 @@ export const useReader = defineStore('reader', {
     },
     currentRef(): string {
       if (!this.book) return ''
-      return `${this.bookName} ${this.chapter}${this.selectedVerse ? ':' + this.selectedVerse : ''} · ${this.moduleName}`
+      const base = `${this.bookName} ${this.chapter}`
+      if (this.selectedVerse == null) return `${base} · ${this.moduleName}`
+      const end = this.rangeEnd ?? this.selectedVerse
+      const lo = Math.min(this.selectedVerse, end)
+      const hi = Math.max(this.selectedVerse, end)
+      const versePart = lo === hi ? `${lo}` : `${lo}–${hi}`
+      return `${base}:${versePart} · ${this.moduleName}`
+    },
+    // Verse numbers covered by the current selection: the range [anchor..rangeEnd]
+    // intersected with the chapter's actual verses. Empty when nothing is selected.
+    selectedVerses(state): number[] {
+      if (state.selectedVerse == null) return []
+      const end = state.rangeEnd ?? state.selectedVerse
+      const lo = Math.min(state.selectedVerse, end)
+      const hi = Math.max(state.selectedVerse, end)
+      const inRange = (state.data?.verses ?? []).map((v) => v.n).filter((n) => n >= lo && n <= hi)
+      return inRange.length ? inRange : [state.selectedVerse]
+    },
+    hasRange(state): boolean {
+      return state.rangeEnd != null && state.rangeEnd !== state.selectedVerse
     },
     highlightColor(state) {
       return (verse: number): string | null => {
@@ -143,7 +164,10 @@ export const useReader = defineStore('reader', {
       this.book = book
       this.chapter = chapter
       await this.loadChapter()
-      if (verse != null) this.selectedVerse = verse
+      if (verse != null) {
+        this.selectedVerse = verse
+        this.rangeEnd = verse
+      }
     },
     async setChapter(n: number): Promise<void> {
       this.chapter = n
@@ -156,6 +180,7 @@ export const useReader = defineStore('reader', {
       try {
         this.data = await api.chapter(this.moduleName, this.book, this.chapter)
         this.selectedVerse = null
+        this.rangeEnd = null
         this.persistPos()
       } catch (e) {
         this.data = null
@@ -171,20 +196,47 @@ export const useReader = defineStore('reader', {
         JSON.stringify({ moduleName: this.moduleName, book: this.book, chapter: this.chapter })
       )
     },
+    // Plain click: single-verse select, toggling off only when re-clicking a lone verse.
+    // Clicking within an existing range collapses back to a single anchor.
     selectVerse(n: number): void {
-      this.selectedVerse = this.selectedVerse === n ? null : n
-    },
-    async toggleHighlight(verse: number): Promise<void> {
-      if (!this.moduleName || !this.book) return
-      const key = `${this.moduleName}/${this.book}/${this.chapter}/${verse}`
-      if (this.highlights[key]) {
-        const { [key]: _drop, ...rest } = this.highlights
-        this.highlights = rest
-        await highlightsDb.remove(key)
-      } else {
-        this.highlights = { ...this.highlights, [key]: HL_COLOR }
-        await highlightsDb.set(key, HL_COLOR)
+      if (this.selectedVerse === n && !this.hasRange) {
+        this.selectedVerse = null
+        this.rangeEnd = null
+        return
       }
+      this.selectedVerse = n
+      this.rangeEnd = n
+    },
+    // Shift-click: extend the selection to [anchor..n], keeping the anchor as the primary
+    // verse that compare / word study stay scoped to.
+    extendSelection(n: number): void {
+      if (this.selectedVerse == null) {
+        this.selectedVerse = n
+      }
+      this.rangeEnd = n
+    },
+    clearSelection(): void {
+      this.selectedVerse = null
+      this.rangeEnd = null
+    },
+    // Toggle a whole passage: if every verse is already highlighted, clear them all;
+    // otherwise highlight the lot.
+    async toggleHighlightRange(verses: number[]): Promise<void> {
+      if (!this.moduleName || !this.book || verses.length === 0) return
+      const keyFor = (v: number) => `${this.moduleName}/${this.book}/${this.chapter}/${v}`
+      const allOn = verses.every((v) => this.highlights[keyFor(v)])
+      const next = { ...this.highlights }
+      for (const v of verses) {
+        const key = keyFor(v)
+        if (allOn) {
+          delete next[key]
+          await highlightsDb.remove(key)
+        } else {
+          next[key] = HL_COLOR
+          await highlightsDb.set(key, HL_COLOR)
+        }
+      }
+      this.highlights = next
     }
   }
 })

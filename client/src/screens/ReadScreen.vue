@@ -1,19 +1,24 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useReader } from '../stores/reader'
 import { useUi } from '../stores/ui'
 import { useSettings } from '../stores/settings'
 import { useReadingPlan } from '../stores/readingPlan'
-import { useNotes } from '../stores/notes'
+import { useNotes as useNotesStore } from '../stores/notes'
 import { PLAN_DAYS } from '../services/plan'
-import { api, ApiError, type BookEntry, type StrongsPayload } from '../services/api'
+import { type BookEntry } from '../services/api'
+import { useCompare } from '../composables/useCompare'
+import { useWordStudy } from '../composables/useWordStudy'
+import { useNotes } from '../composables/useNotes'
+import { segLead } from '../utils/text'
+import PassageActions from '../components/PassageActions.vue'
 import StrongsCard from '../components/StrongsCard.vue'
 
 const reader = useReader()
 const ui = useUi()
 const settings = useSettings()
 const plan = useReadingPlan()
-const notes = useNotes()
+const notesStore = useNotesStore()
 
 function openTodayReading() {
   const first = plan.firstUnreadToday
@@ -28,7 +33,7 @@ const versesStyle = computed(() => ({
 
 function verseOpacity(n: number): number {
   if (!settings.lineFocus || reader.selectedVerse == null) return 1
-  return reader.selectedVerse === n ? 1 : 0.4
+  return reader.selectedVerses.includes(n) ? 1 : 0.4
 }
 
 const transOpen = ref(false)
@@ -37,7 +42,7 @@ const draftBook = ref<string | null>(null)
 
 onMounted(() => {
   reader.init()
-  notes.load()
+  notesStore.load()
 })
 
 const sectionLabels: Record<BookEntry['section'], string> = {
@@ -149,7 +154,7 @@ function verseBg(n: number): string {
   const hl = reader.highlightColor(n)
   if (spokenVerse.value === n) return 'color-mix(in oklab, var(--accent) 18%, transparent)'
   if (hl) return hl
-  if (reader.selectedVerse === n) return 'color-mix(in oklab, var(--accent) 12%, transparent)'
+  if (reader.selectedVerses.includes(n)) return 'color-mix(in oklab, var(--accent) 12%, transparent)'
   return 'transparent'
 }
 
@@ -159,14 +164,6 @@ const progressPct = computed(() => {
   const idx = verses.findIndex((v) => v.n === spokenVerse.value)
   return verses.length ? Math.round(((idx + 1) / verses.length) * 100) : 0
 })
-
-// Re-space text around inline note markers: a marker attaches to the preceding word, and
-// the next text segment gets a leading space — unless it opens with closing punctuation
-// (e.g. a trailing quote), which should hug the marker with no gap.
-const CLOSE_PUNCT = /^[\s,.;:!?)\]}”’»…]/
-function segLead(text: string, i: number): string {
-  return i > 0 && !CLOSE_PUNCT.test(text) ? ' ' : ''
-}
 
 // Footnotes pulled out of each verse, collected under the chapter (keyed by verse+label).
 const chapterNotes = computed(() => {
@@ -179,79 +176,141 @@ const chapterNotes = computed(() => {
 })
 
 // ── Strong's word study: tap a tagged word → lexicon entry in the rail ──
-const strongsKey = ref<string | null>(null)
-const strongsEntry = ref<StrongsPayload | null>(null)
-const strongsError = ref<string | null>(null)
-const strongsLoading = ref(false)
+// The menu's "Word study" button opens this in place; wordStudyOn reveals the tappable
+// words for the current chapter even when the global Strong's-display setting is off.
+const wordStudyOn = ref(false)
+const {
+  strongsKey,
+  entry: strongsEntry,
+  error: strongsError,
+  loading: strongsLoading,
+  tapWord,
+  clear: clearWordStudy
+} = useWordStudy()
 
-async function tapWord(keys: string[]) {
-  const key = keys[0]
-  if (!key) return
-  strongsKey.value = key
-  strongsLoading.value = true
-  strongsError.value = null
-  strongsEntry.value = null
-  try {
-    strongsEntry.value = await api.strongs(key)
-  } catch (e) {
-    strongsEntry.value = null
-    strongsError.value =
-      e instanceof ApiError && e.status === 409 ? e.message : `No entry for ${key}.`
-  } finally {
-    strongsLoading.value = false
-  }
+const wordsTappable = computed(() => settings.showStrongs || wordStudyOn.value)
+const chapterHasStrongs = computed(
+  () => !!reader.data?.verses.some((v) => v.segments?.some((s) => s.kind === 'word'))
+)
+
+function openWordStudy() {
+  wordStudyOn.value = true
 }
 
-function clearStrongs() {
-  strongsKey.value = null
-  strongsEntry.value = null
-  strongsError.value = null
+function closeWordStudy() {
+  clearWordStudy()
+  wordStudyOn.value = false
 }
 
-// ── Notes: quick-capture in the rail, anchored to the current passage ──
-const noteTitle = ref('')
-const noteBody = ref('')
-const noteBodyEl = ref<HTMLTextAreaElement | null>(null)
-const noteSaved = ref(false)
-let savedTimer: ReturnType<typeof setTimeout> | undefined
+// ── Compare: same capability as Study, surfaced as a rail card scoped to the selected verse ──
+const compareOpen = ref(false)
+const {
+  focus: compareFocus,
+  rows: compareRows,
+  comparing,
+  compareError,
+  loadCompare
+} = useCompare({ active: compareOpen })
 
-const passageNotes = computed(() => {
-  // Anchored to the selected verse when one is chosen; otherwise the whole chapter.
-  if (reader.selectedVerse) {
-    const verse = `${reader.bookName} ${reader.chapter}:${reader.selectedVerse}`
-    return notes.list.filter((n) => n.refs.some((r) => r.split(' · ')[0].trim() === verse))
+function openCompare() {
+  compareOpen.value = true
+  compareFocus.value = reader.selectedVerse ?? 1
+  loadCompare()
+}
+
+function closeCompare() {
+  compareOpen.value = false
+}
+
+// Keep the open compare card in step with the selected verse.
+watch(
+  () => reader.selectedVerse,
+  (v) => {
+    if (compareOpen.value && v != null) {
+      compareFocus.value = v
+      loadCompare()
+    }
   }
-  const chapter = `${reader.bookName} ${reader.chapter}`
-  return notes.list.filter((n) => n.refs.some((r) => r.split(' · ')[0].split(':')[0].trim() === chapter))
+)
+
+// ── Notes: shared quick-capture capability, anchored to the current passage ──
+const {
+  title: noteTitle,
+  body: noteBody,
+  bodyEl: noteBodyEl,
+  saved: noteSaved,
+  passageNotes,
+  save: saveNote,
+  openNote,
+  focusComposer: focusNoteComposer,
+  relDate: noteRelDate
+} = useNotes()
+
+// ── Passage action menu: floating keystone entry (shared PassageActions component) ──
+const menuPos = ref({ x: 0, y: 0 })
+const menuDismissed = ref(false)
+const menuOpen = computed(() => reader.selectedVerse != null && !menuDismissed.value)
+
+const selectionLabel = computed(() => {
+  if (reader.selectedVerse == null) return ''
+  const vs = reader.selectedVerses
+  const lo = vs[0]
+  const hi = vs[vs.length - 1]
+  return `${reader.bookName} ${reader.chapter}:${lo === hi ? lo : `${lo}–${hi}`}`
 })
 
-async function saveNote() {
-  const body = noteBody.value.trim()
-  if (!body) return
-  await notes.create({
-    title: noteTitle.value.trim() || reader.currentRef,
-    body,
-    refs: [reader.currentRef]
-  })
-  noteTitle.value = ''
-  noteBody.value = ''
-  noteSaved.value = true
-  clearTimeout(savedTimer)
-  savedTimer = setTimeout(() => (noteSaved.value = false), 1800)
+const selectionHighlighted = computed(
+  () =>
+    reader.selectedVerses.length > 0 && reader.selectedVerses.every((n) => reader.highlightColor(n))
+)
+
+// Left click: quick-highlight this verse — the immersive surface's primary gesture. Any
+// open action menu is dismissed.
+function onVerseClick(v: { n: number }) {
+  reader.toggleHighlightRange([v.n])
+  if (reader.selectedVerse != null) {
+    reader.clearSelection()
+    menuDismissed.value = true
+  }
 }
 
-function openNote(id: string) {
-  notes.select(id)
-  ui.go('journal')
+// Right click: open the passage action menu at the pointer. Shift extends the selection so
+// Highlight/Note act on the whole passage.
+function onVerseContext(v: { n: number }, e: MouseEvent) {
+  e.preventDefault()
+  if (e.shiftKey && reader.selectedVerse != null) reader.extendSelection(v.n)
+  else if (reader.selectedVerse !== v.n || reader.hasRange) reader.selectVerse(v.n)
+  menuPos.value = { x: e.clientX, y: e.clientY }
+  menuDismissed.value = false
 }
 
-function focusNoteComposer() {
-  noteBodyEl.value?.focus()
+function menuWordStudy() {
+  openWordStudy()
+  menuDismissed.value = true
+}
+function menuCompare() {
+  openCompare()
+  menuDismissed.value = true
+}
+function menuHighlight() {
+  reader.toggleHighlightRange(reader.selectedVerses)
+  menuDismissed.value = true
+}
+function menuNote() {
+  focusNoteComposer()
+  menuDismissed.value = true
 }
 
-function noteRelDate(ts: number): string {
-  return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+function onSelectionKey(e: KeyboardEvent) {
+  const el = document.activeElement
+  if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return
+  if (e.key === 'Escape' && reader.selectedVerse != null) {
+    reader.clearSelection()
+    menuDismissed.value = true
+  }
 }
+onMounted(() => window.addEventListener('keydown', onSelectionKey))
+onUnmounted(() => window.removeEventListener('keydown', onSelectionKey))
 </script>
 
 <template>
@@ -353,11 +412,12 @@ function noteRelDate(ts: number): string {
                 :key="v.n"
                 class="verse"
                 :style="{ background: verseBg(v.n), opacity: verseOpacity(v.n) }"
-                @click="reader.selectVerse(v.n)"
+                @click="onVerseClick(v)"
+                @contextmenu="onVerseContext(v, $event)"
               ><sup class="vnum">{{ v.n }}</sup><template
-                  v-if="(settings.showFootnotes && v.notes.length) || settings.showStrongs"
+                  v-if="(settings.showFootnotes && v.notes.length) || wordsTappable"
                 ><template v-for="(seg, i) in v.segments" :key="i"><template
-                    v-if="seg.kind === 'word' && settings.showStrongs"
+                    v-if="seg.kind === 'word' && wordsTappable"
                   >{{ segLead(seg.text, i) }}<span
                       class="wtap"
                       @click.stop="tapWord(seg.strongs)"
@@ -380,31 +440,44 @@ function noteRelDate(ts: number): string {
               </div>
             </div>
 
-            <div v-if="reader.selectedVerse" class="actionbar">
-              <span class="ref">{{ reader.bookName }} {{ reader.chapter }}:{{ reader.selectedVerse }}</span>
-              <button class="act hover-soft" @click="ui.go('study')">Word study</button>
-              <button class="act hover-soft" @click="ui.go('study')">Compare</button>
-              <button class="act hover-soft" @click="ui.go('search')">Cross-references</button>
-              <button class="act hover-soft" @click="reader.toggleHighlight(reader.selectedVerse)">
-                {{ reader.highlightColor(reader.selectedVerse) ? 'Unhighlight' : 'Highlight' }}
-              </button>
-              <button class="act hover-soft" @click="focusNoteComposer">Note</button>
-            </div>
           </template>
         </div>
 
         <aside class="rail-side">
           <div
-            v-if="settings.showStrongs && (strongsEntry || strongsLoading || strongsError)"
+            v-if="compareOpen"
+            class="word-card"
+          >
+            <div class="word-card-head">
+              <span class="word-card-label">Compare · {{ reader.bookName }} {{ reader.chapter }}:{{ compareFocus }}</span>
+              <button class="word-card-close hover-ink" @click="closeCompare">✕</button>
+            </div>
+            <div v-if="comparing" class="word-card-state">Comparing…</div>
+            <p v-else-if="compareError" class="word-card-error">{{ compareError }}</p>
+            <div v-else-if="compareRows.length" class="compare-rows">
+              <div v-for="(r, i) in compareRows" :key="r.module" class="compare-row">
+                <span class="compare-tag" :style="{ color: i === 0 ? 'var(--accent)' : 'var(--muted)' }">{{ r.module }}</span>
+                <span class="compare-text serif">{{ r.text ?? '—' }}</span>
+              </div>
+            </div>
+            <p v-else class="word-card-state">Install more than one translation in the Library to compare renderings.</p>
+          </div>
+
+          <div
+            v-if="wordStudyOn || (settings.showStrongs && (strongsEntry || strongsLoading || strongsError))"
             class="word-card"
           >
             <div class="word-card-head">
               <span class="word-card-label">Word study<template v-if="strongsKey"> · {{ strongsKey }}</template></span>
-              <button class="word-card-close hover-ink" @click="clearStrongs">✕</button>
+              <button class="word-card-close hover-ink" @click="closeWordStudy">✕</button>
             </div>
             <div v-if="strongsLoading" class="word-card-state">Looking up…</div>
             <p v-else-if="strongsError" class="word-card-error">{{ strongsError }}</p>
             <StrongsCard v-else-if="strongsEntry" :entry="strongsEntry" />
+            <p v-else-if="!chapterHasStrongs" class="word-card-state">
+              This translation isn’t Strong’s-tagged. Switch to a tagged translation (e.g. KJVA) to study words.
+            </p>
+            <p v-else class="word-card-state">Tap a highlighted word in the passage to open its Greek or Hebrew entry.</p>
           </div>
 
           <div class="note-card">
@@ -472,6 +545,18 @@ function noteRelDate(ts: number): string {
         </aside>
       </div>
     </div>
+
+    <PassageActions
+      v-if="menuOpen"
+      :ref-label="selectionLabel"
+      :highlighted="selectionHighlighted"
+      :pos="menuPos"
+      @word-study="menuWordStudy"
+      @compare="menuCompare"
+      @cross-refs="ui.go('search')"
+      @highlight="menuHighlight"
+      @note="menuNote"
+    />
 
     <!-- listen bar -->
     <div v-if="listening" class="listenbar">
@@ -776,33 +861,6 @@ h1 {
 .note-text {
   color: var(--muted);
 }
-.actionbar {
-  margin-top: 30px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 10px 14px;
-  flex-wrap: wrap;
-}
-.ref {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--accent);
-  margin-right: 4px;
-}
-.act {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--ink);
-  padding: 6px 8px;
-  border-radius: 6px;
-}
 .rail-side {
   width: clamp(170px, 18vw, 225px);
   flex-shrink: 0;
@@ -847,6 +905,26 @@ h1 {
   line-height: 1.5;
   color: var(--accent);
   margin: 0;
+}
+.compare-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.compare-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.compare-tag {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.compare-text {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink);
 }
 .note-card {
   background: var(--card);

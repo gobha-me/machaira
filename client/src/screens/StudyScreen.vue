@@ -1,127 +1,50 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useReader } from '../stores/reader'
 import { useUi } from '../stores/ui'
-import { api, ApiError, type CompareRow, type StrongsPayload } from '../services/api'
+import { useNotes as useNotesStore } from '../stores/notes'
+import { useCompare } from '../composables/useCompare'
+import { useWordStudy } from '../composables/useWordStudy'
+import { useNotes } from '../composables/useNotes'
+import { segLead } from '../utils/text'
+import PassageActions from '../components/PassageActions.vue'
 import StrongsCard from '../components/StrongsCard.vue'
 
 const reader = useReader()
 const ui = useUi()
+const notesStore = useNotesStore()
 
-const focus = ref<number>(1)
-const rows = ref<CompareRow[]>([])
-const comparing = ref(false)
-const compareError = ref<string | null>(null)
+const { focus, rows, comparing, compareError, atStart, atEnd, loadCompare, setFocus, stepVerse } =
+  useCompare({ keyboard: true })
 
-// Guards a chapter roll-over from re-triggering the compare watch mid-step, and drops
-// out-of-order compare responses when the user steps quickly.
-let advancing = false
-let compareSeq = 0
+const {
+  strongsKey,
+  entry: strongs,
+  error: strongsError,
+  loading: strongsLoading,
+  tapWord
+} = useWordStudy()
 
-const strongsKey = ref<string | null>(null)
-const strongs = ref<StrongsPayload | null>(null)
-const strongsError = ref<string | null>(null)
-const strongsLoading = ref(false)
+const {
+  title: noteTitle,
+  body: noteBody,
+  bodyEl: noteBodyEl,
+  saved: noteSaved,
+  passageNotes,
+  save: saveNote,
+  openNote,
+  focusComposer,
+  relDate: noteRelDate
+} = useNotes()
 
-// A marker attaches to the preceding word; the next text segment gets a leading space
-// unless it opens with closing punctuation (mirrors ReadScreen's inline spacing).
-const CLOSE_PUNCT = /^[\s,.;:!?)\]}”’»…]/
-function segLead(text: string, i: number): string {
-  return i > 0 && !CLOSE_PUNCT.test(text) ? ' ' : ''
-}
+const strongsBoxEl = ref<HTMLElement | null>(null)
 
 onMounted(async () => {
-  window.addEventListener('keydown', onKey)
+  notesStore.load()
   if (!reader.ready) await reader.init()
   focus.value = reader.selectedVerse ?? 1
   await loadCompare()
 })
-
-onUnmounted(() => window.removeEventListener('keydown', onKey))
-
-watch(
-  () => [reader.moduleName, reader.book, reader.chapter],
-  () => {
-    if (advancing) return
-    loadCompare()
-  }
-)
-
-// Primary/accented compare row follows the reading translation: order reader.moduleName
-// first, then the remaining installed bibles keep their featured order.
-const compareNames = computed(() => {
-  const names = reader.installedBibles.map((m) => m.name)
-  const primary = reader.moduleName
-  if (!primary || !names.includes(primary)) return names
-  return [primary, ...names.filter((n) => n !== primary)]
-})
-
-// Verse-stepping bounds. Prev/next roll over between chapters within the current book and
-// stop (disable) at the book's first chapter / verse 1 and last chapter / last verse.
-const verseNums = computed(() => (reader.data?.verses ?? []).map((v) => v.n))
-const focusIdx = computed(() => verseNums.value.indexOf(focus.value))
-const chapterCount = computed(() => reader.currentBook?.chapters ?? 1)
-const atStart = computed(() => focusIdx.value <= 0 && reader.chapter <= 1)
-const atEnd = computed(
-  () => focusIdx.value === verseNums.value.length - 1 && reader.chapter >= chapterCount.value
-)
-
-async function loadCompare() {
-  if (!reader.book || compareNames.value.length === 0) {
-    rows.value = []
-    return
-  }
-  const seq = ++compareSeq
-  comparing.value = true
-  compareError.value = null
-  try {
-    const res = await api.compare(reader.book, reader.chapter, focus.value, compareNames.value)
-    if (seq !== compareSeq) return
-    rows.value = res.translations
-  } catch (e) {
-    if (seq !== compareSeq) return
-    compareError.value = (e as Error).message
-    rows.value = []
-  } finally {
-    if (seq === compareSeq) comparing.value = false
-  }
-}
-
-async function setFocus(n: number) {
-  focus.value = n
-  reader.selectVerse(n)
-  await loadCompare()
-}
-
-// Step the focused verse ±1, rolling into the adjacent chapter (within the book) at edges.
-async function stepVerse(delta: number) {
-  const nums = verseNums.value
-  const target = focusIdx.value + delta
-  if (target >= 0 && target < nums.length) {
-    await setFocus(nums[target])
-    return
-  }
-  const nextChapter = reader.chapter + delta
-  if (nextChapter < 1 || nextChapter > chapterCount.value) return
-  advancing = true
-  await reader.setChapter(nextChapter)
-  advancing = false
-  const newNums = verseNums.value
-  const landing = delta > 0 ? newNums[0] : newNums[newNums.length - 1]
-  if (landing != null) await setFocus(landing)
-}
-
-function onKey(e: KeyboardEvent) {
-  const el = document.activeElement
-  if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return
-  if (e.key === 'ArrowRight') {
-    e.preventDefault()
-    stepVerse(1)
-  } else if (e.key === 'ArrowLeft') {
-    e.preventDefault()
-    stepVerse(-1)
-  }
-}
 
 // Tapping a word both focuses its verse (so the comparison follows) and looks it up.
 async function studyWord(n: number, keys: string[]) {
@@ -129,23 +52,75 @@ async function studyWord(n: number, keys: string[]) {
   await tapWord(keys)
 }
 
-async function tapWord(keys: string[]) {
-  const key = keys[0]
-  if (!key) return
-  strongsKey.value = key
-  strongsLoading.value = true
-  strongsError.value = null
-  strongs.value = null
-  try {
-    strongs.value = await api.strongs(key)
-  } catch (e) {
-    strongs.value = null
-    strongsError.value =
-      e instanceof ApiError && e.status === 409 ? e.message : `No entry for ${key}.`
-  } finally {
-    strongsLoading.value = false
+// ── Passage action menu: shared PassageActions component, same keystone as Read ──
+const menuPos = ref({ x: 0, y: 0 })
+const menuDismissed = ref(false)
+const menuOpen = computed(() => reader.selectedVerse != null && !menuDismissed.value)
+
+const selectionLabel = computed(() => {
+  if (reader.selectedVerse == null) return ''
+  const vs = reader.selectedVerses
+  const lo = vs[0]
+  const hi = vs[vs.length - 1]
+  return `${reader.bookName} ${reader.chapter}:${lo === hi ? lo : `${lo}–${hi}`}`
+})
+
+const selectionHighlighted = computed(
+  () =>
+    reader.selectedVerses.length > 0 && reader.selectedVerses.every((n) => reader.highlightColor(n))
+)
+
+function cverseBg(n: number): string {
+  const hl = reader.highlightColor(n)
+  if (hl) return hl
+  if (reader.selectedVerses.includes(n) || n === focus.value)
+    return 'color-mix(in oklab, var(--accent) 12%, transparent)'
+  return 'transparent'
+}
+
+// Left click: set the compare focus — Study's core deep-dive gesture. Dismiss any menu.
+function onContextClick(v: { n: number }) {
+  setFocus(v.n)
+  menuDismissed.value = true
+}
+
+// Right click: open the passage action menu at the pointer. Shift extends the range so
+// Highlight/Note act on the whole passage, without moving the compare focus.
+function onContextMenu(v: { n: number }, e: MouseEvent) {
+  e.preventDefault()
+  if (e.shiftKey && reader.selectedVerse != null) reader.extendSelection(v.n)
+  else if (reader.selectedVerse !== v.n || reader.hasRange) reader.selectVerse(v.n)
+  menuPos.value = { x: e.clientX, y: e.clientY }
+  menuDismissed.value = false
+}
+
+function menuWordStudy() {
+  strongsBoxEl.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  menuDismissed.value = true
+}
+function menuCompare() {
+  if (reader.selectedVerse != null) setFocus(reader.selectedVerse)
+  menuDismissed.value = true
+}
+function menuHighlight() {
+  reader.toggleHighlightRange(reader.selectedVerses)
+  menuDismissed.value = true
+}
+function menuNote() {
+  focusComposer()
+  menuDismissed.value = true
+}
+
+function onSelectionKey(e: KeyboardEvent) {
+  const el = document.activeElement
+  if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return
+  if (e.key === 'Escape' && reader.selectedVerse != null) {
+    reader.clearSelection()
+    menuDismissed.value = true
   }
 }
+onMounted(() => window.addEventListener('keydown', onSelectionKey))
+onUnmounted(() => window.removeEventListener('keydown', onSelectionKey))
 </script>
 
 <template>
@@ -193,7 +168,7 @@ async function tapWord(keys: string[]) {
         <div class="section-label">
           Word study · Strong’s lexicon<template v-if="strongsKey"> · {{ strongsKey }}</template>
         </div>
-        <div class="strongs-box">
+        <div ref="strongsBoxEl" class="strongs-box">
           <p v-if="strongsError" class="strongs-error">{{ strongsError }}</p>
           <div v-else-if="strongsLoading" class="loading">Looking up…</div>
           <StrongsCard v-else-if="strongs" :entry="strongs" class="strongs-result" />
@@ -210,8 +185,9 @@ async function tapWord(keys: string[]) {
             v-for="v in reader.data.verses"
             :key="v.n"
             class="cverse"
-            :style="{ background: v.n === focus ? 'color-mix(in oklab, var(--accent) 12%, transparent)' : 'transparent' }"
-            @click="setFocus(v.n)"
+            :style="{ background: cverseBg(v.n) }"
+            @click="onContextClick(v)"
+            @contextmenu="onContextMenu(v, $event)"
           ><sup class="cvnum">{{ v.n }}</sup><template
               v-for="(seg, i) in v.segments"
               :key="i"
@@ -223,6 +199,41 @@ async function tapWord(keys: string[]) {
               v-else-if="seg.kind === 'note'"
             ></template><template v-else
             >{{ segLead(seg.text, i) + seg.text }}</template></template>{{ ' ' }}</span>
+        </div>
+
+        <!-- Notes: shared capability, anchored to the focused passage -->
+        <div class="section-label">
+          Notes<template v-if="reader.currentRef"> · {{ reader.currentRef }}</template>
+        </div>
+        <div class="note-box">
+          <input
+            v-model="noteTitle"
+            class="note-title-input"
+            type="text"
+            placeholder="Title (optional)"
+          />
+          <textarea
+            ref="noteBodyEl"
+            v-model="noteBody"
+            class="note-input"
+            placeholder="Jot a note on this passage…"
+          ></textarea>
+          <div class="note-actions">
+            <span v-if="noteSaved" class="note-saved">Saved ✓</span>
+            <button class="note-save" :disabled="!noteBody.trim()" @click="saveNote">Save note</button>
+          </div>
+          <div v-if="passageNotes.length" class="note-list">
+            <div class="note-list-label">On this passage</div>
+            <button
+              v-for="n in passageNotes"
+              :key="n.id"
+              class="note-list-item hover-soft"
+              @click="openNote(n.id)"
+            >
+              <span class="note-list-title">{{ n.title }}</span>
+              <span class="note-list-date">{{ noteRelDate(n.updatedAt) }}</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -250,6 +261,18 @@ async function tapWord(keys: string[]) {
         <button disabled class="send">→</button>
       </div>
     </div>
+
+    <PassageActions
+      v-if="menuOpen"
+      :ref-label="selectionLabel"
+      :highlighted="selectionHighlighted"
+      :pos="menuPos"
+      @word-study="menuWordStudy"
+      @compare="menuCompare"
+      @cross-refs="ui.go('search')"
+      @highlight="menuHighlight"
+      @note="menuNote"
+    />
   </div>
 </template>
 
@@ -410,6 +433,101 @@ async function tapWord(keys: string[]) {
 .error {
   font-size: 13px;
   color: var(--accent);
+}
+.note-box {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px 18px;
+}
+.note-title-input,
+.note-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 12px;
+  font-size: 13.5px;
+  color: var(--ink);
+  font-family: inherit;
+}
+.note-title-input {
+  margin-bottom: 8px;
+}
+.note-input {
+  min-height: 88px;
+  line-height: 1.55;
+  resize: vertical;
+}
+.note-title-input:focus,
+.note-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.note-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 10px;
+}
+.note-saved {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+.note-save {
+  background: var(--accent);
+  color: var(--on-accent);
+  border: none;
+  border-radius: 8px;
+  padding: 9px 18px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.note-save:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.note-list {
+  margin-top: 16px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+.note-list-label {
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.note-list-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 6px;
+  text-align: left;
+  cursor: pointer;
+  color: var(--ink);
+}
+.note-list-title {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.note-list-date {
+  font-size: 11.5px;
+  color: var(--muted);
+  flex-shrink: 0;
 }
 /* partner */
 .partner {
