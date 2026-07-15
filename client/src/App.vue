@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watchEffect } from 'vue'
+import { computed, onMounted, onUnmounted, watchEffect } from 'vue'
 import { useSettings } from './stores/settings'
 import { useUi } from './stores/ui'
 import { useReadingPlan } from './stores/readingPlan'
@@ -16,7 +16,6 @@ import SettingsScreen from './screens/SettingsScreen.vue'
 const settings = useSettings()
 const ui = useUi()
 const readingPlan = useReadingPlan()
-const root = ref<HTMLElement | null>(null)
 
 const screens = {
   read: ReadScreen,
@@ -33,14 +32,14 @@ const activeScreen = computed(() =>
   ui.screen === 'plan' && !readingPlan.enabled ? screens.read : screens[ui.screen]
 )
 
+// Apply the palette on :root so the whole document — including Teleported overlays
+// (PassageActions, etc.) that live outside .app-root — inherits the theme tokens.
 watchEffect(() => {
-  if (root.value) {
-    applyVars(root.value, {
-      theme: settings.theme,
-      accent: settings.effectiveAccent,
-      textScale: settings.textScale
-    })
-  }
+  applyVars(document.documentElement, {
+    theme: settings.theme,
+    accent: settings.effectiveAccent,
+    textScale: settings.textScale
+  })
 })
 
 function onKey(e: KeyboardEvent) {
@@ -57,7 +56,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
 </script>
 
 <template>
-  <div ref="root" class="app-root">
+  <div class="app-root">
     <RailNav />
     <main class="app-main">
       <component :is="activeScreen" />
