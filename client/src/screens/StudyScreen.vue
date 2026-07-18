@@ -9,6 +9,7 @@ import { useNotes } from '../composables/useNotes'
 import { segLead } from '../utils/text'
 import PassageActions from '../components/PassageActions.vue'
 import StrongsCard from '../components/StrongsCard.vue'
+import CommentaryPanel from '../components/CommentaryPanel.vue'
 
 const reader = useReader()
 const ui = useUi()
@@ -38,6 +39,7 @@ const {
 } = useNotes()
 
 const strongsBoxEl = ref<HTMLElement | null>(null)
+const commentaryBoxEl = ref<HTMLElement | null>(null)
 
 onMounted(async () => {
   notesStore.load()
@@ -102,6 +104,10 @@ function menuCompare() {
   if (reader.selectedVerse != null) setFocus(reader.selectedVerse)
   menuDismissed.value = true
 }
+function menuCommentary() {
+  commentaryBoxEl.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  menuDismissed.value = true
+}
 function menuHighlight() {
   reader.toggleHighlightRange(reader.selectedVerses)
   menuDismissed.value = true
@@ -162,6 +168,12 @@ onUnmounted(() => window.removeEventListener('keydown', onSelectionKey))
         </div>
         <div v-else class="empty">
           Install more than one translation in the Library to compare renderings.
+        </div>
+
+        <!-- Commentary (verse-by-verse notes from an installed commentary module) -->
+        <div ref="commentaryBoxEl">
+          <div class="section-label">Commentary</div>
+          <CommentaryPanel variant="page" />
         </div>
 
         <!-- Word study (tap a word in the passage below) -->
@@ -269,6 +281,7 @@ onUnmounted(() => window.removeEventListener('keydown', onSelectionKey))
       :pos="menuPos"
       @word-study="menuWordStudy"
       @compare="menuCompare"
+      @commentary="menuCommentary"
       @cross-refs="ui.go('search')"
       @highlight="menuHighlight"
       @note="menuNote"

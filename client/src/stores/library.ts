@@ -6,6 +6,7 @@ import { api, type ModuleInfo } from '../services/api'
 // anything missing simply doesn't render — no fabricated rows.
 const FEATURED_BIBLES = ['WEB', 'KJVA', 'KJV', 'ASV', 'YLT', 'Brenton', 'LXX']
 const FEATURED_DICTS = ['StrongsGreek', 'StrongsHebrew']
+const FEATURED_COMMENTARIES = ['Geneva']
 
 // SWORD tags modules with ISO language codes ('en', 'grc', 'hbo'). Humanize them for
 // the filter and to make free-text search on a language name ("greek") work.
@@ -26,6 +27,7 @@ function langLabel(code: string): string {
 interface LibraryState {
   bibles: ModuleInfo[]
   dicts: ModuleInfo[]
+  commentaries: ModuleInfo[]
   installedNames: Set<string>
   progress: Record<string, number>
   installing: Set<string>
@@ -75,6 +77,7 @@ export const useLibrary = defineStore('library', {
   state: (): LibraryState => ({
     bibles: [],
     dicts: [],
+    commentaries: [],
     installedNames: new Set(),
     progress: {},
     installing: new Set(),
@@ -91,7 +94,7 @@ export const useLibrary = defineStore('library', {
     // Languages present across all catalog modules, most-common first, for the filter.
     languages(state): LanguageOption[] {
       const counts = new Map<string, number>()
-      for (const m of [...state.bibles, ...state.dicts]) {
+      for (const m of [...state.bibles, ...state.dicts, ...state.commentaries]) {
         counts.set(m.language, (counts.get(m.language) ?? 0) + 1)
       }
       return [...counts.entries()]
@@ -138,6 +141,21 @@ export const useLibrary = defineStore('library', {
         FEATURED_DICTS
       )
     },
+    filteredCommentaries(state): ModuleInfo[] {
+      return order(
+        state.commentaries.filter(
+          (m) => (!state.language || m.language === state.language) && matchesQuery(m, state.query)
+        ),
+        FEATURED_COMMENTARIES,
+        state.installedNames
+      )
+    },
+    availableCommentaries(state): ModuleInfo[] {
+      return order(
+        state.commentaries.filter((m) => !state.installedNames.has(m.name)),
+        FEATURED_COMMENTARIES
+      )
+    },
     installedBibles(state): ModuleInfo[] {
       return dedupeByName(
         order(
@@ -154,11 +172,19 @@ export const useLibrary = defineStore('library', {
         )
       )
     },
+    installedCommentaries(state): ModuleInfo[] {
+      return dedupeByName(
+        order(
+          state.commentaries.filter((m) => state.installedNames.has(m.name)),
+          FEATURED_COMMENTARIES
+        )
+      )
+    },
     installedCount(state): number {
       return state.installedNames.size
     },
     resultCount(): number {
-      return this.filteredBibles.length + this.filteredDicts.length
+      return this.filteredBibles.length + this.filteredDicts.length + this.filteredCommentaries.length
     }
   },
   actions: {
@@ -174,13 +200,15 @@ export const useLibrary = defineStore('library', {
       this.loading = true
       this.error = null
       try {
-        const [bibles, dicts, installed] = await Promise.all([
+        const [bibles, dicts, commentaries, installed] = await Promise.all([
           api.sources('BIBLE'),
           api.sources('DICT'),
+          api.sources('COMMENTARY'),
           api.installed()
         ])
         this.bibles = bibles
         this.dicts = dicts
+        this.commentaries = commentaries
         this.installedNames = new Set(installed.map((m) => m.name))
         this.loaded = true
       } catch (e) {

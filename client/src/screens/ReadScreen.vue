@@ -13,6 +13,7 @@ import { useNotes } from '../composables/useNotes'
 import { segLead } from '../utils/text'
 import PassageActions from '../components/PassageActions.vue'
 import StrongsCard from '../components/StrongsCard.vue'
+import CommentaryPanel from '../components/CommentaryPanel.vue'
 
 const reader = useReader()
 const ui = useUi()
@@ -233,6 +234,15 @@ watch(
   }
 )
 
+// ── Commentary: shared capability, surfaced as a rail card scoped to the current chapter ──
+const commentaryOpen = ref(false)
+function openCommentary() {
+  commentaryOpen.value = true
+}
+function closeCommentary() {
+  commentaryOpen.value = false
+}
+
 // ── Notes: shared quick-capture capability, anchored to the current passage ──
 const {
   title: noteTitle,
@@ -290,6 +300,10 @@ function menuWordStudy() {
 }
 function menuCompare() {
   openCompare()
+  menuDismissed.value = true
+}
+function menuCommentary() {
+  openCommentary()
   menuDismissed.value = true
 }
 function menuHighlight() {
@@ -463,6 +477,8 @@ onUnmounted(() => window.removeEventListener('keydown', onSelectionKey))
             <p v-else class="word-card-state">Install more than one translation in the Library to compare renderings.</p>
           </div>
 
+          <CommentaryPanel v-if="commentaryOpen" closable @close="closeCommentary" />
+
           <div
             v-if="wordStudyOn || (settings.showStrongs && (strongsEntry || strongsLoading || strongsError))"
             class="word-card"
@@ -553,6 +569,7 @@ onUnmounted(() => window.removeEventListener('keydown', onSelectionKey))
       :pos="menuPos"
       @word-study="menuWordStudy"
       @compare="menuCompare"
+      @commentary="menuCommentary"
       @cross-refs="ui.go('search')"
       @highlight="menuHighlight"
       @note="menuNote"

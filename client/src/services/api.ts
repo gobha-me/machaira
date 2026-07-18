@@ -69,6 +69,22 @@ export interface StrongsPayload {
   references: unknown[]
 }
 
+export interface CommentaryEntry {
+  n: number
+  text: string
+  notes: VerseNote[]
+  segments: VerseSegment[]
+}
+
+export interface CommentaryPayload {
+  module: string
+  book: string
+  bookName: string
+  chapter: number
+  locked: boolean
+  entries: CommentaryEntry[]
+}
+
 export interface SearchHit {
   module: string
   book: string
@@ -170,6 +186,12 @@ export const api = {
 
   async strongs(key: string): Promise<StrongsPayload> {
     return getJson<StrongsPayload>(`/api/strongs/${encodeURIComponent(key)}`)
+  },
+
+  async commentary(module: string, book: string, chapter: number): Promise<CommentaryPayload> {
+    return getJson<CommentaryPayload>(
+      `/api/commentary/${encodeURIComponent(module)}/${encodeURIComponent(book)}/${chapter}`
+    )
   },
 
   async search(q: string, modules: string[]): Promise<SearchHit[]> {

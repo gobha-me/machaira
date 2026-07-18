@@ -282,6 +282,51 @@ export function readChapter(
   })
 }
 
+export interface CommentaryEntry {
+  n: number
+  text: string
+  notes: VerseNote[]
+  segments: VerseSegment[]
+}
+
+export interface CommentaryChapterResult {
+  module: string
+  locked: boolean
+  license: string
+  entries: CommentaryEntry[]
+}
+
+/**
+ * A chapter of an installed commentary module: per-verse notes, keyed by verse number.
+ * Commentaries share the Bible key space, so they read through the same markup pipeline as
+ * readChapter. Returns null when the module isn't installed. Locked modules can't have their
+ * content read, so they return no entries (the caller shows an honest locked state).
+ */
+export function readCommentaryChapter(
+  module: string,
+  book: string,
+  chapter: number
+): Promise<CommentaryChapterResult | null> {
+  return withSword(() => {
+    const local = sword().getLocalModule(module)
+    if (!local) return null
+    const license = local.distributionLicense ?? ''
+    if (local.locked) return { module, locked: true, license, entries: [] }
+    const raw = readChapterMarkupSync(module, book, chapter)
+    // getChapterText over-reads single-chapter books into the next book's chapter 1; keep
+    // only entries belonging to the requested book (same guard as readChapter).
+    const entries = raw
+      .filter((v) => v.bibleBookShortTitle === book)
+      .map((v) => {
+        const parsed = parseVerseMarkup(v.content)
+        return { n: v.verseNr, text: parsed.text, notes: parsed.notes, segments: parsed.segments }
+      })
+      // Commentaries only carry entries for annotated verses; drop empty ones.
+      .filter((e) => e.text.length > 0 || e.notes.length > 0)
+    return { module, locked: false, license, entries }
+  })
+}
+
 export interface CompareRow {
   module: string
   text: string | null

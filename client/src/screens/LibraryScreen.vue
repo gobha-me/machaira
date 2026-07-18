@@ -7,7 +7,11 @@ const lib = useLibrary()
 const showAll = ref(false)
 
 // Everything on the user's machine, pinned to the top of the catalog.
-const installedSources = computed(() => [...lib.installedBibles, ...lib.installedDicts])
+const installedSources = computed(() => [
+  ...lib.installedBibles,
+  ...lib.installedDicts,
+  ...lib.installedCommentaries
+])
 const availableBibles = computed(() => lib.featuredBibles.length + lib.otherBibles.length)
 // When nothing featured remains (all featured already installed), show the rest directly.
 const showOthers = computed(() => showAll.value || lib.featuredBibles.length === 0)
@@ -94,6 +98,22 @@ onMounted(() => lib.load())
             />
           </div>
         </template>
+        <template v-if="lib.filteredCommentaries.length">
+          <div class="section-label">Commentaries</div>
+          <div class="card">
+            <SourceRow
+              v-for="(m, i) in lib.filteredCommentaries"
+              :key="m.name"
+              :module="m"
+              :installed="lib.isInstalled(m.name)"
+              :installing="lib.installing.has(m.name)"
+              :progress="lib.progress[m.name] ?? 0"
+              :last="i === lib.filteredCommentaries.length - 1"
+              @install="lib.install"
+              @uninstall="lib.uninstall"
+            />
+          </div>
+        </template>
         <div v-if="lib.resultCount === 0" class="no-results">
           No sources match “{{ lib.query }}”<template v-if="lib.language"> in {{ lib.languages.find((l) => l.code === lib.language)?.label }}</template>.
         </div>
@@ -172,6 +192,25 @@ onMounted(() => lib.load())
           />
           <div v-if="!lib.lexicons.length" class="empty">
             {{ lib.installedDicts.length ? 'All available lexicons are installed.' : 'No lexicon modules offered by the configured repositories.' }}
+          </div>
+        </div>
+
+        <!-- Commentaries (available to add) -->
+        <div class="section-label">Commentaries</div>
+        <div class="card">
+          <SourceRow
+            v-for="(m, i) in lib.availableCommentaries"
+            :key="m.name"
+            :module="m"
+            :installed="false"
+            :installing="lib.installing.has(m.name)"
+            :progress="lib.progress[m.name] ?? 0"
+            :last="i === lib.availableCommentaries.length - 1"
+            @install="lib.install"
+            @uninstall="lib.uninstall"
+          />
+          <div v-if="!lib.availableCommentaries.length" class="empty">
+            {{ lib.installedCommentaries.length ? 'All available commentaries are installed.' : 'No commentary modules offered by the configured repositories.' }}
           </div>
         </div>
 

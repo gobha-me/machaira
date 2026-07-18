@@ -3,6 +3,7 @@ import cors from '@fastify/cors'
 import { registerSources } from './routes/sources.js'
 import { registerRead } from './routes/read.js'
 import { registerStudy } from './routes/study.js'
+import { registerCommentary } from './routes/commentary.js'
 import { ensureRepoConfig } from './sword.js'
 
 const PORT = Number(process.env.PORT ?? 5274)
@@ -16,6 +17,7 @@ app.get('/api/health', async () => ({ ok: true }))
 await registerSources(app)
 await registerRead(app)
 await registerStudy(app)
+await registerCommentary(app)
 
 // Warm the repository config in the background so the Library loads fast.
 ensureRepoConfig().catch((err) => app.log.warn({ err }, 'repo config warm-up failed'))

@@ -13,6 +13,7 @@ const props = defineProps<{
 defineEmits<{
   (e: 'word-study'): void
   (e: 'compare'): void
+  (e: 'commentary'): void
   (e: 'cross-refs'): void
   (e: 'highlight'): void
   (e: 'note'): void
@@ -61,6 +62,7 @@ const style = computed<CSSProperties>(() => {
       <span class="pa-ref">{{ refLabel }}</span>
       <button class="pa-act hover-soft" @click="$emit('word-study')">Word study</button>
       <button class="pa-act hover-soft" @click="$emit('compare')">Compare</button>
+      <button class="pa-act hover-soft" @click="$emit('commentary')">Commentary</button>
       <button class="pa-act hover-soft" @click="$emit('cross-refs')">Cross-references</button>
       <button class="pa-act hover-soft" @click="$emit('highlight')">
         {{ highlighted ? 'Unhighlight' : 'Highlight' }}
