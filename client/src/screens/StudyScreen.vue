@@ -80,20 +80,30 @@ function cverseBg(n: number): string {
   return 'transparent'
 }
 
-// Left click: set the compare focus — Study's core deep-dive gesture. Dismiss any menu.
-function onContextClick(v: { n: number }) {
+// Left click: set the compare focus — Study's core deep-dive gesture. Shift+left-click
+// extends the selection range and opens the menu (matching Read) without moving the focus.
+function onContextClick(v: { n: number }, e: MouseEvent) {
+  if (e.shiftKey && reader.selectedVerse != null) {
+    reader.extendSelection(v.n)
+    menuPos.value = { x: e.clientX, y: e.clientY }
+    menuDismissed.value = false
+    return
+  }
   setFocus(v.n)
   menuDismissed.value = true
 }
 
-// Right click: open the passage action menu at the pointer. Shift extends the range so
-// Highlight/Note act on the whole passage, without moving the compare focus.
+// Right click: open the passage action menu at the pointer on a single verse.
 function onContextMenu(v: { n: number }, e: MouseEvent) {
   e.preventDefault()
-  if (e.shiftKey && reader.selectedVerse != null) reader.extendSelection(v.n)
-  else if (reader.selectedVerse !== v.n || reader.hasRange) reader.selectVerse(v.n)
+  if (reader.selectedVerse !== v.n || reader.hasRange) reader.selectVerse(v.n)
   menuPos.value = { x: e.clientX, y: e.clientY }
   menuDismissed.value = false
+}
+
+// Suppress the native text selection that shift+click would start on the context prose.
+function onCverseMouseDown(e: MouseEvent) {
+  if (e.shiftKey) e.preventDefault()
 }
 
 function menuWordStudy() {
@@ -198,7 +208,8 @@ onUnmounted(() => window.removeEventListener('keydown', onSelectionKey))
             :key="v.n"
             class="cverse"
             :style="{ background: cverseBg(v.n) }"
-            @click="onContextClick(v)"
+            @mousedown="onCverseMouseDown"
+            @click="onContextClick(v, $event)"
             @contextmenu="onContextMenu(v, $event)"
           ><sup class="cvnum">{{ v.n }}</sup><template
               v-for="(seg, i) in v.segments"

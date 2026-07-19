@@ -14,7 +14,6 @@ interface SettingsState {
   theme: ThemeId
   accent: string
   textScale: number
-  lineFocus: boolean
   extraSpacing: boolean
   followAlong: boolean
   drawApocrypha: boolean
@@ -39,7 +38,6 @@ export const useSettings = defineStore('settings', {
     theme: 'paper',
     accent: DEFAULT_ACCENT_LIGHT,
     textScale: 1,
-    lineFocus: false,
     extraSpacing: false,
     followAlong: true,
     drawApocrypha: true,
@@ -95,7 +93,6 @@ export const useSettings = defineStore('settings', {
     },
     toggle(
       key:
-        | 'lineFocus'
         | 'extraSpacing'
         | 'followAlong'
         | 'drawApocrypha'

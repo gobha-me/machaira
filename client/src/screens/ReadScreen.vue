@@ -33,7 +33,8 @@ const versesStyle = computed(() => ({
 }))
 
 function verseOpacity(n: number): number {
-  if (!settings.lineFocus || reader.selectedVerse == null) return 1
+  // Bring the selected passage forward by dimming the rest, whenever a selection is active.
+  if (reader.selectedVerse == null) return 1
   return reader.selectedVerses.includes(n) ? 1 : 0.4
 }
 
@@ -274,24 +275,34 @@ const selectionHighlighted = computed(
     reader.selectedVerses.length > 0 && reader.selectedVerses.every((n) => reader.highlightColor(n))
 )
 
-// Left click: quick-highlight this verse — the immersive surface's primary gesture. Any
-// open action menu is dismissed.
-function onVerseClick(v: { n: number }) {
-  reader.toggleHighlightRange([v.n])
-  if (reader.selectedVerse != null) {
-    reader.clearSelection()
-    menuDismissed.value = true
-  }
-}
-
-// Right click: open the passage action menu at the pointer. Shift extends the selection so
-// Highlight/Note act on the whole passage.
-function onVerseContext(v: { n: number }, e: MouseEvent) {
-  e.preventDefault()
+// Select the verse and open the action menu at the pointer. Shift extends the range so
+// Note/Highlight act on the whole passage; the anchor (compare/word-study scope) stays put.
+function selectAt(v: { n: number }, e: MouseEvent) {
+  // Shift extends the range; a plain click selects (and toggles a lone verse back off, via
+  // selectVerse), which then closes the menu since menuOpen tracks selectedVerse.
   if (e.shiftKey && reader.selectedVerse != null) reader.extendSelection(v.n)
-  else if (reader.selectedVerse !== v.n || reader.hasRange) reader.selectVerse(v.n)
+  else reader.selectVerse(v.n)
   menuPos.value = { x: e.clientX, y: e.clientY }
   menuDismissed.value = false
+}
+
+// Left click: select-first — pick the verse, open the menu, bring the passage forward.
+// Shift+left-click extends the range. Highlighting is a menu action now, not a tap gesture.
+function onVerseClick(v: { n: number }, e: MouseEvent) {
+  selectAt(v, e)
+}
+
+// Right click: same select+menu behavior, kept as an alias so it doesn't fall through to
+// the browser's native context menu.
+function onVerseContext(v: { n: number }, e: MouseEvent) {
+  e.preventDefault()
+  selectAt(v, e)
+}
+
+// Shift-drag on running prose would start a native text selection that fights the range
+// gesture; suppress it on shift-mousedown only, leaving plain drag-to-copy intact.
+function onVerseMouseDown(e: MouseEvent) {
+  if (e.shiftKey) e.preventDefault()
 }
 
 function menuWordStudy() {
@@ -426,7 +437,8 @@ onUnmounted(() => window.removeEventListener('keydown', onSelectionKey))
                 :key="v.n"
                 class="verse"
                 :style="{ background: verseBg(v.n), opacity: verseOpacity(v.n) }"
-                @click="onVerseClick(v)"
+                @mousedown="onVerseMouseDown"
+                @click="onVerseClick(v, $event)"
                 @contextmenu="onVerseContext(v, $event)"
               ><sup class="vnum">{{ v.n }}</sup><template
                   v-if="(settings.showFootnotes && v.notes.length) || wordsTappable"

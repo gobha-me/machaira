@@ -117,14 +117,6 @@ function download(filename: string, content: string, type: string) {
         </div>
         <div class="row bordered">
           <div class="row-text">
-            <div class="row-title">Line focus</div>
-            <div class="row-sub">Dims everything except the paragraph you’re on</div>
-          </div>
-          <div class="spacer"></div>
-          <Toggle :model-value="settings.lineFocus" @update:model-value="settings.toggle('lineFocus')" />
-        </div>
-        <div class="row bordered">
-          <div class="row-text">
             <div class="row-title">Extra letter &amp; word spacing</div>
             <div class="row-sub">Easier tracking for tired or dyslexic eyes</div>
           </div>
