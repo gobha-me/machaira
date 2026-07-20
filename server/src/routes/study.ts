@@ -1,22 +1,25 @@
 import type { FastifyInstance } from 'fastify'
-import { compareVerse, lookupStrongs, searchModules } from '../sword.js'
+import { compareRange, lookupStrongs, searchModules } from '../sword.js'
 import { bookInfo } from '../books.js'
 
 export async function registerStudy(app: FastifyInstance): Promise<void> {
-  // Compare a single verse across several installed translations.
+  // Compare a verse (or verse range "lo-hi") across several installed translations.
   app.get<{
     Params: { book: string; chapter: string; verse: string }
     Querystring: { modules?: string }
   }>('/api/compare/:book/:chapter/:verse', async (req) => {
     const { book } = req.params
     const chapter = Number(req.params.chapter)
-    const verse = Number(req.params.verse)
+    // :verse is either "N" (single verse) or "lo-hi" (a range).
+    const [a, b] = req.params.verse.split('-').map(Number)
+    const lo = Math.min(a, b || a)
+    const hi = Math.max(a, b || a)
     const requested = (req.query.modules ?? '')
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean)
-    const translations = await compareVerse(book, chapter, verse, requested)
-    return { book, bookName: bookInfo(book).name, chapter, verse, translations }
+    const translations = await compareRange(book, chapter, lo, hi, requested)
+    return { book, bookName: bookInfo(book).name, chapter, verseStart: lo, verseEnd: hi, translations }
   })
 
   // Strong's lexicon entry (e.g. G2638). Requires the StrongsGreek/StrongsHebrew module.

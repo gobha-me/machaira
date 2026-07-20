@@ -329,16 +329,21 @@ export function readCommentaryChapter(
 
 export interface CompareRow {
   module: string
-  text: string | null
   hasStrongs: boolean
   license: string
+  verses: { n: number; text: string | null }[]
 }
 
-/** Compare a single verse across the requested (installed) translations. */
-export function compareVerse(
+/**
+ * Compare a verse range across the requested (installed) translations. A single verse is just
+ * lo === hi. getChapterText already reads the whole chapter, so a range is a filter — no extra
+ * native read. hasStrongs/license are per-translation; the per-verse text is plain (markup off).
+ */
+export function compareRange(
   book: string,
   chapter: number,
-  verse: number,
+  lo: number,
+  hi: number,
   requestedModules: string[]
 ): Promise<CompareRow[]> {
   return withSword(() => {
@@ -346,14 +351,21 @@ export function compareVerse(
     const installed = installedNamesSync()
     const modules = requestedModules.filter((m) => installed.has(m))
     return modules.map((module) => {
-      const chapterVerses = readChapterSync(module, book, chapter)
-      const hit = chapterVerses.find((v) => v.verseNr === verse)
+      // getChapterText over-reads single-chapter books (Jude, Philemon, …) into the next book's
+      // chapter 1; keep only verses belonging to the requested book (same guard as readChapter).
+      const chapterVerses = readChapterSync(module, book, chapter).filter(
+        (v) => v.bibleBookShortTitle === book
+      )
+      const verses = chapterVerses
+        .filter((v) => v.verseNr >= lo && v.verseNr <= hi)
+        .sort((a, b) => a.verseNr - b.verseNr)
+        .map((v) => ({ n: v.verseNr, text: stripMarkup(v.content) as string | null }))
       const local = nsi.getLocalModule(module)
       return {
         module,
-        text: hit ? stripMarkup(hit.content) : null,
         hasStrongs: Boolean(local?.hasStrongs),
-        license: local?.distributionLicense ?? ''
+        license: local?.distributionLicense ?? '',
+        verses
       }
     })
   })

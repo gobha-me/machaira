@@ -10,13 +10,31 @@ import { segLead } from '../utils/text'
 import PassageActions from '../components/PassageActions.vue'
 import StrongsCard from '../components/StrongsCard.vue'
 import CommentaryPanel from '../components/CommentaryPanel.vue'
+import ComparePanel from '../components/ComparePanel.vue'
 
 const reader = useReader()
 const ui = useUi()
 const notesStore = useNotesStore()
 
-const { focus, rows, comparing, compareError, atStart, atEnd, loadCompare, setFocus, stepVerse } =
-  useCompare({ keyboard: true })
+const {
+  focus,
+  focusLabel,
+  rows,
+  comparing,
+  compareError,
+  atStart,
+  atEnd,
+  setFocus,
+  setRange,
+  stepVerse
+} = useCompare({ keyboard: true })
+
+// Seed compare from the current selection (whole range, not just the anchor); default to verse 1.
+function seedCompareRange() {
+  const vs = reader.selectedVerses
+  if (vs.length) setRange(vs[0], vs[vs.length - 1])
+  else setRange(1, 1)
+}
 
 const {
   strongsKey,
@@ -44,8 +62,7 @@ const commentaryBoxEl = ref<HTMLElement | null>(null)
 onMounted(async () => {
   notesStore.load()
   if (!reader.ready) await reader.init()
-  focus.value = reader.selectedVerse ?? 1
-  await loadCompare()
+  seedCompareRange()
 })
 
 // Tapping a word both focuses its verse (so the comparison follows) and looks it up.
@@ -111,7 +128,7 @@ function menuWordStudy() {
   menuDismissed.value = true
 }
 function menuCompare() {
-  if (reader.selectedVerse != null) setFocus(reader.selectedVerse)
+  if (reader.selectedVerse != null) seedCompareRange()
   menuDismissed.value = true
 }
 function menuCommentary() {
@@ -144,7 +161,7 @@ onUnmounted(() => window.removeEventListener('keydown', onSelectionKey))
     <!-- left: compare + word study -->
     <div class="left">
       <div class="topbar">
-        <span class="ref">{{ reader.bookName }} {{ reader.chapter }}:{{ focus }}</span>
+        <span class="ref">{{ reader.bookName }} {{ reader.chapter }}:{{ focusLabel }}</span>
         <div class="stepper">
           <button
             class="step hover-ink"
@@ -167,18 +184,12 @@ onUnmounted(() => window.removeEventListener('keydown', onSelectionKey))
       </div>
 
       <div class="scroll">
-        <p v-if="compareError" class="error">{{ compareError }}</p>
-        <div v-if="comparing" class="loading">Comparing…</div>
-
-        <div v-else-if="rows.length" class="compare-card">
-          <div v-for="(r, i) in rows" :key="r.module" class="compare-row" :class="{ last: i === rows.length - 1 }">
-            <span class="tag" :style="{ color: i === 0 ? 'var(--accent)' : 'var(--muted)' }">{{ r.module }}</span>
-            <span class="ctext serif">{{ r.text ?? '—' }}</span>
-          </div>
-        </div>
-        <div v-else class="empty">
-          Install more than one translation in the Library to compare renderings.
-        </div>
+        <ComparePanel
+          variant="page"
+          :rows="rows"
+          :comparing="comparing"
+          :error="compareError"
+        />
 
         <!-- Commentary (verse-by-verse notes from an installed commentary module) -->
         <div ref="commentaryBoxEl">
@@ -367,34 +378,6 @@ onUnmounted(() => window.removeEventListener('keydown', onSelectionKey))
   flex: 1;
   overflow-y: auto;
   padding: 24px 22px 60px;
-}
-.compare-card {
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  overflow: hidden;
-  margin-bottom: 16px;
-}
-.compare-row {
-  display: flex;
-  gap: 14px;
-  padding: 14px 18px;
-  border-bottom: 1px solid var(--line);
-}
-.compare-row.last {
-  border-bottom: none;
-}
-.tag {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  width: 52px;
-  flex-shrink: 0;
-  padding-top: 3px;
-}
-.ctext {
-  font-size: 16.5px;
-  line-height: 1.6;
 }
 .section-label {
   font-size: 11px;
