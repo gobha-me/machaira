@@ -56,9 +56,9 @@ export interface ChapterPayload {
 
 export interface CompareRow {
   module: string
-  text: string | null
   hasStrongs: boolean
   license: string
+  verses: { n: number; text: string | null }[]
 }
 
 export interface StrongsPayload {
@@ -178,7 +178,8 @@ export const api = {
     )
   },
 
-  async compare(book: string, chapter: number, verse: number, modules: string[]) {
+  async compare(book: string, chapter: number, lo: number, hi: number, modules: string[]) {
+    const verse = lo === hi ? `${lo}` : `${lo}-${hi}`
     return getJson<{ translations: CompareRow[]; bookName: string }>(
       `/api/compare/${encodeURIComponent(book)}/${chapter}/${verse}?modules=${modules.join(',')}`
     )

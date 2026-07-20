@@ -14,6 +14,7 @@ import { segLead } from '../utils/text'
 import PassageActions from '../components/PassageActions.vue'
 import StrongsCard from '../components/StrongsCard.vue'
 import CommentaryPanel from '../components/CommentaryPanel.vue'
+import ComparePanel from '../components/ComparePanel.vue'
 
 const reader = useReader()
 const ui = useUi()
@@ -207,31 +208,35 @@ function closeWordStudy() {
 // ── Compare: same capability as Study, surfaced as a rail card scoped to the selected verse ──
 const compareOpen = ref(false)
 const {
-  focus: compareFocus,
+  focusLabel: compareFocusLabel,
   rows: compareRows,
   comparing,
   compareError,
-  loadCompare
+  setRange: setCompareRange
 } = useCompare({ active: compareOpen })
+
+// Seed compare from the current selection (whole range, not just the anchor); default to verse 1
+// when nothing is selected.
+function seedCompareRange() {
+  const vs = reader.selectedVerses
+  if (vs.length) setCompareRange(vs[0], vs[vs.length - 1])
+  else setCompareRange(1, 1)
+}
 
 function openCompare() {
   compareOpen.value = true
-  compareFocus.value = reader.selectedVerse ?? 1
-  loadCompare()
+  seedCompareRange()
 }
 
 function closeCompare() {
   compareOpen.value = false
 }
 
-// Keep the open compare card in step with the selected verse.
+// Keep the open compare card in step with the selection — both ends, so a shift-extend refreshes it.
 watch(
-  () => reader.selectedVerse,
-  (v) => {
-    if (compareOpen.value && v != null) {
-      compareFocus.value = v
-      loadCompare()
-    }
+  () => [reader.selectedVerse, reader.rangeEnd],
+  () => {
+    if (compareOpen.value && reader.selectedVerse != null) seedCompareRange()
   }
 )
 
@@ -475,18 +480,15 @@ onUnmounted(() => window.removeEventListener('keydown', onSelectionKey))
             class="word-card"
           >
             <div class="word-card-head">
-              <span class="word-card-label">Compare · {{ reader.bookName }} {{ reader.chapter }}:{{ compareFocus }}</span>
+              <span class="word-card-label">Compare · {{ reader.bookName }} {{ reader.chapter }}:{{ compareFocusLabel }}</span>
               <button class="word-card-close hover-ink" @click="closeCompare">✕</button>
             </div>
-            <div v-if="comparing" class="word-card-state">Comparing…</div>
-            <p v-else-if="compareError" class="word-card-error">{{ compareError }}</p>
-            <div v-else-if="compareRows.length" class="compare-rows">
-              <div v-for="(r, i) in compareRows" :key="r.module" class="compare-row">
-                <span class="compare-tag" :style="{ color: i === 0 ? 'var(--accent)' : 'var(--muted)' }">{{ r.module }}</span>
-                <span class="compare-text serif">{{ r.text ?? '—' }}</span>
-              </div>
-            </div>
-            <p v-else class="word-card-state">Install more than one translation in the Library to compare renderings.</p>
+            <ComparePanel
+              variant="rail"
+              :rows="compareRows"
+              :comparing="comparing"
+              :error="compareError"
+            />
           </div>
 
           <CommentaryPanel v-if="commentaryOpen" closable @close="closeCommentary" />
@@ -934,26 +936,6 @@ h1 {
   line-height: 1.5;
   color: var(--accent);
   margin: 0;
-}
-.compare-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.compare-row {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.compare-tag {
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-.compare-text {
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--ink);
 }
 .note-card {
   background: var(--card);

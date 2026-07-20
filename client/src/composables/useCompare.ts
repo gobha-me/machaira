@@ -19,6 +19,9 @@ export function useCompare(opts: UseCompareOptions = {}) {
   const active = opts.active ?? ref(true)
 
   const focus = ref<number>(1)
+  // The far end of a compare range; equals focus for a single verse. Verse-stepping stays keyed
+  // on focus (see verseNums/atStart/atEnd) and collapses a range back to a single verse.
+  const focusEnd = ref<number>(1)
   const rows = ref<CompareRow[]>([])
   const comparing = ref(false)
   const compareError = ref<string | null>(null)
@@ -54,6 +57,11 @@ export function useCompare(opts: UseCompareOptions = {}) {
     () => focusIdx.value === verseNums.value.length - 1 && reader.chapter >= chapterCount.value
   )
 
+  // "16" for a single verse, "16–17" for a range — used by both screens' compare headers.
+  const focusLabel = computed(() =>
+    focus.value === focusEnd.value ? `${focus.value}` : `${focus.value}–${focusEnd.value}`
+  )
+
   async function loadCompare() {
     if (!active.value || !reader.book || compareNames.value.length === 0) {
       rows.value = []
@@ -63,7 +71,13 @@ export function useCompare(opts: UseCompareOptions = {}) {
     comparing.value = true
     compareError.value = null
     try {
-      const res = await api.compare(reader.book, reader.chapter, focus.value, compareNames.value)
+      const res = await api.compare(
+        reader.book,
+        reader.chapter,
+        focus.value,
+        focusEnd.value,
+        compareNames.value
+      )
       if (seq !== compareSeq) return
       rows.value = res.translations
     } catch (e) {
@@ -77,7 +91,16 @@ export function useCompare(opts: UseCompareOptions = {}) {
 
   async function setFocus(n: number) {
     focus.value = n
+    focusEnd.value = n
     reader.selectVerse(n)
+    await loadCompare()
+  }
+
+  // Compare a verse range [lo, hi]. lo === hi behaves exactly like setFocus (single verse).
+  // Does not touch the store selection — the caller already owns it (the range came from there).
+  async function setRange(lo: number, hi: number) {
+    focus.value = Math.min(lo, hi)
+    focusEnd.value = Math.max(lo, hi)
     await loadCompare()
   }
 
@@ -126,6 +149,8 @@ export function useCompare(opts: UseCompareOptions = {}) {
 
   return {
     focus,
+    focusEnd,
+    focusLabel,
     rows,
     comparing,
     compareError,
@@ -137,6 +162,7 @@ export function useCompare(opts: UseCompareOptions = {}) {
     atEnd,
     loadCompare,
     setFocus,
+    setRange,
     stepVerse
   }
 }
