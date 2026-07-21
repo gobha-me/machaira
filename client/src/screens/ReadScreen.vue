@@ -280,28 +280,28 @@ const selectionHighlighted = computed(
     reader.selectedVerses.length > 0 && reader.selectedVerses.every((n) => reader.highlightColor(n))
 )
 
-// Select the verse and open the action menu at the pointer. Shift extends the range so
-// Note/Highlight act on the whole passage; the anchor (compare/word-study scope) stays put.
-function selectAt(v: { n: number }, e: MouseEvent) {
-  // Shift extends the range; a plain click selects (and toggles a lone verse back off, via
-  // selectVerse), which then closes the menu since menuOpen tracks selectedVerse.
-  if (e.shiftKey && reader.selectedVerse != null) reader.extendSelection(v.n)
-  else reader.selectVerse(v.n)
-  menuPos.value = { x: e.clientX, y: e.clientY }
-  menuDismissed.value = false
-}
-
-// Left click: select-first — pick the verse, open the menu, bring the passage forward.
-// Shift+left-click extends the range. Highlighting is a menu action now, not a tap gesture.
+// Left click: quiet select-first — bring the verse forward (dim the rest via
+// verseOpacity/selectedVerses) without opening the menu, so a focus click doesn't cover
+// the text (#27). Clicking the lone selected verse again toggles it back off (selectVerse).
+// Shift+left-click extends the range and opens the menu; Read now matches Study's model.
 function onVerseClick(v: { n: number }, e: MouseEvent) {
-  selectAt(v, e)
+  if (e.shiftKey && reader.selectedVerse != null) {
+    reader.extendSelection(v.n)
+    menuPos.value = { x: e.clientX, y: e.clientY }
+    menuDismissed.value = false
+    return
+  }
+  reader.selectVerse(v.n)
+  menuDismissed.value = true
 }
 
-// Right click: same select+menu behavior, kept as an alias so it doesn't fall through to
-// the browser's native context menu.
+// Right click (also long-press on touch): the dedicated menu opener. Select the verse
+// first unless it's already the lone selection, then open the action menu at the pointer.
 function onVerseContext(v: { n: number }, e: MouseEvent) {
   e.preventDefault()
-  selectAt(v, e)
+  if (reader.selectedVerse !== v.n || reader.hasRange) reader.selectVerse(v.n)
+  menuPos.value = { x: e.clientX, y: e.clientY }
+  menuDismissed.value = false
 }
 
 // Shift-drag on running prose would start a native text selection that fights the range
