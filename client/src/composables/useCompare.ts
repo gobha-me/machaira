@@ -34,6 +34,15 @@ export function useCompare(opts: UseCompareOptions = {}) {
   // out-of-order compare responses when the user steps quickly.
   let advancing = false
   let compareSeq = 0
+  // Trailing delay before a scheduled comparison actually fetches, so a burst of changes issues
+  // one request instead of one per event: shift-clicking a range out fires a store write per click
+  // (#31), and holding ←/→ fires one per key repeat. Each /api/compare is a withSword() critical
+  // section doing a readChapter per translation, so the redundant ones queue ahead of the user's
+  // own next read. compareSeq only discards stale *responses* — the work is still done — so it is
+  // the correctness backstop here, not the fix. Per-instance like the two above, never module
+  // scope: Read and Study each hold their own useCompare.
+  const SETTLE_MS = 150
+  let settleTimer: ReturnType<typeof setTimeout> | undefined
 
   // Which translations participate in compare: the configured subset (settings.compareModuleNames)
   // intersected with what's installed, or all installed when unconfigured (null). The default
@@ -70,9 +79,12 @@ export function useCompare(opts: UseCompareOptions = {}) {
     focus.value === focusEnd.value ? `${focus.value}` : `${focus.value}–${focusEnd.value}`
   )
 
-  async function loadCompare() {
-    if (!active.value || !reader.book || compareNames.value.length === 0) {
-      rows.value = []
+  async function runCompare() {
+    // Re-checked here and not trusted from schedule time: a scheduled run fires up to SETTLE_MS
+    // later, by which point Read's card can have closed or the chapter can have moved.
+    const book = reader.book
+    if (!book || !active.value || compareNames.value.length === 0) {
+      comparing.value = false
       return
     }
     const seq = ++compareSeq
@@ -80,7 +92,7 @@ export function useCompare(opts: UseCompareOptions = {}) {
     compareError.value = null
     try {
       const res = await api.compare(
-        reader.book,
+        book,
         reader.chapter,
         focus.value,
         focusEnd.value,
@@ -97,27 +109,60 @@ export function useCompare(opts: UseCompareOptions = {}) {
     }
   }
 
-  async function setFocus(n: number) {
+  // The one door every path uses to refresh the comparison, and so the one place the delay above
+  // belongs — debouncing the followSelection watch instead would defer focus/focusEnd, which the
+  // focusLabel, the ‹/› bounds and Study's compare tint all read synchronously, and would leave a
+  // pending fetch that lands after stepVerse and yanks the panel back to the range you just left.
+  // Reads reader.book/chapter and focus at fire time, so it can't fetch a stale range either.
+  // immediate is for seeding on open/mount, where there is no burst to coalesce and the delay
+  // would just read as lag.
+  function loadCompare({ immediate = false } = {}) {
+    clearTimeout(settleTimer)
+    settleTimer = undefined
+    if (!active.value || !reader.book || compareNames.value.length === 0) {
+      rows.value = []
+      comparing.value = false
+      return
+    }
+    if (immediate) {
+      void runCompare()
+      return
+    }
+    // Claim the spinner up front: for the length of the delay the panel is showing the previous
+    // verse's rows, and without this it looks settled on the wrong passage rather than busy.
+    comparing.value = true
+    settleTimer = setTimeout(() => {
+      settleTimer = undefined
+      void runCompare()
+    }, SETTLE_MS)
+  }
+
+  onUnmounted(() => clearTimeout(settleTimer))
+
+  // focus/focusEnd move now and the fetch settles later, so the label, the ‹/› bounds and the
+  // range tint stay in step with the gesture while only the request waits.
+  function setFocus(n: number) {
     focus.value = n
     focusEnd.value = n
     reader.selectVerse(n)
-    await loadCompare()
+    loadCompare()
   }
 
   // Compare a verse range [lo, hi]. lo === hi behaves exactly like setFocus (single verse).
   // Does not touch the store selection — the caller already owns it (the range came from there).
-  async function setRange(lo: number, hi: number) {
+  function setRange(lo: number, hi: number, opts?: { immediate?: boolean }) {
     focus.value = Math.min(lo, hi)
     focusEnd.value = Math.max(lo, hi)
-    await loadCompare()
+    loadCompare(opts)
   }
 
   // Seed compare from the current selection — the whole range, not just the anchor. Used on
-  // open/mount; falls back to verse 1 when nothing is selected.
-  async function syncFromSelection() {
+  // open/mount; falls back to verse 1 when nothing is selected. Fetches immediately: this is a
+  // one-shot with nothing to coalesce, and Read calls it the moment the compare card opens.
+  function syncFromSelection() {
     const vs = reader.selectedVerses
-    if (vs.length) await setRange(vs[0], vs[vs.length - 1])
-    else await setRange(1, 1)
+    if (vs.length) setRange(vs[0], vs[vs.length - 1], { immediate: true })
+    else setRange(1, 1, { immediate: true })
   }
 
   // Step the focused verse ±1, rolling into the adjacent chapter (within the book) at edges.
@@ -128,7 +173,7 @@ export function useCompare(opts: UseCompareOptions = {}) {
     const nums = verseNums.value
     const target = (delta > 0 ? focusEndIdx.value : focusIdx.value) + delta
     if (target >= 0 && target < nums.length) {
-      await setFocus(nums[target])
+      setFocus(nums[target])
       return
     }
     const nextChapter = reader.chapter + delta
@@ -138,7 +183,7 @@ export function useCompare(opts: UseCompareOptions = {}) {
     advancing = false
     const newNums = verseNums.value
     const landing = delta > 0 ? newNums[0] : newNums[newNums.length - 1]
-    if (landing != null) await setFocus(landing)
+    if (landing != null) setFocus(landing)
   }
 
   watch(
@@ -163,7 +208,8 @@ export function useCompare(opts: UseCompareOptions = {}) {
       const lo = vs[0]
       const hi = vs[vs.length - 1]
       // Already showing it — setFocus() sets focus/focusEnd before it calls selectVerse, so
-      // stepVerse lands here and bails instead of firing a second request.
+      // stepVerse lands here and bails instead of re-arming the delay on a comparison that is
+      // already the one being fetched.
       if (lo === focus.value && hi === focusEnd.value) return
       setRange(lo, hi)
     }

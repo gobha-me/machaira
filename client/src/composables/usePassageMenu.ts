@@ -61,11 +61,15 @@ export function usePassageMenu(opts: UsePassageMenuOptions = {}) {
 
   // Left click: quiet select-first — bring the verse forward without opening the menu, so a focus
   // click doesn't cover the text (#27). Clicking the lone selected verse again toggles it back off
-  // (selectVerse). Shift+left-click extends the range and opens the menu.
+  // (selectVerse). Shift+left-click extends the range and stays just as quiet: extending is a
+  // selection gesture, not a request for the menu, and popping it here would cover the passage the
+  // user just selected — the same complaint #27 raised about the plain click (#33). It dismisses
+  // rather than doing nothing, because a menu already open from a right-click is anchored at that
+  // earlier click point and would sit over the range as it grows.
   function onVerseClick(n: number, e: MouseEvent) {
     if (e.shiftKey && reader.selectedVerse != null) {
       reader.extendSelection(n)
-      openAt(e)
+      dismiss()
       return
     }
     reader.selectVerse(n)
