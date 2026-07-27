@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useReader } from '../stores/reader'
 import { useUi } from '../stores/ui'
 import { useNotes as useNotesStore } from '../stores/notes'
 import { useCompare } from '../composables/useCompare'
 import { useWordStudy } from '../composables/useWordStudy'
 import { useNotes } from '../composables/useNotes'
+import { usePassageMenu } from '../composables/usePassageMenu'
 import { segLead } from '../utils/text'
 import PassageActions from '../components/PassageActions.vue'
 import StrongsCard from '../components/StrongsCard.vue'
@@ -18,23 +19,16 @@ const notesStore = useNotesStore()
 
 const {
   focus,
+  focusEnd,
   focusLabel,
   rows,
   comparing,
   compareError,
   atStart,
   atEnd,
-  setFocus,
-  setRange,
+  syncFromSelection,
   stepVerse
-} = useCompare({ keyboard: true })
-
-// Seed compare from the current selection (whole range, not just the anchor); default to verse 1.
-function seedCompareRange() {
-  const vs = reader.selectedVerses
-  if (vs.length) setRange(vs[0], vs[vs.length - 1])
-  else setRange(1, 1)
-}
+} = useCompare({ keyboard: true, followSelection: true })
 
 const {
   strongsKey,
@@ -56,104 +50,76 @@ const {
   relDate: noteRelDate
 } = useNotes()
 
+const compareBoxEl = ref<HTMLElement | null>(null)
 const strongsBoxEl = ref<HTMLElement | null>(null)
 const commentaryBoxEl = ref<HTMLElement | null>(null)
 
 onMounted(async () => {
   notesStore.load()
   if (!reader.ready) await reader.init()
-  seedCompareRange()
+  syncFromSelection()
 })
 
-// Tapping a word both focuses its verse (so the comparison follows) and looks it up.
+// Tapping a word brings its verse forward (compare follows the selection) and looks it up.
+// Selecting only when the verse sits outside the current selection avoids selectVerse's
+// toggle-off branch and leaves a multi-verse range intact.
 async function studyWord(n: number, keys: string[]) {
-  if (focus.value !== n) await setFocus(n)
+  if (!reader.selectedVerses.includes(n)) reader.selectVerse(n)
   await tapWord(keys)
 }
 
 // ── Passage action menu: shared PassageActions component, same keystone as Read ──
-const menuPos = ref({ x: 0, y: 0 })
-const menuDismissed = ref(false)
-const menuOpen = computed(() => reader.selectedVerse != null && !menuDismissed.value)
+// Gestures, menu state and the selection's presentation come from usePassageMenu, so a plain
+// click means the same thing on both screens. Compare follows the selection (followSelection),
+// so selecting is all Study's deep-dive gesture has to do.
+const {
+  menuPos,
+  menuOpen,
+  selectionLabel,
+  selectionHighlighted,
+  verseOpacity,
+  verseBg,
+  onVerseClick,
+  onVerseContext,
+  onVerseMouseDown,
+  onWordClick,
+  dismiss
+} = usePassageMenu({ onWordTap: studyWord })
 
-const selectionLabel = computed(() => {
-  if (reader.selectedVerse == null) return ''
-  const vs = reader.selectedVerses
-  const lo = vs[0]
-  const hi = vs[vs.length - 1]
-  return `${reader.bookName} ${reader.chapter}:${lo === hi ? lo : `${lo}–${hi}`}`
-})
-
-const selectionHighlighted = computed(
-  () =>
-    reader.selectedVerses.length > 0 && reader.selectedVerses.every((n) => reader.highlightColor(n))
-)
-
+// Mark the compared passage even when nothing is selected — on a fresh mount, and after a
+// deselect (where the followSelection watch deliberately holds the last comparison), the top bar
+// and the panel would otherwise point at a verse with nothing on screen indicating which one.
+// Compare follows the selection, so this can never accent a verse outside an active range.
 function cverseBg(n: number): string {
-  const hl = reader.highlightColor(n)
-  if (hl) return hl
-  if (reader.selectedVerses.includes(n) || n === focus.value)
+  const base = verseBg(n)
+  if (base !== 'transparent') return base
+  if (n >= focus.value && n <= focusEnd.value)
     return 'color-mix(in oklab, var(--accent) 12%, transparent)'
   return 'transparent'
 }
 
-// Left click: set the compare focus — Study's core deep-dive gesture. Shift+left-click
-// extends the selection range and opens the menu (matching Read) without moving the focus.
-function onContextClick(v: { n: number }, e: MouseEvent) {
-  if (e.shiftKey && reader.selectedVerse != null) {
-    reader.extendSelection(v.n)
-    menuPos.value = { x: e.clientX, y: e.clientY }
-    menuDismissed.value = false
-    return
-  }
-  setFocus(v.n)
-  menuDismissed.value = true
-}
-
-// Right click: open the passage action menu at the pointer on a single verse.
-function onContextMenu(v: { n: number }, e: MouseEvent) {
-  e.preventDefault()
-  if (reader.selectedVerse !== v.n || reader.hasRange) reader.selectVerse(v.n)
-  menuPos.value = { x: e.clientX, y: e.clientY }
-  menuDismissed.value = false
-}
-
-// Suppress the native text selection that shift+click would start on the context prose.
-function onCverseMouseDown(e: MouseEvent) {
-  if (e.shiftKey) e.preventDefault()
-}
-
+// Study's cards all live in the one scrolling column, so its menu actions reveal rather than
+// open — compare is already in step with the selection by the time the menu is up.
 function menuWordStudy() {
   strongsBoxEl.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-  menuDismissed.value = true
+  dismiss()
 }
 function menuCompare() {
-  if (reader.selectedVerse != null) seedCompareRange()
-  menuDismissed.value = true
+  compareBoxEl.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  dismiss()
 }
 function menuCommentary() {
   commentaryBoxEl.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-  menuDismissed.value = true
+  dismiss()
 }
 function menuHighlight() {
   reader.toggleHighlightRange(reader.selectedVerses)
-  menuDismissed.value = true
+  dismiss()
 }
 function menuNote() {
   focusComposer()
-  menuDismissed.value = true
+  dismiss()
 }
-
-function onSelectionKey(e: KeyboardEvent) {
-  const el = document.activeElement
-  if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return
-  if (e.key === 'Escape' && reader.selectedVerse != null) {
-    reader.clearSelection()
-    menuDismissed.value = true
-  }
-}
-onMounted(() => window.addEventListener('keydown', onSelectionKey))
-onUnmounted(() => window.removeEventListener('keydown', onSelectionKey))
 </script>
 
 <template>
@@ -184,12 +150,14 @@ onUnmounted(() => window.removeEventListener('keydown', onSelectionKey))
       </div>
 
       <div class="scroll">
-        <ComparePanel
-          variant="page"
-          :rows="rows"
-          :comparing="comparing"
-          :error="compareError"
-        />
+        <div ref="compareBoxEl">
+          <ComparePanel
+            variant="page"
+            :rows="rows"
+            :comparing="comparing"
+            :error="compareError"
+          />
+        </div>
 
         <!-- Commentary (verse-by-verse notes from an installed commentary module) -->
         <div ref="commentaryBoxEl">
@@ -218,17 +186,17 @@ onUnmounted(() => window.removeEventListener('keydown', onSelectionKey))
             v-for="v in reader.data.verses"
             :key="v.n"
             class="cverse"
-            :style="{ background: cverseBg(v.n) }"
-            @mousedown="onCverseMouseDown"
-            @click="onContextClick(v, $event)"
-            @contextmenu="onContextMenu(v, $event)"
+            :style="{ background: cverseBg(v.n), opacity: verseOpacity(v.n) }"
+            @mousedown="onVerseMouseDown"
+            @click="onVerseClick(v.n, $event)"
+            @contextmenu="onVerseContext(v.n, $event)"
           ><sup class="cvnum">{{ v.n }}</sup><template
               v-for="(seg, i) in v.segments"
               :key="i"
             ><template v-if="seg.kind === 'word'"
             >{{ segLead(seg.text, i) }}<span
                 class="wtap"
-                @click.stop="studyWord(v.n, seg.strongs)"
+                @click.stop="onWordClick(v.n, seg.strongs, $event)"
               >{{ seg.text }}</span></template><template
               v-else-if="seg.kind === 'note'"
             ></template><template v-else
