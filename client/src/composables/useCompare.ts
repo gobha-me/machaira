@@ -9,6 +9,10 @@ interface UseCompareOptions {
   active?: Ref<boolean>
   // Bind ←/→ to step the focused verse. Study opts in; Read leaves stepping to the deep-dive.
   keyboard?: boolean
+  // Re-seed the comparison whenever the store selection moves (both ends, so a shift-extend
+  // refreshes it). Opt-in and explicit at the call site so "compare follows the selection" is
+  // visible from the screen without opening this file.
+  followSelection?: boolean
 }
 
 // Compare translations for a focused verse. Extracted from Study so Read can surface the same
@@ -51,10 +55,14 @@ export function useCompare(opts: UseCompareOptions = {}) {
   // stop (disable) at the book's first chapter / verse 1 and last chapter / last verse.
   const verseNums = computed(() => (reader.data?.verses ?? []).map((v) => v.n))
   const focusIdx = computed(() => verseNums.value.indexOf(focus.value))
+  // The far edge of the compared passage. Equals focusIdx for a single verse; for a range the
+  // bounds have to read from the end you're travelling towards, or ›/‹ appear enabled (and step)
+  // while the range still has verses left in that direction.
+  const focusEndIdx = computed(() => verseNums.value.indexOf(focusEnd.value))
   const chapterCount = computed(() => reader.currentBook?.chapters ?? 1)
   const atStart = computed(() => focusIdx.value <= 0 && reader.chapter <= 1)
   const atEnd = computed(
-    () => focusIdx.value === verseNums.value.length - 1 && reader.chapter >= chapterCount.value
+    () => focusEndIdx.value === verseNums.value.length - 1 && reader.chapter >= chapterCount.value
   )
 
   // "16" for a single verse, "16–17" for a range — used by both screens' compare headers.
@@ -104,10 +112,21 @@ export function useCompare(opts: UseCompareOptions = {}) {
     await loadCompare()
   }
 
+  // Seed compare from the current selection — the whole range, not just the anchor. Used on
+  // open/mount; falls back to verse 1 when nothing is selected.
+  async function syncFromSelection() {
+    const vs = reader.selectedVerses
+    if (vs.length) await setRange(vs[0], vs[vs.length - 1])
+    else await setRange(1, 1)
+  }
+
   // Step the focused verse ±1, rolling into the adjacent chapter (within the book) at edges.
+  // Steps off the edge of the compared passage in the direction of travel, then collapses to that
+  // single verse — stepping from the anchor would walk › back into the middle of a range the
+  // user just selected, since the selection pins focus to its low end.
   async function stepVerse(delta: number) {
     const nums = verseNums.value
-    const target = focusIdx.value + delta
+    const target = (delta > 0 ? focusEndIdx.value : focusIdx.value) + delta
     if (target >= 0 && target < nums.length) {
       await setFocus(nums[target])
       return
@@ -127,6 +146,26 @@ export function useCompare(opts: UseCompareOptions = {}) {
     () => {
       if (advancing) return
       loadCompare()
+    }
+  )
+
+  // Compare follows the selection. One-directional and loop-free: setRange never touches the
+  // store, so nothing here can re-trigger this watch.
+  watch(
+    () => [reader.selectedVerse, reader.rangeEnd],
+    () => {
+      // Read hosts compare lazily — a closed card shouldn't fetch.
+      if (!opts.followSelection || !active.value) return
+      const vs = reader.selectedVerses
+      // Deselecting (or loadChapter clearing the selection on a chapter change) holds the last
+      // comparison rather than blanking the pane or yanking it back to verse 1.
+      if (!vs.length) return
+      const lo = vs[0]
+      const hi = vs[vs.length - 1]
+      // Already showing it — setFocus() sets focus/focusEnd before it calls selectVerse, so
+      // stepVerse lands here and bails instead of firing a second request.
+      if (lo === focus.value && hi === focusEnd.value) return
+      setRange(lo, hi)
     }
   )
 
@@ -161,8 +200,11 @@ export function useCompare(opts: UseCompareOptions = {}) {
     atStart,
     atEnd,
     loadCompare,
-    setFocus,
-    setRange,
+    // setFocus/setRange stay private: setFocus writes back to the store (reader.selectVerse), so
+    // exporting it invites a caller to drive compare alongside the followSelection watch and
+    // re-introduce the two-way coupling the watch above depends on not existing. Screens seed
+    // compare through syncFromSelection and then just move the selection.
+    syncFromSelection,
     stepVerse
   }
 }

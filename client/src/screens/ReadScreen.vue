@@ -10,6 +10,7 @@ import { type BookEntry } from '../services/api'
 import { useCompare } from '../composables/useCompare'
 import { useWordStudy } from '../composables/useWordStudy'
 import { useNotes } from '../composables/useNotes'
+import { usePassageMenu } from '../composables/usePassageMenu'
 import { segLead } from '../utils/text'
 import PassageActions from '../components/PassageActions.vue'
 import StrongsCard from '../components/StrongsCard.vue'
@@ -33,18 +34,15 @@ const versesStyle = computed(() => ({
   wordSpacing: settings.extraSpacing ? '0.12em' : 'normal'
 }))
 
-function verseOpacity(n: number): number {
-  // Bring the selected passage forward by dimming the rest, whenever a selection is active.
-  if (reader.selectedVerse == null) return 1
-  return reader.selectedVerses.includes(n) ? 1 : 0.4
-}
-
 const transOpen = ref(false)
 const bookOpen = ref(false)
 const draftBook = ref<string | null>(null)
 
 onMounted(() => {
-  reader.init()
+  // Guard the init like Study already does. Screens are swapped, not kept alive, so a bare
+  // init() re-ran loadChapter on every visit to Read — which nulls the selection and refetches
+  // the chapter, so a range built in Study evaporated on the way back.
+  if (!reader.ready) reader.init()
   notesStore.load()
 })
 
@@ -153,12 +151,11 @@ function stopListening() {
 
 onUnmounted(stopListening)
 
+// The verse being read aloud outranks both the highlight and the selection tint; everything
+// else is the shared selection presentation (usePassageMenu).
 function verseBg(n: number): string {
-  const hl = reader.highlightColor(n)
   if (spokenVerse.value === n) return 'color-mix(in oklab, var(--accent) 18%, transparent)'
-  if (hl) return hl
-  if (reader.selectedVerses.includes(n)) return 'color-mix(in oklab, var(--accent) 12%, transparent)'
-  return 'transparent'
+  return baseVerseBg(n)
 }
 
 const progressPct = computed(() => {
@@ -191,7 +188,22 @@ const {
   clear: clearWordStudy
 } = useWordStudy()
 
-const wordsTappable = computed(() => settings.showStrongs || wordStudyOn.value)
+// Whether the chapter renders word segments at all. Deliberately chapter-wide rather than
+// per-verse: gating the segment subtree on the selection would swap ~130 DOM nodes per verse
+// between the segment path and the plain-text fallback on every click.
+const wordsRevealed = computed(() => settings.showStrongs || wordStudyOn.value)
+
+// Which of those words are actually tappable. The global Strong's setting lights up the whole
+// chapter. The menu's "Word study" lights only the selected range, so the rest of the chapter
+// reads as plain prose and the reveal follows the brought-forward passage; it falls back to the
+// whole chapter once the selection clears, so an open word-study card is never a dead end.
+function wordsTappableIn(n: number): boolean {
+  if (settings.showStrongs) return true
+  if (!wordStudyOn.value) return false
+  const vs = reader.selectedVerses
+  return vs.length === 0 || vs.includes(n)
+}
+
 const chapterHasStrongs = computed(
   () => !!reader.data?.verses.some((v) => v.segments?.some((s) => s.kind === 'word'))
 )
@@ -205,6 +217,15 @@ function closeWordStudy() {
   wordStudyOn.value = false
 }
 
+// Changing passage is not a word-study gesture. loadChapter clears the selection, so a sticky
+// reveal would silently light up every word of a chapter the user never invoked it on.
+watch(
+  () => [reader.book, reader.chapter],
+  () => {
+    if (wordStudyOn.value) closeWordStudy()
+  }
+)
+
 // ── Compare: same capability as Study, surfaced as a rail card scoped to the selected verse ──
 const compareOpen = ref(false)
 const {
@@ -212,33 +233,18 @@ const {
   rows: compareRows,
   comparing,
   compareError,
-  setRange: setCompareRange
-} = useCompare({ active: compareOpen })
-
-// Seed compare from the current selection (whole range, not just the anchor); default to verse 1
-// when nothing is selected.
-function seedCompareRange() {
-  const vs = reader.selectedVerses
-  if (vs.length) setCompareRange(vs[0], vs[vs.length - 1])
-  else setCompareRange(1, 1)
-}
+  syncFromSelection: syncCompare
+} = useCompare({ active: compareOpen, followSelection: true })
 
 function openCompare() {
+  // Set active first — loadCompare reads it synchronously.
   compareOpen.value = true
-  seedCompareRange()
+  syncCompare()
 }
 
 function closeCompare() {
   compareOpen.value = false
 }
-
-// Keep the open compare card in step with the selection — both ends, so a shift-extend refreshes it.
-watch(
-  () => [reader.selectedVerse, reader.rangeEnd],
-  () => {
-    if (compareOpen.value && reader.selectedVerse != null) seedCompareRange()
-  }
-)
 
 // ── Commentary: shared capability, surfaced as a rail card scoped to the current chapter ──
 const commentaryOpen = ref(false)
@@ -263,84 +269,42 @@ const {
 } = useNotes()
 
 // ── Passage action menu: floating keystone entry (shared PassageActions component) ──
-const menuPos = ref({ x: 0, y: 0 })
-const menuDismissed = ref(false)
-const menuOpen = computed(() => reader.selectedVerse != null && !menuDismissed.value)
-
-const selectionLabel = computed(() => {
-  if (reader.selectedVerse == null) return ''
-  const vs = reader.selectedVerses
-  const lo = vs[0]
-  const hi = vs[vs.length - 1]
-  return `${reader.bookName} ${reader.chapter}:${lo === hi ? lo : `${lo}–${hi}`}`
-})
-
-const selectionHighlighted = computed(
-  () =>
-    reader.selectedVerses.length > 0 && reader.selectedVerses.every((n) => reader.highlightColor(n))
-)
-
-// Left click: quiet select-first — bring the verse forward (dim the rest via
-// verseOpacity/selectedVerses) without opening the menu, so a focus click doesn't cover
-// the text (#27). Clicking the lone selected verse again toggles it back off (selectVerse).
-// Shift+left-click extends the range and opens the menu; Read now matches Study's model.
-function onVerseClick(v: { n: number }, e: MouseEvent) {
-  if (e.shiftKey && reader.selectedVerse != null) {
-    reader.extendSelection(v.n)
-    menuPos.value = { x: e.clientX, y: e.clientY }
-    menuDismissed.value = false
-    return
-  }
-  reader.selectVerse(v.n)
-  menuDismissed.value = true
-}
-
-// Right click (also long-press on touch): the dedicated menu opener. Select the verse
-// first unless it's already the lone selection, then open the action menu at the pointer.
-function onVerseContext(v: { n: number }, e: MouseEvent) {
-  e.preventDefault()
-  if (reader.selectedVerse !== v.n || reader.hasRange) reader.selectVerse(v.n)
-  menuPos.value = { x: e.clientX, y: e.clientY }
-  menuDismissed.value = false
-}
-
-// Shift-drag on running prose would start a native text selection that fights the range
-// gesture; suppress it on shift-mousedown only, leaving plain drag-to-copy intact.
-function onVerseMouseDown(e: MouseEvent) {
-  if (e.shiftKey) e.preventDefault()
-}
+// Gestures, menu state and the selection's presentation come from usePassageMenu, so Read and
+// Study can't drift apart. Only the word lookup is per-surface: here it fills the rail card.
+const {
+  menuPos,
+  menuOpen,
+  selectionLabel,
+  selectionHighlighted,
+  verseOpacity,
+  verseBg: baseVerseBg,
+  onVerseClick,
+  onVerseContext,
+  onVerseMouseDown,
+  onWordClick,
+  dismiss
+} = usePassageMenu({ onWordTap: (_n, keys) => tapWord(keys) })
 
 function menuWordStudy() {
   openWordStudy()
-  menuDismissed.value = true
+  dismiss()
 }
 function menuCompare() {
   openCompare()
-  menuDismissed.value = true
+  dismiss()
 }
 function menuCommentary() {
   openCommentary()
-  menuDismissed.value = true
+  dismiss()
 }
 function menuHighlight() {
   reader.toggleHighlightRange(reader.selectedVerses)
-  menuDismissed.value = true
+  dismiss()
 }
 function menuNote() {
   focusNoteComposer()
-  menuDismissed.value = true
+  dismiss()
 }
-
-function onSelectionKey(e: KeyboardEvent) {
-  const el = document.activeElement
-  if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return
-  if (e.key === 'Escape' && reader.selectedVerse != null) {
-    reader.clearSelection()
-    menuDismissed.value = true
-  }
-}
-onMounted(() => window.addEventListener('keydown', onSelectionKey))
-onUnmounted(() => window.removeEventListener('keydown', onSelectionKey))
 </script>
 
 <template>
@@ -443,15 +407,15 @@ onUnmounted(() => window.removeEventListener('keydown', onSelectionKey))
                 class="verse"
                 :style="{ background: verseBg(v.n), opacity: verseOpacity(v.n) }"
                 @mousedown="onVerseMouseDown"
-                @click="onVerseClick(v, $event)"
-                @contextmenu="onVerseContext(v, $event)"
+                @click="onVerseClick(v.n, $event)"
+                @contextmenu="onVerseContext(v.n, $event)"
               ><sup class="vnum">{{ v.n }}</sup><template
-                  v-if="(settings.showFootnotes && v.notes.length) || wordsTappable"
+                  v-if="(settings.showFootnotes && v.notes.length) || wordsRevealed"
                 ><template v-for="(seg, i) in v.segments" :key="i"><template
-                    v-if="seg.kind === 'word' && wordsTappable"
+                    v-if="seg.kind === 'word' && wordsTappableIn(v.n)"
                   >{{ segLead(seg.text, i) }}<span
                       class="wtap"
-                      @click.stop="tapWord(seg.strongs)"
+                      @click.stop="onWordClick(v.n, seg.strongs, $event)"
                     >{{ seg.text }}</span></template><sup
                     v-else-if="seg.kind === 'note' && settings.showFootnotes"
                     class="noteref"
