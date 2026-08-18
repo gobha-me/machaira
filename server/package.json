@@ -1,6 +1,6 @@
 {
   "name": "@machaira/server",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "license": "GPL-2.0-or-later",
   "type": "module",
@@ -14,6 +14,7 @@
     "@fastify/cookie": "^10.0.1",
     "@fastify/cors": "^10.0.1",
     "@fastify/rate-limit": "^10.3.0",
+    "@fastify/static": "^10.1.3",
     "argon2": "^0.44.0",
     "better-sqlite3": "^12.2.0",
     "fastify": "^5.1.0",

@@ -17,6 +17,7 @@ npm run dev          # runs server + client together (concurrently)
 npm run dev:server   # Fastify API on http://127.0.0.1:5274
 npm run dev:client   # Vite dev server on http://localhost:5273 (proxies /api -> :5274)
 npm run build        # server (tsc) then client (vue-tsc -b && vite build)
+docker build .       # production image: native addon + server + compiled client
 ```
 
 Per-workspace: `npm -w server run <script>`, `npm -w client run <script>`. There is no
@@ -40,6 +41,8 @@ npm workspaces: `client/` (Vue 3 + Vite + TS) and `server/` (Fastify + TS, ESM).
 - `client/src/stores/` — Pinia: `settings`, `ui`, `reader`, `library`, `notes`.
 - `client/src/screens/` — one `.vue` per screen. `client/src/services/api.ts` (typed
   fetch client), `db.ts` (IndexedDB). `client/src/theme.ts` — design tokens.
+- `Dockerfile` + `deploy/helm/machaira/` — non-root production image and single-replica
+  Kubernetes deployment. `/app/server/data` is the sole persistent volume mount.
 
 ## Backend invariants (important)
 
@@ -63,6 +66,9 @@ npm workspaces: `client/` (Vue 3 + Vite + TS) and `server/` (Fastify + TS, ESM).
 - **Personal data is server-owned and user-scoped.** Every notes/highlights query includes the
   authenticated user ID. Legacy IndexedDB data is only imported after explicit account-specific
   confirmation and never overwrites an existing server record.
+- **Production is deliberately single-replica.** SQLite and the serialized libsword singleton
+  share one `ReadWriteOnce` data volume. The Helm Deployment uses `Recreate`; do not scale it out
+  without replacing both storage and native-engine coordination.
 
 ## Conventions
 
@@ -78,5 +84,5 @@ npm workspaces: `client/` (Vue 3 + Vite + TS) and `server/` (Fastify + TS, ESM).
 
 ## Roadmap
 
-Tracked as GitHub issues (labels `roadmap`, `phase-1-hosting`, etc.). Phase 1 is
-self-hosting: auth and server-side persistence are complete; containerization/k8s is next.
+Tracked as GitHub issues (labels `roadmap`, `phase-1-hosting`, etc.). Phase 1 provides the
+self-hosting foundation; Phase 2 begins with the multi-provider study partner.

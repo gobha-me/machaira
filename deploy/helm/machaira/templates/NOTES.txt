@@ -1,0 +1,9 @@
+Machaira is available at:
+{{- if .Values.ingress.enabled }}
+  {{ ternary "https" "http" .Values.ingress.tls.enabled }}://{{ .Values.ingress.host }}
+{{- else }}
+  kubectl port-forward --namespace {{ .Release.Namespace }} service/{{ include "machaira.fullname" . }} 5274:{{ .Values.service.port }}
+  http://127.0.0.1:5274
+{{- end }}
+
+The application will offer first-administrator setup while its database is empty.
