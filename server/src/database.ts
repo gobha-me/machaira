@@ -2,7 +2,7 @@ import Database from 'better-sqlite3'
 import { chmodSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 
-const SCHEMA_VERSION = 2
+const SCHEMA_VERSION = 3
 
 export type MachairaDatabase = Database.Database
 
@@ -88,6 +88,22 @@ export function openDatabase(filename: string): MachairaDatabase {
       `)
       db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)')
         .run(2, Date.now())
+    })()
+  }
+
+  if (current.version < 3) {
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE ai_provider_configs (
+          user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+          kind TEXT NOT NULL CHECK (kind IN ('openai-compatible', 'anthropic', 'local')),
+          base_url TEXT NOT NULL,
+          model TEXT NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+      `)
+      db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)')
+        .run(3, Date.now())
     })()
   }
 

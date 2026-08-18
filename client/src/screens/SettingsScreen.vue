@@ -5,6 +5,7 @@ import { useReadingPlan } from '../stores/readingPlan'
 import { useReader } from '../stores/reader'
 import { useNotes } from '../stores/notes'
 import { useAuth } from '../stores/auth'
+import { useAiProvider } from '../stores/aiProvider'
 import { ACCENTS } from '../theme'
 import {
   exportAll,
@@ -12,7 +13,7 @@ import {
   legacyPersonalData,
   markLegacyImportComplete
 } from '../services/db'
-import { api, type Highlight, type Note } from '../services/api'
+import { api, type AiProviderKind, type Highlight, type Note } from '../services/api'
 import Toggle from '../components/ui/Toggle.vue'
 import AccountSettings from '../components/AccountSettings.vue'
 
@@ -21,12 +22,24 @@ const readingPlan = useReadingPlan()
 const reader = useReader()
 const notes = useNotes()
 const auth = useAuth()
+const aiProvider = useAiProvider()
 const exporting = ref(false)
 const importing = ref(false)
 const importDone = ref(false)
 const importMessage = ref('')
 const legacyNotes = ref<Note[]>([])
 const legacyHighlights = ref<Highlight[]>([])
+const providerKind = ref<AiProviderKind>(aiProvider.provider?.kind ?? 'openai-compatible')
+const providerBaseUrl = ref(aiProvider.provider?.baseUrl ?? 'https://api.openai.com/v1')
+const providerModel = ref(aiProvider.provider?.model ?? '')
+const providerApiKey = ref('')
+const providerMessage = ref('')
+
+const PROVIDER_DEFAULTS: Record<AiProviderKind, string> = {
+  'openai-compatible': 'https://api.openai.com/v1',
+  anthropic: 'https://api.anthropic.com/v1',
+  local: 'http://127.0.0.1:11434/v1'
+}
 
 onMounted(async () => {
   const legacy = await legacyPersonalData()
@@ -100,6 +113,43 @@ function download(filename: string, content: string, type: string) {
   a.download = filename
   a.click()
   URL.revokeObjectURL(url)
+}
+
+function resetProviderEndpoint(): void {
+  providerBaseUrl.value = PROVIDER_DEFAULTS[providerKind.value]
+  providerApiKey.value = ''
+  providerMessage.value = ''
+}
+
+async function saveProvider(): Promise<void> {
+  providerMessage.value = ''
+  try {
+    await aiProvider.save({
+      kind: providerKind.value,
+      baseUrl: providerBaseUrl.value,
+      model: providerModel.value,
+      ...(providerApiKey.value.trim() ? { apiKey: providerApiKey.value.trim() } : {})
+    })
+    providerApiKey.value = ''
+    providerMessage.value = 'Provider saved'
+  } catch (error) {
+    providerMessage.value = (error as Error).message
+  }
+}
+
+async function removeProvider(): Promise<void> {
+  if (!window.confirm('Disconnect this provider and delete its stored API key?')) return
+  providerMessage.value = ''
+  try {
+    await aiProvider.remove()
+    providerKind.value = 'openai-compatible'
+    providerBaseUrl.value = PROVIDER_DEFAULTS['openai-compatible']
+    providerModel.value = ''
+    providerApiKey.value = ''
+    providerMessage.value = 'Provider disconnected'
+  } catch (error) {
+    providerMessage.value = (error as Error).message
+  }
 }
 </script>
 
@@ -288,8 +338,11 @@ function download(filename: string, content: string, type: string) {
         </div>
       </div>
 
-      <!-- Study partner (honest disabled) -->
-      <div class="section-label">Study partner <span class="soon">not connected</span></div>
+      <!-- Study partner -->
+      <div class="section-label">
+        Study partner
+        <span class="soon">{{ aiProvider.provider ? 'connected' : 'not connected' }}</span>
+      </div>
       <div class="card">
         <div class="row bordered">
           <div class="row-text">
@@ -297,15 +350,60 @@ function download(filename: string, content: string, type: string) {
             <div class="row-sub">Any OpenAI-compatible endpoint, Claude, or local Llama</div>
           </div>
           <div class="spacer"></div>
-          <span class="pill disabled">Add a provider</span>
+          <select v-model="providerKind" class="setting-select" @change="resetProviderEndpoint">
+            <option value="openai-compatible">OpenAI-compatible</option>
+            <option value="anthropic">Anthropic</option>
+            <option value="local">Local</option>
+          </select>
+        </div>
+        <div class="row bordered">
+          <div class="row-text">
+            <div class="row-title">Base URL</div>
+            <div class="row-sub">Resolved by the Sword server, including inside containers</div>
+          </div>
+          <div class="spacer"></div>
+          <input v-model="providerBaseUrl" class="provider-input provider-url" type="url" />
         </div>
         <div class="row bordered">
           <div class="row-text">
             <div class="row-title">Model</div>
-            <div class="row-sub">Chat model from the provider above</div>
+            <div class="row-sub">Exact model identifier expected by this provider</div>
           </div>
           <div class="spacer"></div>
-          <span class="pill disabled">—</span>
+          <input v-model="providerModel" class="provider-input" placeholder="Model name" />
+        </div>
+        <div class="row bordered">
+          <div class="row-text">
+            <div class="row-title">API key</div>
+            <div class="row-sub">
+              <template v-if="aiProvider.provider?.hasApiKey">Encrypted key stored — leave blank to keep it</template>
+              <template v-else-if="providerKind === 'local'">Optional for a local endpoint</template>
+              <template v-else>Stored encrypted on the server</template>
+            </div>
+          </div>
+          <div class="spacer"></div>
+          <input
+            v-model="providerApiKey"
+            class="provider-input"
+            type="password"
+            autocomplete="off"
+            :placeholder="aiProvider.provider?.hasApiKey ? '••••••••' : 'API key'"
+          />
+        </div>
+        <div class="row bordered provider-actions">
+          <span class="provider-message" :class="{ failed: aiProvider.error }">{{ providerMessage }}</span>
+          <div class="spacer"></div>
+          <button
+            v-if="aiProvider.provider"
+            class="pill action danger"
+            :disabled="aiProvider.loading"
+            @click="removeProvider"
+          >Disconnect</button>
+          <button
+            class="pill action save-provider"
+            :disabled="aiProvider.loading || !providerModel.trim() || !providerBaseUrl.trim()"
+            @click="saveProvider"
+          >{{ aiProvider.loading ? 'Saving…' : 'Save provider' }}</button>
         </div>
         <div class="row bordered">
           <div class="row-text">
@@ -509,6 +607,24 @@ h1 {
   cursor: pointer;
   max-width: 260px;
 }
+.provider-input {
+  width: 220px;
+  box-sizing: border-box;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 11px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+}
+.provider-url { width: 270px; }
+.provider-input:focus { outline: none; border-color: var(--accent); }
+.provider-actions { gap: 8px; }
+.provider-message { font-size: 12px; color: var(--muted); }
+.provider-message.failed { color: var(--accent); }
+.save-provider { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.danger { color: var(--accent); }
 .pill.disabled {
   color: var(--muted);
   opacity: 0.7;

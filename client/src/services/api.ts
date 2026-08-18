@@ -135,6 +135,26 @@ export type AuthStatus =
   | { state: 'anonymous' }
   | { state: 'authenticated'; user: AuthUser }
 
+export type AiProviderKind = 'openai-compatible' | 'anthropic' | 'local'
+
+export interface AiProviderConfig {
+  kind: AiProviderKind
+  baseUrl: string
+  model: string
+  hasApiKey: boolean
+}
+
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export interface ChatRequest {
+  passage: { reference: string; module: string; content: string }
+  messages: ChatMessage[]
+  preferences: { alwaysCite: boolean; drawApocrypha: boolean }
+}
+
 let unauthorizedHandler: (() => void) | null = null
 
 export function onUnauthorized(handler: () => void): void {
@@ -163,6 +183,39 @@ function json(method: string, body?: unknown): RequestInit {
     method,
     headers: { 'content-type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body)
+  }
+}
+
+export async function consumeSse(
+  response: Response,
+  handlers: { delta: (text: string) => void; done?: () => void }
+): Promise<void> {
+  if (!response.body) throw new Error('Provider returned no response stream')
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      buffer += decoder.decode(value, { stream: !done })
+      if (buffer.length > 1_000_000) throw new Error('Response stream event is too large')
+      const frames = buffer.split(/\r?\n\r?\n/)
+      buffer = frames.pop() ?? ''
+      for (const frame of frames) {
+        const lines = frame.split(/\r?\n/)
+        const event = lines.find((line) => line.startsWith('event:'))?.slice(6).trim()
+        const raw = lines.filter((line) => line.startsWith('data:'))
+          .map((line) => line.slice(5).trimStart()).join('\n')
+        if (!raw) continue
+        const data = JSON.parse(raw) as { text?: string; message?: string }
+        if (event === 'delta' && typeof data.text === 'string') handlers.delta(data.text)
+        else if (event === 'done') handlers.done?.()
+        else if (event === 'error') throw new Error(data.message ?? 'Provider stream failed')
+      }
+      if (done) break
+    }
+  } finally {
+    reader.releaseLock()
   }
 }
 
@@ -313,6 +366,37 @@ export const api = {
       '/api/personal-data/import',
       json('POST', { notes, highlights })
     )
+  },
+
+  async aiProvider(): Promise<AiProviderConfig | null> {
+    return (await getJson<{ provider: AiProviderConfig | null }>('/api/ai/provider')).provider
+  },
+
+  async saveAiProvider(input: {
+    kind: AiProviderKind
+    baseUrl: string
+    model: string
+    apiKey?: string
+    clearApiKey?: boolean
+  }): Promise<AiProviderConfig> {
+    return (await requestJson<{ provider: AiProviderConfig }>(
+      '/api/ai/provider',
+      json('PUT', input)
+    )).provider
+  },
+
+  async removeAiProvider(): Promise<void> {
+    return requestVoid('/api/ai/provider', { method: 'DELETE' })
+  },
+
+  async streamChat(
+    input: ChatRequest,
+    onDelta: (text: string) => void,
+    signal?: AbortSignal
+  ): Promise<void> {
+    const res = await request('/api/ai/chat', { ...json('POST', input), signal })
+    if (!res.ok) throw new ApiError(res.status, (await res.json().catch(() => ({}))) as ApiErrorBody)
+    await consumeSse(res, { delta: onDelta })
   },
 
   async authStatus(): Promise<AuthStatus> {

@@ -42,6 +42,12 @@ export class SecretStore {
     return Buffer.concat([decipher.update(row.ciphertext), decipher.final()]).toString('utf8')
   }
 
+  has(userId: string, name: string): boolean {
+    return this.db.prepare(
+      'SELECT 1 FROM user_secrets WHERE user_id = ? AND name = ?'
+    ).get(userId, name) !== undefined
+  }
+
   remove(userId: string, name: string): void {
     this.db.prepare('DELETE FROM user_secrets WHERE user_id = ? AND name = ?').run(userId, name)
   }

@@ -13,6 +13,8 @@ import { registerCommentary } from './routes/commentary.js'
 import { SecretStore } from './secrets.js'
 import { PersonalDataService } from './personal-data.js'
 import { registerPersonalData } from './routes/personal-data.js'
+import { AiProviderService } from './ai.js'
+import { registerAi } from './routes/ai.js'
 
 export interface AppOptions {
   databasePath: string
@@ -37,9 +39,8 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   const auth = new AuthService(db)
   const personalData = new PersonalDataService(db)
 
-  // Constructed here so startup validates the encryption key and the internal service is ready
-  // for provider integrations. It is deliberately not exposed as a browser API.
-  new SecretStore(db, options.secretKey)
+  const secrets = new SecretStore(db, options.secretKey)
+  const ai = new AiProviderService(db, secrets)
 
   app.addHook('onClose', async () => db.close())
   await app.register(cookie)
@@ -62,6 +63,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   app.get('/api/health', async () => ({ ok: true }))
   await registerAuth(app, auth, options.production ?? false)
   await registerPersonalData(app, personalData)
+  await registerAi(app, ai)
 
   if (options.registerFeatureRoutes ?? true) {
     await registerSources(app)

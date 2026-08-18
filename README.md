@@ -5,7 +5,7 @@ A warm, local-first Bible study tool. **Sword** (repo name *machaira* — Greek 
 same open ecosystem behind [BibleTime](https://bibletime.info/) and
 [Xiphos](https://xiphos.org/). It pairs a paper-textured reading experience with real study
 tooling: a downloadable module library, verse comparison, Strong's lexicon lookup, full-text
-search, and personal journaling.
+search, personal journaling, and a bring-your-own-model study partner.
 
 > Content is **real, never mocked**. Modules are downloaded from CrossWire's repositories on
 > demand; features that don't yet have a backend show honest empty/disabled states rather than
@@ -16,14 +16,14 @@ search, and personal journaling.
 | Screen | What it does |
 | --- | --- |
 | **Read** | Renders a chapter from any installed translation; translation picker, book/chapter navigation, verse selection + persisted highlights. |
-| **Study** | Side-by-side verse comparison across installed translations, plus Strong's glosses for modules that carry Greek/Hebrew tags. |
+| **Study** | Side-by-side verse comparison, Strong's glosses, and streamed passage-aware chat through a user-configured model provider. |
 | **Search** | Real SWORD full-text search (word / phrase) across installed modules. |
 | **Library** | Browse CrossWire repositories, install modules with live progress, and uninstall. This is the downloader that feeds every other screen. |
 | **Journal** | Per-account notes with tags, synced through the server and exportable as Markdown + JSON. |
-| **Settings** | Account administration plus Paper/Ink themes, accent colour, scripture text scale, and reading toggles. |
+| **Settings** | Account administration, encrypted per-user model-provider configuration, themes, scripture text scale, and reading toggles. |
 
-Features that are intentionally deferred (LLM study-partner chat, semantic "by meaning"
-ranking, the connections graph) are present in the UI as clearly disabled states. See the
+Features that are intentionally deferred (semantic "by meaning" ranking and the connections
+graph) are present in the UI as clearly disabled states. See the
 [roadmap](#roadmap).
 
 ## Architecture
@@ -41,8 +41,9 @@ machaira/
   modules, read chapters, compare verses, look up Strong's entries, and search. The native engine
   is not reentrant, so all access is serialized through a mutex.
 - The server also owns authentication: users and revocable sessions live in SQLite, passwords are
-  hashed with Argon2id, and future provider credentials have an AES-256-GCM encrypted per-user
-  store whose key remains outside the database.
+  hashed with Argon2id, and provider credentials have an AES-256-GCM encrypted per-user store
+  whose key remains outside the database. API keys are decrypted only for server-side provider
+  calls.
 - **`client/`** is a single-page app that talks to the server over `/api` (proxied in dev).
   Reading/study data plus per-user notes and highlights come from the server. IndexedDB retains
   reading-plan progress and any legacy notes/highlights until the user explicitly imports them.
@@ -80,6 +81,20 @@ On a new database, the login screen asks you to create the first administrator. 
 then closed; that administrator can provision or disable additional accounts from Settings. Keep
 `MACHAIRA_SECRET_KEY` stable across restarts — losing it makes encrypted provider credentials
 unrecoverable.
+
+### Study partner providers
+
+Open **Settings → Study partner** after signing in and choose one of:
+
+- **OpenAI-compatible** for OpenAI or another service exposing `/v1/chat/completions`.
+- **Anthropic** for the Claude Messages API.
+- **Local** for a keyless or authenticated OpenAI-compatible Llama-class server such as Ollama.
+
+Enter the exact model identifier and the provider's base URL (ending at `/v1`, not the final
+operation path). Local URLs are resolved by the Sword server: `127.0.0.1` means the Sword
+container or pod itself, so containerized deployments generally need a reachable service DNS name
+or host gateway instead. Chat responses stream through Sword; provider keys never return to the
+browser, and conversations are kept only in the current browser tab.
 
 To run the halves separately:
 
@@ -165,9 +180,9 @@ is no longer needed.
 ## Roadmap
 
 Planned work is tracked as [GitHub issues](https://github.com/gobha-me/machaira/issues).
-Authentication, server-side per-user storage, and container/Kubernetes deployment form the
-self-hosting foundation. Next are the LLM study partner, semantic search, voice input, and the
-connections graph.
+Authentication, server-side per-user storage, container/Kubernetes deployment, and the
+multi-provider LLM study partner form the current foundation. Next are semantic search, voice
+input, and the connections graph.
 
 ## License
 

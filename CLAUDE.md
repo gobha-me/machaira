@@ -30,11 +30,12 @@ npm workspaces: `client/` (Vue 3 + Vite + TS) and `server/` (Fastify + TS, ESM).
 - `server/src/sword.ts` — the only module that touches `node-sword-interface`. Singleton
   + all public API.
 - `server/src/app.ts` — testable Fastify app factory; `auth.ts` + `database.ts` own users,
-  sessions, and SQLite migrations. `secrets.ts` is the server-only encrypted secret store.
+  sessions, and SQLite migrations. `secrets.ts` is the server-only encrypted secret store;
+  `ai.ts` owns provider configuration, prompts, and streaming adapters.
 - `server/src/routes/` — `auth.ts` (bootstrap/login/account administration), `personal-data.ts`
   (per-user notes/highlights and legacy import), `sources.ts`
   (repos, install/uninstall via SSE), `read.ts`
-  (books, chapter), `study.ts` (compare, strongs, search).
+  (books, chapter), `study.ts` (compare, strongs, search), `ai.ts` (provider settings and chat).
 - `server/src/text.ts` — SWORD markup handling (`stripMarkup`, `parseVerseMarkup`).
 - `server/src/books.ts` — book code → display name / section.
 - `server/data/sword/` — downloaded SWORD modules at runtime (gitignored).
@@ -63,6 +64,7 @@ npm workspaces: `client/` (Vue 3 + Vite + TS) and `server/` (Fastify + TS, ESM).
   provider secrets to the client.
 - **`MACHAIRA_SECRET_KEY` is required and external.** It is a base64 32-byte AES-GCM key. Keep it
   stable and out of the database/repository; user-secret ciphertext is bound to its user + name.
+  AI provider APIs expose only redacted key status, never decrypted keys.
 - **Personal data is server-owned and user-scoped.** Every notes/highlights query includes the
   authenticated user ID. Legacy IndexedDB data is only imported after explicit account-specific
   confirmation and never overwrites an existing server record.
@@ -73,7 +75,7 @@ npm workspaces: `client/` (Vue 3 + Vite + TS) and `server/` (Fastify + TS, ESM).
 ## Conventions
 
 - **No mock data, ever.** Real SWORD/CrossWire content only. Features without a backend
-  yet (LLM chat, semantic ranking, connections graph) show honest empty/disabled states —
+  yet (semantic ranking, connections graph) show honest empty/disabled states —
   never fabricated content. This is a hard product rule.
 - **License: GPL-2.0-or-later** (matches libsword / the SWORD family). Keep new files
   compatible.
@@ -85,4 +87,5 @@ npm workspaces: `client/` (Vue 3 + Vite + TS) and `server/` (Fastify + TS, ESM).
 ## Roadmap
 
 Tracked as GitHub issues (labels `roadmap`, `phase-1-hosting`, etc.). Phase 1 provides the
-self-hosting foundation; Phase 2 begins with the multi-provider study partner.
+self-hosting foundation; Phase 2 continues with semantic search after the multi-provider study
+partner.
