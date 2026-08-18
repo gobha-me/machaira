@@ -1,0 +1,47 @@
+image:
+  repository: ghcr.io/gobha-me/machaira
+  pullPolicy: IfNotPresent
+  tag: ""
+  pullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  host: machaira.example.com
+  path: /
+  pathType: Prefix
+  tls:
+    enabled: true
+    secretName: machaira-tls
+
+persistence:
+  enabled: true
+  existingClaim: ""
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 5Gi
+
+secret:
+  existingSecret: machaira
+  key: MACHAIRA_SECRET_KEY
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

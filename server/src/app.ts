@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance } from 'fastify'
 import cookie from '@fastify/cookie'
 import cors from '@fastify/cors'
 import rateLimit from '@fastify/rate-limit'
+import staticFiles from '@fastify/static'
 import { AuthService, SESSION_COOKIE } from './auth.js'
 import { openDatabase } from './database.js'
 import { registerAuth } from './routes/auth.js'
@@ -20,6 +21,7 @@ export interface AppOptions {
   production?: boolean
   logger?: boolean
   registerFeatureRoutes?: boolean
+  clientPath?: string
 }
 
 const PUBLIC_API_PATHS = new Set([
@@ -50,6 +52,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   app.decorateRequest('authUser', null)
   app.addHook('onRequest', async (request, reply) => {
     const path = request.url.split('?', 1)[0]
+    if (!path.startsWith('/api/')) return
     if (request.method === 'OPTIONS' || PUBLIC_API_PATHS.has(path)) return
     const user = auth.authenticate(request.cookies[SESSION_COOKIE])
     if (!user) return reply.code(401).send({ error: 'Authentication required' })
@@ -65,6 +68,13 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
     await registerRead(app)
     await registerStudy(app)
     await registerCommentary(app)
+  }
+
+  if (options.clientPath) {
+    await app.register(staticFiles, {
+      root: options.clientPath,
+      prefix: '/'
+    })
   }
 
   return app

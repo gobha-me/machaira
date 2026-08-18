@@ -1,0 +1,10 @@
+.git
+.github
+.claude
+node_modules
+**/node_modules
+**/dist
+server/data
+*.log
+*.local
+.DS_Store

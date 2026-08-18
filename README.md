@@ -46,6 +46,8 @@ machaira/
 - **`client/`** is a single-page app that talks to the server over `/api` (proxied in dev).
   Reading/study data plus per-user notes and highlights come from the server. IndexedDB retains
   reading-plan progress and any legacy notes/highlights until the user explicitly imports them.
+- In production, Fastify serves the compiled client and API from one image and one origin. The
+  image runs as a non-root user and keeps all durable server state under `/app/server/data`.
 
 CrossWire modules can't be fetched directly from a browser (no CORS, and they ship in a binary
 `zText`/OSIS format), which is why the local server exists to decode them into JSON.
@@ -91,6 +93,53 @@ npm run dev:client     # Vite on :5273, proxies /api -> :5274
 *StrongsGreek* / *StrongsHebrew* to enable lexicon lookups, and a module with embedded tags
 (e.g. *KJVA*) to see Strong's glosses in Study.
 
+## Container
+
+The root Dockerfile builds the native SWORD binding, server, and client in a multi-stage Node 22
+image. The runtime image contains the native runtime libraries but not the compiler toolchain.
+
+```sh
+docker build -t machaira:local .
+docker volume create machaira-data
+export MACHAIRA_SECRET_KEY="$(openssl rand -base64 32)"
+docker run --name machaira --rm \
+  -p 5274:5274 \
+  -e MACHAIRA_SECRET_KEY \
+  -v machaira-data:/app/server/data \
+  machaira:local
+```
+
+Open **http://localhost:5274**. Reuse the same secret and volume on every restart. Released images
+are published as `ghcr.io/gobha-me/machaira:<version>` for `linux/amd64` and `linux/arm64`.
+
+## Kubernetes with Helm
+
+The chart deploys exactly one application replica because SQLite and the native SWORD engine are
+single-writer resources. It creates a `ReadWriteOnce` claim for both the database and installed
+modules, and expects the encryption key in an existing Secret.
+
+```sh
+kubectl create namespace machaira
+kubectl create secret generic machaira \
+  --namespace machaira \
+  --from-literal=MACHAIRA_SECRET_KEY="$(openssl rand -base64 32)"
+
+helm upgrade --install machaira ./deploy/helm/machaira \
+  --namespace machaira \
+  --set ingress.host=bible.example.com
+```
+
+The defaults expect an `nginx` IngressClass and cert-manager `letsencrypt-prod` ClusterIssuer.
+Override `ingress.className`, `ingress.annotations`, `ingress.tls`, and `persistence.storageClass`
+in a values file for the target cluster. Set `image.pullSecrets` if the registry requires
+credentials, or set `image.repository` and `image.tag` to use a locally published image.
+
+For a consistent manual backup, scale the Deployment to zero and snapshot or copy the PVC. Keep
+the Kubernetes Secret with the backup: losing `MACHAIRA_SECRET_KEY` makes encrypted provider
+credentials unrecoverable. Restore the Secret and PVC together before scaling back to one. The
+chart marks its PVC to survive `helm uninstall`; delete that claim explicitly only when its data
+is no longer needed.
+
 ## Storage & data
 
 - **SWORD modules** are downloaded to `server/data/sword/` (gitignored) — the "everything on your
@@ -106,6 +155,7 @@ npm run dev:client     # Vite on :5273, proxies /api -> :5274
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `HOST` | `127.0.0.1` | Fastify listen address; the container sets `0.0.0.0`. |
 | `PORT` | `5274` | Fastify listen port. |
 | `MACHAIRA_DB_PATH` | `server/data/machaira.sqlite` | SQLite database path. |
 | `MACHAIRA_SECRET_KEY` | required | Base64-encoded 32-byte encryption key; generate with `openssl rand -base64 32`. |
@@ -114,10 +164,10 @@ npm run dev:client     # Vite on :5273, proxies /api -> :5274
 
 ## Roadmap
 
-Planned work is tracked as [GitHub issues](https://github.com/gobha-me/machaira/issues). The near
-term is focused on making the app self-hostable and multi-user: container/Kubernetes deployment
-now follows authentication and server-side per-user storage — followed by the
-LLM study partner, semantic search, voice input, and the connections graph.
+Planned work is tracked as [GitHub issues](https://github.com/gobha-me/machaira/issues).
+Authentication, server-side per-user storage, and container/Kubernetes deployment form the
+self-hosting foundation. Next are the LLM study partner, semantic search, voice input, and the
+connections graph.
 
 ## License
 
