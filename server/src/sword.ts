@@ -255,6 +255,7 @@ export interface ReadVerse {
   text: string
   notes: VerseNote[]
   segments: VerseSegment[]
+  crossReferences: string[]
 }
 
 export interface ReadChapterResult {
@@ -276,7 +277,13 @@ export function readChapter(
     return {
       verses: inBook.map((v) => {
         const parsed = parseVerseMarkup(v.content)
-        return { n: v.verseNr, text: parsed.text, notes: parsed.notes, segments: parsed.segments }
+        return {
+          n: v.verseNr,
+          text: parsed.text,
+          notes: parsed.notes,
+          segments: parsed.segments,
+          crossReferences: parsed.crossReferences
+        }
       })
     }
   })

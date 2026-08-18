@@ -8,6 +8,8 @@ const props = defineProps<{
   refLabel: string
   highlighted: boolean
   pos: { x: number; y: number }
+  crossReferencesAvailable: boolean
+  crossReferencesReason: string
 }>()
 
 defineEmits<{
@@ -63,7 +65,17 @@ const style = computed<CSSProperties>(() => {
       <button class="pa-act hover-soft" @click="$emit('word-study')">Word study</button>
       <button class="pa-act hover-soft" @click="$emit('compare')">Compare</button>
       <button class="pa-act hover-soft" @click="$emit('commentary')">Commentary</button>
-      <button class="pa-act hover-soft" @click="$emit('cross-refs')">Cross-references</button>
+      <button
+        class="pa-act hover-soft"
+        :disabled="!crossReferencesAvailable"
+        :title="crossReferencesAvailable ? 'Show embedded cross-references' : crossReferencesReason"
+        :aria-label="
+          crossReferencesAvailable
+            ? 'Cross-references'
+            : `Cross-references unavailable. ${crossReferencesReason}`
+        "
+        @click="$emit('cross-refs')"
+      >Cross-references</button>
       <button class="pa-act hover-soft" @click="$emit('highlight')">
         {{ highlighted ? 'Unhighlight' : 'Highlight' }}
       </button>
@@ -105,5 +117,9 @@ const style = computed<CSSProperties>(() => {
   border-radius: 6px;
   white-space: nowrap;
   font-family: inherit;
+}
+.pa-act:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
 }
 </style>

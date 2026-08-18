@@ -1,5 +1,6 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useReader } from '../stores/reader'
+import { crossReferencesForVerses } from '../utils/crossReferences'
 
 interface UsePassageMenuOptions {
   // Plain (non-shift) tap on a Strong's-tagged word. The composable owns the shift case — it
@@ -31,6 +32,17 @@ export function usePassageMenu(opts: UsePassageMenuOptions = {}) {
   const selectionHighlighted = computed(
     () =>
       reader.selectedVerses.length > 0 && reader.selectedVerses.every((n) => reader.highlightColor(n))
+  )
+
+  const selectionCrossReferences = computed(() =>
+    crossReferencesForVerses(reader.data?.verses ?? [], reader.selectedVerses)
+  )
+  const crossReferencesAvailable = computed(() => selectionCrossReferences.value.length > 0)
+  const crossReferencesReason = computed(
+    () =>
+      `No embedded cross-references in ${reader.moduleName ?? 'this translation'} for ${
+        selectionLabel.value || 'this selection'
+      }.`
   )
 
   // Bring the selected passage forward by dimming the rest, whenever a selection is active.
@@ -118,6 +130,9 @@ export function usePassageMenu(opts: UsePassageMenuOptions = {}) {
     menuOpen,
     selectionLabel,
     selectionHighlighted,
+    selectionCrossReferences,
+    crossReferencesAvailable,
+    crossReferencesReason,
     verseOpacity,
     verseBg,
     onVerseClick,

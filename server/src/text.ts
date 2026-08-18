@@ -38,6 +38,13 @@ const NOTE_DIV = /<div\b[^>]*\bsword-note\b[^>]*>([\s\S]*?)<\/div>/gi
 const TITLE_DIV = /<div\b[^>]*\bsword-section-title\b[^>]*>[\s\S]*?<\/div>/gi
 const GBF_NOTE = /\/f\b\s*\+?\s*([\s\S]*?)\/f\*/gi
 const OSIS_NOTE_BLOCKS = /<(note|rf|scripRef|milestone)\b[^>]*>[\s\S]*?<\/\1>/gi
+// Cross-reference notes are rendered as ordinary sword-note divs by the binding, with their
+// semantic type preserved as an attribute. Some callers/fixtures can still expose raw OSIS
+// <note> elements, so recognize both forms before the general note parser consumes them.
+const CROSS_REF_DIV =
+  /<div\b(?=[^>]*\bsword-note\b)(?=[^>]*\btype\s*=\s*["']crossReference["'])[^>]*>([\s\S]*?)<\/div>/gi
+const CROSS_REF_OSIS =
+  /<note\b(?=[^>]*\btype\s*=\s*["']crossReference["'])[^>]*>([\s\S]*?)<\/note>/gi
 
 export function stripMarkup(input: string): string {
   return tighten(
@@ -66,6 +73,7 @@ export interface ParsedVerse {
   text: string
   notes: VerseNote[]
   segments: VerseSegment[]
+  crossReferences: string[]
 }
 
 // Sentinels wrap a note (U+E000) or Strong's-tagged word (U+E001) index in the working
@@ -94,6 +102,13 @@ function noteLabel(i: number): string {
 }
 
 export function parseVerseMarkup(raw: string): ParsedVerse {
+  const crossReferences: string[] = []
+  const takeCrossReference = (inner: string): string => {
+    const text = stripInline(inner)
+    if (text) crossReferences.push(text)
+    return ' '
+  }
+
   const noteTexts: string[] = []
   const take = (inner: string): string => {
     const i = noteTexts.length
@@ -112,7 +127,9 @@ export function parseVerseMarkup(raw: string): ParsedVerse {
     return `${WSENT}${j}${WSENT}`
   }
 
-  let s = raw.replace(NOTE_DIV, (_m, inner: string) => take(inner))
+  let s = raw.replace(CROSS_REF_DIV, (_m, inner: string) => takeCrossReference(inner))
+  s = s.replace(CROSS_REF_OSIS, (_m, inner: string) => takeCrossReference(inner))
+  s = s.replace(NOTE_DIV, (_m, inner: string) => take(inner))
   s = s.replace(TITLE_DIV, ' ')
   s = s.replace(GBF_NOTE, (_m, inner: string) => take(inner))
   s = s.replace(W_TAG, (_m, attrs: string, inner: string) => takeWord(attrs, inner))
@@ -146,5 +163,5 @@ export function parseVerseMarkup(raw: string): ParsedVerse {
     }
   }
 
-  return { text: tighten(text).trim(), notes, segments }
+  return { text: tighten(text).trim(), notes, segments, crossReferences }
 }

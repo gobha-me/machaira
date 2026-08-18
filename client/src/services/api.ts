@@ -44,6 +44,7 @@ export interface ChapterVerse {
   text: string
   notes: VerseNote[]
   segments: VerseSegment[]
+  crossReferences: string[]
 }
 
 export interface ChapterPayload {

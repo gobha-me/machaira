@@ -16,6 +16,7 @@ import PassageActions from '../components/PassageActions.vue'
 import StrongsCard from '../components/StrongsCard.vue'
 import CommentaryPanel from '../components/CommentaryPanel.vue'
 import ComparePanel from '../components/ComparePanel.vue'
+import CrossReferencesPanel from '../components/CrossReferencesPanel.vue'
 
 const reader = useReader()
 const ui = useUi()
@@ -255,6 +256,15 @@ function closeCommentary() {
   commentaryOpen.value = false
 }
 
+// ── Cross-references: real embedded SWORD notes for the selected passage ──
+const crossReferencesOpen = ref(false)
+function openCrossReferences() {
+  crossReferencesOpen.value = true
+}
+function closeCrossReferences() {
+  crossReferencesOpen.value = false
+}
+
 // ── Notes: shared quick-capture capability, anchored to the current passage ──
 const {
   title: noteTitle,
@@ -276,6 +286,9 @@ const {
   menuOpen,
   selectionLabel,
   selectionHighlighted,
+  selectionCrossReferences,
+  crossReferencesAvailable,
+  crossReferencesReason,
   verseOpacity,
   verseBg: baseVerseBg,
   onVerseClick,
@@ -295,6 +308,10 @@ function menuCompare() {
 }
 function menuCommentary() {
   openCommentary()
+  dismiss()
+}
+function menuCrossReferences() {
+  openCrossReferences()
   dismiss()
 }
 function menuHighlight() {
@@ -457,6 +474,16 @@ function menuNote() {
 
           <CommentaryPanel v-if="commentaryOpen" closable @close="closeCommentary" />
 
+          <CrossReferencesPanel
+            v-if="crossReferencesOpen"
+            :entries="selectionCrossReferences"
+            :module-name="reader.moduleName ?? ''"
+            :ref-label="selectionLabel"
+            :empty-reason="crossReferencesReason"
+            closable
+            @close="closeCrossReferences"
+          />
+
           <div
             v-if="wordStudyOn || (settings.showStrongs && (strongsEntry || strongsLoading || strongsError))"
             class="word-card"
@@ -545,10 +572,12 @@ function menuNote() {
       :ref-label="selectionLabel"
       :highlighted="selectionHighlighted"
       :pos="menuPos"
+      :cross-references-available="crossReferencesAvailable"
+      :cross-references-reason="crossReferencesReason"
       @word-study="menuWordStudy"
       @compare="menuCompare"
       @commentary="menuCommentary"
-      @cross-refs="ui.go('search')"
+      @cross-refs="menuCrossReferences"
       @highlight="menuHighlight"
       @note="menuNote"
     />
