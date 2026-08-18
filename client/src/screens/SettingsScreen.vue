@@ -6,6 +6,7 @@ import { useReader } from '../stores/reader'
 import { ACCENTS } from '../theme'
 import { exportAll } from '../services/db'
 import Toggle from '../components/ui/Toggle.vue'
+import AccountSettings from '../components/AccountSettings.vue'
 
 const settings = useSettings()
 const readingPlan = useReadingPlan()
@@ -58,6 +59,8 @@ function download(filename: string, content: string, type: string) {
   <div class="scroll">
     <div class="wrap">
       <h1 class="serif">Settings</h1>
+
+      <AccountSettings />
 
       <!-- Appearance -->
       <div class="section-label">Appearance</div>

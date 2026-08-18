@@ -28,7 +28,10 @@ npm workspaces: `client/` (Vue 3 + Vite + TS) and `server/` (Fastify + TS, ESM).
 
 - `server/src/sword.ts` — the only module that touches `node-sword-interface`. Singleton
   + all public API.
-- `server/src/routes/` — `sources.ts` (repos, install/uninstall via SSE), `read.ts`
+- `server/src/app.ts` — testable Fastify app factory; `auth.ts` + `database.ts` own users,
+  sessions, and SQLite migrations. `secrets.ts` is the server-only encrypted secret store.
+- `server/src/routes/` — `auth.ts` (bootstrap/login/account administration), `sources.ts`
+  (repos, install/uninstall via SSE), `read.ts`
   (books, chapter), `study.ts` (compare, strongs, search).
 - `server/src/text.ts` — SWORD markup handling (`stripMarkup`, `parseVerseMarkup`).
 - `server/src/books.ts` — book code → display name / section.
@@ -50,6 +53,12 @@ npm workspaces: `client/` (Vue 3 + Vite + TS) and `server/` (Fastify + TS, ESM).
   per-call toggling safe. Rendered footnotes come back as
   `<div class="sword-markup sword-note">…</div>`, headings as `sword-section-title`,
   Strong's as `<w>` — parsed in `text.ts`, never leaked into plain search/compare text.
+- **Auth is deny-by-default.** The global hook protects `/api/*`; only health and the minimal
+  status/bootstrap/login endpoints are public. Sessions use opaque cookie tokens whose hashes
+  live in SQLite. Never return password hashes, session tokens, encryption keys, or decrypted
+  provider secrets to the client.
+- **`MACHAIRA_SECRET_KEY` is required and external.** It is a base64 32-byte AES-GCM key. Keep it
+  stable and out of the database/repository; user-secret ciphertext is bound to its user + name.
 
 ## Conventions
 
@@ -58,7 +67,8 @@ npm workspaces: `client/` (Vue 3 + Vite + TS) and `server/` (Fastify + TS, ESM).
   never fabricated content. This is a hard product rule.
 - **License: GPL-2.0-or-later** (matches libsword / the SWORD family). Keep new files
   compatible.
-- User notes/highlights/journal live in **IndexedDB** on the client, exportable as
+- User accounts and sessions live in server-side SQLite. Notes/highlights/journal still live in
+  **IndexedDB** on the client, exportable as
   Markdown + JSON. (Server-side per-user persistence is a roadmap item — see issues.)
 - TypeScript throughout; server is ESM (note the `.js` import specifiers).
 

@@ -95,10 +95,57 @@ export interface SearchHit {
   content: string
 }
 
-async function getJson<T>(url: string): Promise<T> {
-  const res = await fetch(url)
+export type UserRole = 'admin' | 'member'
+
+export interface AuthUser {
+  id: string
+  username: string
+  role: UserRole
+}
+
+export interface ManagedUser extends AuthUser {
+  disabled: boolean
+  createdAt: number
+}
+
+export type AuthStatus =
+  | { state: 'bootstrap' }
+  | { state: 'anonymous' }
+  | { state: 'authenticated'; user: AuthUser }
+
+let unauthorizedHandler: (() => void) | null = null
+
+export function onUnauthorized(handler: () => void): void {
+  unauthorizedHandler = handler
+}
+
+async function request(url: string, init?: RequestInit, notifyUnauthorized = true): Promise<Response> {
+  const res = await fetch(url, { credentials: 'same-origin', ...init })
+  if (res.status === 401 && notifyUnauthorized) unauthorizedHandler?.()
+  return res
+}
+
+async function requestJson<T>(url: string, init?: RequestInit, notifyUnauthorized = true): Promise<T> {
+  const res = await request(url, init, notifyUnauthorized)
   if (!res.ok) throw new ApiError(res.status, (await res.json().catch(() => ({}))) as ApiErrorBody)
   return res.json() as Promise<T>
+}
+
+async function requestVoid(url: string, init?: RequestInit): Promise<void> {
+  const res = await request(url, init)
+  if (!res.ok) throw new ApiError(res.status, (await res.json().catch(() => ({}))) as ApiErrorBody)
+}
+
+function json(method: string, body?: unknown): RequestInit {
+  return {
+    method,
+    headers: { 'content-type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body)
+  }
+}
+
+async function getJson<T>(url: string): Promise<T> {
+  return requestJson<T>(url)
 }
 
 export interface ApiErrorBody {
@@ -130,15 +177,16 @@ export const api = {
   },
 
   async uninstall(module: string): Promise<void> {
-    const res = await fetch(`/api/sources/${encodeURIComponent(module)}`, { method: 'DELETE' })
+    const res = await request(`/api/sources/${encodeURIComponent(module)}`, { method: 'DELETE' })
     if (!res.ok) throw new ApiError(res.status, {})
   },
 
   /** Install a module, streaming progress via SSE. Resolves when done. */
   install(module: string, onProgress: (pct: number) => void): Promise<void> {
     return new Promise((resolve, reject) => {
-      fetch(`/api/sources/${encodeURIComponent(module)}/install`, { method: 'POST' })
+      request(`/api/sources/${encodeURIComponent(module)}/install`, { method: 'POST' })
         .then((res) => {
+          if (!res.ok) throw new ApiError(res.status, {})
           if (!res.body) return reject(new Error('no stream'))
           const reader = res.body.getReader()
           const decoder = new TextDecoder()
@@ -201,5 +249,52 @@ export const api = {
       `/api/search?q=${encodeURIComponent(q)}&modules=${modules.join(',')}`
     )
     return res.results
+  },
+
+  async authStatus(): Promise<AuthStatus> {
+    return requestJson<AuthStatus>('/api/auth/status', undefined, false)
+  },
+
+  async bootstrap(username: string, password: string): Promise<AuthUser> {
+    return (await requestJson<{ user: AuthUser }>(
+      '/api/auth/bootstrap',
+      json('POST', { username, password }),
+      false
+    )).user
+  },
+
+  async login(username: string, password: string): Promise<AuthUser> {
+    return (await requestJson<{ user: AuthUser }>(
+      '/api/auth/login',
+      json('POST', { username, password }),
+      false
+    )).user
+  },
+
+  async logout(): Promise<void> {
+    return requestVoid('/api/auth/logout', json('POST'))
+  },
+
+  async changePassword(currentPassword: string, newPassword: string): Promise<void> {
+    return requestVoid('/api/auth/password', json('POST', { currentPassword, newPassword }))
+  },
+
+  async users(): Promise<ManagedUser[]> {
+    return (await getJson<{ users: ManagedUser[] }>('/api/users')).users
+  },
+
+  async createUser(username: string, password: string, role: UserRole): Promise<ManagedUser> {
+    return (await requestJson<{ user: ManagedUser }>(
+      '/api/users',
+      json('POST', { username, password, role })
+    )).user
+  },
+
+  async setUserDisabled(id: string, disabled: boolean): Promise<void> {
+    return requestVoid(`/api/users/${encodeURIComponent(id)}`, json('PATCH', { disabled }))
+  },
+
+  async resetUserPassword(id: string, password: string): Promise<void> {
+    return requestVoid(`/api/users/${encodeURIComponent(id)}/password`, json('POST', { password }))
   }
 }

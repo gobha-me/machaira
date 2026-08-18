@@ -20,7 +20,7 @@ search, and personal journaling.
 | **Search** | Real SWORD full-text search (word / phrase) across installed modules. |
 | **Library** | Browse CrossWire repositories, install modules with live progress, and uninstall. This is the downloader that feeds every other screen. |
 | **Journal** | Personal notes with tags, stored locally in the browser and exportable as Markdown + JSON. |
-| **Settings** | Paper/Ink themes, accent colour, scripture text scale, reading toggles — all persisted. |
+| **Settings** | Account administration plus Paper/Ink themes, accent colour, scripture text scale, and reading toggles. |
 
 Features that are intentionally deferred (LLM study-partner chat, semantic "by meaning"
 ranking, the connections graph) are present in the UI as clearly disabled states. See the
@@ -40,6 +40,9 @@ machaira/
   (a native binding to CrossWire's `libsword`) and exposes a small JSON API: list/install/remove
   modules, read chapters, compare verses, look up Strong's entries, and search. The native engine
   is not reentrant, so all access is serialized through a mutex.
+- The server also owns authentication: users and revocable sessions live in SQLite, passwords are
+  hashed with Argon2id, and future provider credentials have an AES-256-GCM encrypted per-user
+  store whose key remains outside the database.
 - **`client/`** is a single-page app that talks to the server over `/api` (proxied in dev).
   Reading/study data comes from the server; personal notes and highlights live in the browser via
   IndexedDB.
@@ -65,10 +68,16 @@ CrossWire modules can't be fetched directly from a browser (no CORS, and they sh
 
 ```sh
 npm install            # installs both workspaces; compiles libsword (first run is slow)
+export MACHAIRA_SECRET_KEY="$(openssl rand -base64 32)"
 npm run dev            # runs server (:5274) and client (:5273) together
 ```
 
 Then open **http://localhost:5273**.
+
+On a new database, the login screen asks you to create the first administrator. Public sign-up is
+then closed; that administrator can provision or disable additional accounts from Settings. Keep
+`MACHAIRA_SECRET_KEY` stable across restarts — losing it makes encrypted provider credentials
+unrecoverable.
 
 To run the halves separately:
 
@@ -86,8 +95,20 @@ npm run dev:client     # Vite on :5273, proxies /api -> :5274
 
 - **SWORD modules** are downloaded to `server/data/sword/` (gitignored) — the "everything on your
   machine" install root.
+- **Accounts, sessions, and encrypted secrets** live in `server/data/machaira.sqlite` by default.
+  Stop the server before copying the SQLite file for a simple consistent backup.
 - **Notes, highlights, and settings** are personal and stay in the browser (IndexedDB). Export
   them as Markdown + JSON from Settings.
+
+### Server configuration
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PORT` | `5274` | Fastify listen port. |
+| `MACHAIRA_DB_PATH` | `server/data/machaira.sqlite` | SQLite database path. |
+| `MACHAIRA_SECRET_KEY` | required | Base64-encoded 32-byte encryption key; generate with `openssl rand -base64 32`. |
+| `MACHAIRA_ORIGIN` | same-origin only | Exact browser origin allowed for cross-origin API requests. |
+| `NODE_ENV` | development | Set to `production` to mark the session cookie `Secure`. |
 
 ## Roadmap
 

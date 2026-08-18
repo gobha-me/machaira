@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, watchEffect } from 'vue'
+import { computed, onMounted, onUnmounted, watch, watchEffect } from 'vue'
+import { useAuth } from './stores/auth'
 import { useSettings } from './stores/settings'
 import { useUi } from './stores/ui'
 import { useReadingPlan } from './stores/readingPlan'
@@ -12,7 +13,9 @@ import SearchScreen from './screens/SearchScreen.vue'
 import LibraryScreen from './screens/LibraryScreen.vue'
 import JournalScreen from './screens/JournalScreen.vue'
 import SettingsScreen from './screens/SettingsScreen.vue'
+import AuthScreen from './components/AuthScreen.vue'
 
+const auth = useAuth()
 const settings = useSettings()
 const ui = useUi()
 const readingPlan = useReadingPlan()
@@ -50,13 +53,24 @@ function onKey(e: KeyboardEvent) {
 }
 onMounted(() => {
   window.addEventListener('keydown', onKey)
-  readingPlan.load()
+  auth.initialize()
 })
 onUnmounted(() => window.removeEventListener('keydown', onKey))
+
+watch(
+  () => auth.authenticated,
+  (authenticated) => {
+    if (authenticated) readingPlan.load()
+  }
+)
 </script>
 
 <template>
-  <div class="app-root">
+  <div v-if="auth.state === 'loading'" class="loading-page">
+    <div class="loading-mark"></div>
+  </div>
+  <AuthScreen v-else-if="!auth.authenticated" />
+  <div v-else class="app-root">
     <RailNav />
     <main class="app-main">
       <component :is="activeScreen" />
@@ -80,4 +94,18 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
   flex-direction: column;
   overflow: hidden;
 }
+.loading-page {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  background: var(--paper);
+}
+.loading-mark {
+  width: 10px;
+  height: 10px;
+  background: var(--accent);
+  transform: rotate(45deg);
+  animation: pulse 1s ease-in-out infinite alternate;
+}
+@keyframes pulse { to { opacity: 0.35; } }
 </style>
