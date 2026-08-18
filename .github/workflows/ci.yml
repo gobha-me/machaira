@@ -40,5 +40,9 @@ jobs:
         working-directory: server
         run: npx tsc --noEmit
 
+      - name: Test server
+        working-directory: server
+        run: npm test
+
       - name: Build
         run: npm run build

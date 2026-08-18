@@ -12,6 +12,7 @@ import PassageActions from '../components/PassageActions.vue'
 import StrongsCard from '../components/StrongsCard.vue'
 import CommentaryPanel from '../components/CommentaryPanel.vue'
 import ComparePanel from '../components/ComparePanel.vue'
+import CrossReferencesPanel from '../components/CrossReferencesPanel.vue'
 
 const reader = useReader()
 const ui = useUi()
@@ -53,6 +54,7 @@ const {
 const compareBoxEl = ref<HTMLElement | null>(null)
 const strongsBoxEl = ref<HTMLElement | null>(null)
 const commentaryBoxEl = ref<HTMLElement | null>(null)
+const crossReferencesBoxEl = ref<HTMLElement | null>(null)
 
 onMounted(async () => {
   notesStore.load()
@@ -77,6 +79,9 @@ const {
   menuOpen,
   selectionLabel,
   selectionHighlighted,
+  selectionCrossReferences,
+  crossReferencesAvailable,
+  crossReferencesReason,
   verseOpacity,
   verseBg,
   onVerseClick,
@@ -110,6 +115,10 @@ function menuCompare() {
 }
 function menuCommentary() {
   commentaryBoxEl.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  dismiss()
+}
+function menuCrossReferences() {
+  crossReferencesBoxEl.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
   dismiss()
 }
 function menuHighlight() {
@@ -163,6 +172,18 @@ function menuNote() {
         <div ref="commentaryBoxEl">
           <div class="section-label">Commentary</div>
           <CommentaryPanel variant="page" />
+        </div>
+
+        <!-- Cross-references (real embedded notes from the active translation) -->
+        <div ref="crossReferencesBoxEl">
+          <div class="section-label">Cross-references</div>
+          <CrossReferencesPanel
+            variant="page"
+            :entries="selectionCrossReferences"
+            :module-name="reader.moduleName ?? ''"
+            :ref-label="selectionLabel"
+            :empty-reason="crossReferencesReason"
+          />
         </div>
 
         <!-- Word study (tap a word in the passage below) -->
@@ -269,10 +290,12 @@ function menuNote() {
       :ref-label="selectionLabel"
       :highlighted="selectionHighlighted"
       :pos="menuPos"
+      :cross-references-available="crossReferencesAvailable"
+      :cross-references-reason="crossReferencesReason"
       @word-study="menuWordStudy"
       @compare="menuCompare"
       @commentary="menuCommentary"
-      @cross-refs="ui.go('search')"
+      @cross-refs="menuCrossReferences"
       @highlight="menuHighlight"
       @note="menuNote"
     />
