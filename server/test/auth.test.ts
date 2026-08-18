@@ -193,9 +193,11 @@ describe('authentication storage', () => {
 
       const secrets = new SecretStore(db, key)
       secrets.set(user.id, 'provider-token', 'super-secret-provider-token')
+      assert.equal(secrets.has(user.id, 'provider-token'), true)
       assert.equal(secrets.get(user.id, 'provider-token'), 'super-secret-provider-token')
       assert.equal(secrets.get(user.id, 'missing'), null)
       secrets.remove(user.id, 'provider-token')
+      assert.equal(secrets.has(user.id, 'provider-token'), false)
       assert.equal(secrets.get(user.id, 'provider-token'), null)
     } finally {
       db.close()

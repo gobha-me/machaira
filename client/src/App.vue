@@ -6,6 +6,7 @@ import { useUi } from './stores/ui'
 import { useReadingPlan } from './stores/readingPlan'
 import { useNotes } from './stores/notes'
 import { useReader } from './stores/reader'
+import { useAiProvider } from './stores/aiProvider'
 import { applyVars } from './theme'
 import RailNav from './components/RailNav.vue'
 import ReadScreen from './screens/ReadScreen.vue'
@@ -23,6 +24,7 @@ const ui = useUi()
 const readingPlan = useReadingPlan()
 const notes = useNotes()
 const reader = useReader()
+const aiProvider = useAiProvider()
 const personalLoading = ref(false)
 const personalReady = ref(false)
 const personalError = ref<string | null>(null)
@@ -71,7 +73,7 @@ async function loadPersonalData(userId: string): Promise<void> {
   personalReady.value = false
   personalError.value = null
   try {
-    await Promise.all([notes.load(), reader.loadHighlights(), readingPlan.load()])
+    await Promise.all([notes.load(), reader.loadHighlights(), readingPlan.load(), aiProvider.load()])
     if (generation === personalLoadGeneration && auth.user?.id === userId) {
       personalReady.value = true
     }
@@ -94,6 +96,7 @@ watch(
     personalLoadGeneration += 1
     notes.resetPersonalData()
     reader.resetPersonalData()
+    aiProvider.reset()
     personalReady.value = false
     personalError.value = null
     if (userId) void loadPersonalData(userId)
@@ -109,7 +112,7 @@ watch(
   <AuthScreen v-else-if="!auth.authenticated" />
   <div v-else-if="personalError || !personalReady" class="personal-error-page">
     <div class="personal-error-card">
-      <h1>Couldn’t load your journal</h1>
+      <h1>Couldn’t load your account data</h1>
       <p>{{ personalError ?? 'Personal data is not ready yet.' }}</p>
       <button @click="retryPersonalData">Try again</button>
     </div>

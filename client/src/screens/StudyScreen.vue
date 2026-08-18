@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useReader } from '../stores/reader'
 import { useUi } from '../stores/ui'
+import { useSettings } from '../stores/settings'
+import { useAiProvider } from '../stores/aiProvider'
+import { api, type ChatMessage } from '../services/api'
 import { useCompare } from '../composables/useCompare'
 import { useWordStudy } from '../composables/useWordStudy'
 import { useNotes } from '../composables/useNotes'
@@ -15,6 +18,8 @@ import CrossReferencesPanel from '../components/CrossReferencesPanel.vue'
 
 const reader = useReader()
 const ui = useUi()
+const settings = useSettings()
+const aiProvider = useAiProvider()
 
 const {
   focus,
@@ -53,11 +58,94 @@ const compareBoxEl = ref<HTMLElement | null>(null)
 const strongsBoxEl = ref<HTMLElement | null>(null)
 const commentaryBoxEl = ref<HTMLElement | null>(null)
 const crossReferencesBoxEl = ref<HTMLElement | null>(null)
+const partnerBodyEl = ref<HTMLElement | null>(null)
+const chatDraft = ref('')
+const chatMessages = ref<ChatMessage[]>([])
+const chatError = ref<string | null>(null)
+const sending = ref(false)
+let chatAbort: AbortController | null = null
+
+const passageContext = computed(() => {
+  const verses = (reader.data?.verses ?? [])
+    .filter((verse) => verse.n >= focus.value && verse.n <= focusEnd.value)
+  return {
+    reference: `${reader.bookName} ${reader.chapter}:${focusLabel.value}`,
+    module: reader.moduleName ?? '',
+    content: verses.map((verse) => `${verse.n}. ${verse.text}`).join('\n')
+  }
+})
 
 onMounted(async () => {
   if (!reader.ready) await reader.init()
+  if (!aiProvider.ready) await aiProvider.load().catch(() => undefined)
   syncFromSelection()
 })
+onBeforeUnmount(() => chatAbort?.abort())
+
+async function scrollChat(): Promise<void> {
+  await nextTick()
+  if (partnerBodyEl.value) partnerBodyEl.value.scrollTop = partnerBodyEl.value.scrollHeight
+}
+
+async function sendChat(): Promise<void> {
+  const content = chatDraft.value.trim()
+  if (!content || sending.value || !aiProvider.provider || !passageContext.value.content) return
+  chatDraft.value = ''
+  chatError.value = null
+  chatMessages.value.push({ role: 'user', content })
+  // Keep an odd number so the retained window begins and ends with a user turn.
+  const requestMessages = chatMessages.value.slice(-19).map((message) => ({ ...message }))
+  const response: ChatMessage = { role: 'assistant', content: '' }
+  let receivedText = false
+  chatMessages.value.push(response)
+  sending.value = true
+  chatAbort = new AbortController()
+  await scrollChat()
+  try {
+    await api.streamChat({
+      passage: passageContext.value,
+      messages: requestMessages,
+      preferences: {
+        alwaysCite: settings.alwaysCite,
+        drawApocrypha: settings.drawApocrypha
+      }
+    }, (delta) => {
+      const activeResponse = chatMessages.value.at(-1)
+      if (activeResponse?.role === 'assistant') {
+        activeResponse.content += delta
+        receivedText = true
+      }
+      void scrollChat()
+    }, chatAbort.signal)
+  } catch (error) {
+    if ((error as Error).name !== 'AbortError') chatError.value = (error as Error).message
+    if (!receivedText) chatMessages.value.pop()
+  } finally {
+    sending.value = false
+    chatAbort = null
+    await scrollChat()
+  }
+}
+
+function cancelChat(): void {
+  chatAbort?.abort()
+}
+
+function clearChat(): void {
+  if (sending.value) return
+  chatMessages.value = []
+  chatError.value = null
+}
+
+async function retryChat(): Promise<void> {
+  if (sending.value) return
+  const lastUser = chatMessages.value.map((message) => message.role).lastIndexOf('user')
+  if (lastUser < 0) return
+  const content = chatMessages.value[lastUser].content
+  chatMessages.value.splice(lastUser)
+  chatDraft.value = content
+  await sendChat()
+}
 
 // Tapping a word brings its verse forward (compare follows the selection) and looks it up.
 // Selecting only when the verse sits outside the current selection avoids selectVerse's
@@ -259,16 +347,20 @@ function menuNote() {
       </div>
     </div>
 
-    <!-- right: study partner (honest disabled) -->
+    <!-- right: study partner -->
     <div class="partner">
       <div class="topbar">
         <div class="mark"></div>
         <span class="ptitle">Study partner</span>
         <div class="spacer"></div>
-        <span class="sub">not connected</span>
+        <button v-if="chatMessages.length" class="clear-chat" :disabled="sending" @click="clearChat">Clear</button>
+        <span class="sub">{{ aiProvider.provider?.model ?? 'not connected' }}</span>
       </div>
-      <div class="partner-body">
-        <div class="disabled-note">
+      <div ref="partnerBodyEl" class="partner-body" :class="{ chatting: chatMessages.length }">
+        <div v-if="aiProvider.loading && !aiProvider.ready" class="disabled-note">
+          <div class="dn-title serif">Connecting…</div>
+        </div>
+        <div v-else-if="!aiProvider.provider" class="disabled-note">
           <div class="dn-title serif">Bring your own model</div>
           <p>
             The study partner talks to an LLM — any OpenAI-compatible endpoint, Claude, or a local
@@ -276,11 +368,34 @@ function menuNote() {
           </p>
           <button class="dn-btn" @click="ui.go('settings')">Open Settings →</button>
         </div>
+        <div v-else-if="!chatMessages.length" class="disabled-note">
+          <div class="dn-title serif">Ask about this passage</div>
+          <p>
+            {{ passageContext.reference }} from {{ passageContext.module }} is included as context.
+            Conversation history stays in this browser tab only.
+          </p>
+        </div>
+        <div v-else class="messages" aria-live="polite">
+          <div class="context-chip">Context · {{ passageContext.reference }} · {{ passageContext.module }}</div>
+          <div v-for="(message, index) in chatMessages" :key="index" class="message" :class="message.role">
+            <div class="message-role">{{ message.role === 'user' ? 'You' : 'Study partner' }}</div>
+            <div class="message-content">{{ message.content }}<span v-if="sending && index === chatMessages.length - 1" class="stream-cursor"></span></div>
+          </div>
+          <div v-if="chatError" class="chat-error">
+            <span>{{ chatError }}</span>
+            <button @click="retryChat">Retry</button>
+          </div>
+        </div>
       </div>
-      <div class="composer">
-        <input disabled placeholder="Connect a provider in Settings to chat" />
-        <button disabled class="send">→</button>
-      </div>
+      <form class="composer" @submit.prevent="sendChat">
+        <input
+          v-model="chatDraft"
+          :disabled="!aiProvider.provider || sending"
+          :placeholder="aiProvider.provider ? `Ask about ${passageContext.reference}` : 'Connect a provider in Settings to chat'"
+        />
+        <button v-if="sending" type="button" class="send cancel" title="Stop response" @click="cancelChat">■</button>
+        <button v-else type="submit" class="send" :disabled="!aiProvider.provider || !chatDraft.trim() || !passageContext.content">→</button>
+      </form>
     </div>
 
     <PassageActions
@@ -552,6 +667,18 @@ function menuNote() {
   align-items: center;
   justify-content: center;
 }
+.partner-body.chatting {
+  display: block;
+  padding: 18px 16px 28px;
+}
+.clear-chat {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 11px;
+}
+.clear-chat:disabled { opacity: 0.45; cursor: default; }
 .disabled-note {
   text-align: center;
   max-width: 300px;
@@ -575,6 +702,65 @@ function menuNote() {
   font-size: 12.5px;
   font-weight: 600;
   cursor: pointer;
+}
+.messages { display: flex; flex-direction: column; gap: 16px; }
+.context-chip {
+  align-self: center;
+  max-width: 100%;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 10.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.message { max-width: 92%; }
+.message.user {
+  align-self: flex-end;
+  background: var(--soft);
+  border-radius: 12px 12px 3px 12px;
+  padding: 10px 12px;
+}
+.message.assistant { align-self: flex-start; }
+.message-role {
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.message-content {
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.stream-cursor {
+  display: inline-block;
+  width: 6px;
+  height: 12px;
+  margin-left: 2px;
+  background: var(--accent);
+  animation: pulse 0.8s ease-in-out infinite alternate;
+}
+.chat-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent);
+  font-size: 12px;
+}
+.chat-error button {
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: none;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 4px 8px;
 }
 .composer {
   flex-shrink: 0;
@@ -603,8 +789,10 @@ function menuNote() {
   color: var(--on-accent);
   border: none;
   font-size: 16px;
-  opacity: 0.5;
+  cursor: pointer;
 }
+.send.cancel { font-size: 11px; }
+.send:disabled { opacity: 0.5; }
 .composer input:disabled,
 .send:disabled {
   cursor: not-allowed;
