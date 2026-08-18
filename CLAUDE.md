@@ -30,7 +30,8 @@ npm workspaces: `client/` (Vue 3 + Vite + TS) and `server/` (Fastify + TS, ESM).
   + all public API.
 - `server/src/app.ts` — testable Fastify app factory; `auth.ts` + `database.ts` own users,
   sessions, and SQLite migrations. `secrets.ts` is the server-only encrypted secret store.
-- `server/src/routes/` — `auth.ts` (bootstrap/login/account administration), `sources.ts`
+- `server/src/routes/` — `auth.ts` (bootstrap/login/account administration), `personal-data.ts`
+  (per-user notes/highlights and legacy import), `sources.ts`
   (repos, install/uninstall via SSE), `read.ts`
   (books, chapter), `study.ts` (compare, strongs, search).
 - `server/src/text.ts` — SWORD markup handling (`stripMarkup`, `parseVerseMarkup`).
@@ -59,6 +60,9 @@ npm workspaces: `client/` (Vue 3 + Vite + TS) and `server/` (Fastify + TS, ESM).
   provider secrets to the client.
 - **`MACHAIRA_SECRET_KEY` is required and external.** It is a base64 32-byte AES-GCM key. Keep it
   stable and out of the database/repository; user-secret ciphertext is bound to its user + name.
+- **Personal data is server-owned and user-scoped.** Every notes/highlights query includes the
+  authenticated user ID. Legacy IndexedDB data is only imported after explicit account-specific
+  confirmation and never overwrites an existing server record.
 
 ## Conventions
 
@@ -67,12 +71,12 @@ npm workspaces: `client/` (Vue 3 + Vite + TS) and `server/` (Fastify + TS, ESM).
   never fabricated content. This is a hard product rule.
 - **License: GPL-2.0-or-later** (matches libsword / the SWORD family). Keep new files
   compatible.
-- User accounts and sessions live in server-side SQLite. Notes/highlights/journal still live in
-  **IndexedDB** on the client, exportable as
-  Markdown + JSON. (Server-side per-user persistence is a roadmap item — see issues.)
+- User accounts, sessions, notes, and highlights live in server-side SQLite. Reading-plan progress
+  and settings remain browser-local; legacy IndexedDB notes/highlights are retained as a
+  non-destructive import source. Journal data remains exportable as Markdown + JSON.
 - TypeScript throughout; server is ESM (note the `.js` import specifiers).
 
 ## Roadmap
 
 Tracked as GitHub issues (labels `roadmap`, `phase-1-hosting`, etc.). Phase 1 is
-self-hosting: auth, server-side persistence, containerization/k8s.
+self-hosting: auth and server-side persistence are complete; containerization/k8s is next.

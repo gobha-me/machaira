@@ -1,20 +1,7 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
+import type { Highlight, Note } from './api'
 
-export interface Note {
-  id: string
-  title: string
-  body: string
-  tags: string[]
-  refs: string[] // e.g. "John 1:4–5 · WEB"
-  createdAt: number
-  updatedAt: number
-}
-
-export interface Highlight {
-  // key is `${module}/${book}/${chapter}/${verse}`
-  key: string
-  color: string
-}
+export type { Highlight, Note } from './api'
 
 export interface PlanRecord {
   id: 'plan' // single-record store
@@ -52,7 +39,7 @@ function db(): Promise<IDBPDatabase<SwordDB>> {
   return dbp
 }
 
-export const notesDb = {
+const notesDb = {
   async all(): Promise<Note[]> {
     const d = await db()
     const notes = await d.getAllFromIndex('notes', 'by-updated')
@@ -69,7 +56,7 @@ export const notesDb = {
   }
 }
 
-export const highlightsDb = {
+const highlightsDb = {
   async all(): Promise<Highlight[]> {
     return (await db()).getAll('highlights')
   },
@@ -90,14 +77,26 @@ export const readingPlanDb = {
   }
 }
 
-export function newId(): string {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+const IMPORT_KEY_PREFIX = 'sword.personal-data-imported.v1.'
+
+export async function legacyPersonalData(): Promise<{ notes: Note[]; highlights: Highlight[] }> {
+  const [notes, highlights] = await Promise.all([notesDb.all(), highlightsDb.all()])
+  return { notes, highlights }
+}
+
+export function legacyImportComplete(userId: string): boolean {
+  return localStorage.getItem(`${IMPORT_KEY_PREFIX}${userId}`) === 'true'
+}
+
+export function markLegacyImportComplete(userId: string): void {
+  localStorage.setItem(`${IMPORT_KEY_PREFIX}${userId}`, 'true')
 }
 
 // Export everything as portable Markdown + JSON (design's "Export everything").
-export async function exportAll(): Promise<{ markdown: string; json: string }> {
-  const notes = await notesDb.all()
-  const highlights = await highlightsDb.all()
+export async function exportAll(
+  notes: Note[],
+  highlights: Highlight[]
+): Promise<{ markdown: string; json: string }> {
   const readingPlan = (await readingPlanDb.get()) ?? null
   const json = JSON.stringify({ notes, highlights, readingPlan, exportedAt: Date.now() }, null, 2)
   const markdown = notes

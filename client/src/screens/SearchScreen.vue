@@ -3,12 +3,13 @@ import { computed, onMounted, ref } from 'vue'
 import { useReader } from '../stores/reader'
 import { useLibrary } from '../stores/library'
 import { useUi } from '../stores/ui'
-import { api, type SearchHit } from '../services/api'
-import { notesDb, type Note } from '../services/db'
+import { useNotes } from '../stores/notes'
+import { api, type Note, type SearchHit } from '../services/api'
 
 const reader = useReader()
 const lib = useLibrary()
 const ui = useUi()
+const notes = useNotes()
 
 const SCOPES = ['Everything', 'Scripture', 'Apocrypha', 'Notes & journal'] as const
 type Scope = (typeof SCOPES)[number]
@@ -66,7 +67,7 @@ async function run() {
 }
 
 async function searchNotes(query: string): Promise<Note[]> {
-  const all = await notesDb.all()
+  const all = notes.list
   const needle = query.toLowerCase()
   return all.filter(
     (n) =>
@@ -74,6 +75,11 @@ async function searchNotes(query: string): Promise<Note[]> {
       n.body.toLowerCase().includes(needle) ||
       n.tags.some((t) => t.toLowerCase().includes(needle))
   )
+}
+
+function openNote(id: string) {
+  notes.select(id)
+  ui.go('journal')
 }
 
 function openHit(h: SearchHit) {
@@ -158,7 +164,7 @@ const resultCount = computed(() => scriptureHits.value.length + (showNotes.value
             v-for="n in (showNotes ? noteHits : [])"
             :key="n.id"
             class="result note-result hover-line"
-            @click="ui.go('journal')"
+            @click="openNote(n.id)"
           >
             <div class="result-head">
               <span class="rref">{{ n.title }}</span>

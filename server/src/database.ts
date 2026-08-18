@@ -2,7 +2,7 @@ import Database from 'better-sqlite3'
 import { chmodSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 
-const SCHEMA_VERSION = 1
+const SCHEMA_VERSION = 2
 
 export type MachairaDatabase = Database.Database
 
@@ -58,7 +58,36 @@ export function openDatabase(filename: string): MachairaDatabase {
         );
       `)
       db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)')
-        .run(SCHEMA_VERSION, Date.now())
+        .run(1, Date.now())
+    })()
+  }
+
+  if (current.version < 2) {
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE notes (
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          id TEXT NOT NULL,
+          title TEXT NOT NULL,
+          body TEXT NOT NULL,
+          tags_json TEXT NOT NULL,
+          refs_json TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY (user_id, id)
+        );
+
+        CREATE INDEX notes_by_user_updated ON notes(user_id, updated_at DESC);
+
+        CREATE TABLE highlights (
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          key TEXT NOT NULL,
+          color TEXT NOT NULL,
+          PRIMARY KEY (user_id, key)
+        );
+      `)
+      db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)')
+        .run(2, Date.now())
     })()
   }
 

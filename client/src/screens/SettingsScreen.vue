@@ -1,17 +1,39 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useSettings } from '../stores/settings'
 import { useReadingPlan } from '../stores/readingPlan'
 import { useReader } from '../stores/reader'
+import { useNotes } from '../stores/notes'
+import { useAuth } from '../stores/auth'
 import { ACCENTS } from '../theme'
-import { exportAll } from '../services/db'
+import {
+  exportAll,
+  legacyImportComplete,
+  legacyPersonalData,
+  markLegacyImportComplete
+} from '../services/db'
+import { api, type Highlight, type Note } from '../services/api'
 import Toggle from '../components/ui/Toggle.vue'
 import AccountSettings from '../components/AccountSettings.vue'
 
 const settings = useSettings()
 const readingPlan = useReadingPlan()
 const reader = useReader()
+const notes = useNotes()
+const auth = useAuth()
 const exporting = ref(false)
+const importing = ref(false)
+const importDone = ref(false)
+const importMessage = ref('')
+const legacyNotes = ref<Note[]>([])
+const legacyHighlights = ref<Highlight[]>([])
+
+onMounted(async () => {
+  const legacy = await legacyPersonalData()
+  legacyNotes.value = legacy.notes
+  legacyHighlights.value = legacy.highlights
+  if (auth.user) importDone.value = legacyImportComplete(auth.user.id)
+})
 
 function resetPlan() {
   if (window.confirm('Reset reading-plan progress? This restarts the plan from today.')) {
@@ -22,11 +44,37 @@ function resetPlan() {
 async function doExport() {
   exporting.value = true
   try {
-    const { markdown, json } = await exportAll()
+    const highlights = Object.entries(reader.highlights).map(([key, color]) => ({ key, color }))
+    const { markdown, json } = await exportAll(notes.list, highlights)
     download('sword-journal.md', markdown, 'text/markdown')
     download('sword-journal.json', json, 'application/json')
   } finally {
     exporting.value = false
+  }
+}
+
+async function importLegacyData() {
+  if (!auth.user || importDone.value) return
+  const noteCount = legacyNotes.value.length
+  const highlightCount = legacyHighlights.value.length
+  const confirmed = window.confirm(
+    `Import ${noteCount} browser note${noteCount === 1 ? '' : 's'} and `
+      + `${highlightCount} highlight${highlightCount === 1 ? '' : 's'} into ${auth.user.username}? `
+      + 'Existing server records will not be overwritten.'
+  )
+  if (!confirmed) return
+  importing.value = true
+  importMessage.value = ''
+  try {
+    const result = await api.importPersonalData(legacyNotes.value, legacyHighlights.value)
+    markLegacyImportComplete(auth.user.id)
+    importDone.value = true
+    importMessage.value = `Imported ${result.notesImported} notes and ${result.highlightsImported} highlights`
+    await Promise.all([notes.load(), reader.loadHighlights()])
+  } catch (error) {
+    importMessage.value = `Import failed: ${(error as Error).message}`
+  } finally {
+    importing.value = false
   }
 }
 
@@ -287,6 +335,27 @@ function download(filename: string, content: string, type: string) {
           </div>
           <div class="spacer"></div>
           <span class="pill disabled">Coming soon</span>
+        </div>
+        <div
+          v-if="legacyNotes.length || legacyHighlights.length"
+          class="row bordered"
+        >
+          <div class="row-text">
+            <div class="row-title">Legacy browser data</div>
+            <div class="row-sub">
+              {{ legacyNotes.length }} notes and {{ legacyHighlights.length }} highlights found in this browser.
+              <template v-if="importMessage"> {{ importMessage }}.</template>
+              <template v-else-if="importDone"> Already imported for {{ auth.user?.username }}.</template>
+            </div>
+          </div>
+          <div class="spacer"></div>
+          <button
+            class="pill action hover-line"
+            :disabled="importing || importDone"
+            @click="importLegacyData"
+          >
+            {{ importing ? 'Importing…' : importDone ? 'Imported' : `Import into ${auth.user?.username}` }}
+          </button>
         </div>
         <div class="row">
           <div class="row-text">

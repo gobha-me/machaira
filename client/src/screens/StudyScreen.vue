@@ -2,7 +2,6 @@
 import { onMounted, ref } from 'vue'
 import { useReader } from '../stores/reader'
 import { useUi } from '../stores/ui'
-import { useNotes as useNotesStore } from '../stores/notes'
 import { useCompare } from '../composables/useCompare'
 import { useWordStudy } from '../composables/useWordStudy'
 import { useNotes } from '../composables/useNotes'
@@ -16,7 +15,6 @@ import CrossReferencesPanel from '../components/CrossReferencesPanel.vue'
 
 const reader = useReader()
 const ui = useUi()
-const notesStore = useNotesStore()
 
 const {
   focus,
@@ -57,7 +55,6 @@ const commentaryBoxEl = ref<HTMLElement | null>(null)
 const crossReferencesBoxEl = ref<HTMLElement | null>(null)
 
 onMounted(async () => {
-  notesStore.load()
   if (!reader.ready) await reader.init()
   syncFromSelection()
 })
@@ -223,6 +220,7 @@ function menuNote() {
             ></template><template v-else
             >{{ segLead(seg.text, i) + seg.text }}</template></template>{{ ' ' }}</span>
         </div>
+        <p v-if="reader.highlightError" class="error">{{ reader.highlightError }}</p>
 
         <!-- Notes: shared capability, anchored to the focused passage -->
         <div class="section-label">
