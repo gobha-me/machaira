@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { api, type BookEntry, type ChapterPayload } from '../services/api'
 import { highlightsDb } from '../services/db'
+import { formatPassageRef } from '../utils/passageRef'
 import { useLibrary } from './library'
 import { useSettings } from './settings'
 
@@ -74,24 +75,41 @@ export const useReader = defineStore('reader', {
     bookName(): string {
       return this.currentBook?.name ?? this.book ?? ''
     },
+    selectionBounds(state): { lo: number; hi: number } | null {
+      if (state.selectedVerse == null) return null
+      const end = state.rangeEnd ?? state.selectedVerse
+      return {
+        lo: Math.min(state.selectedVerse, end),
+        hi: Math.max(state.selectedVerse, end)
+      }
+    },
+    selectionRef(): string {
+      if (!this.book) return ''
+      return formatPassageRef({
+        book: this.bookName,
+        chapter: this.chapter,
+        verseStart: this.selectionBounds?.lo,
+        verseEnd: this.selectionBounds?.hi
+      })
+    },
     currentRef(): string {
       if (!this.book) return ''
-      const base = `${this.bookName} ${this.chapter}`
-      if (this.selectedVerse == null) return `${base} · ${this.moduleName}`
-      const end = this.rangeEnd ?? this.selectedVerse
-      const lo = Math.min(this.selectedVerse, end)
-      const hi = Math.max(this.selectedVerse, end)
-      const versePart = lo === hi ? `${lo}` : `${lo}–${hi}`
-      return `${base}:${versePart} · ${this.moduleName}`
+      return formatPassageRef({
+        book: this.bookName,
+        chapter: this.chapter,
+        verseStart: this.selectionBounds?.lo,
+        verseEnd: this.selectionBounds?.hi,
+        moduleName: this.moduleName
+      })
     },
     // Verse numbers covered by the current selection: the range [anchor..rangeEnd]
     // intersected with the chapter's actual verses. Empty when nothing is selected.
     selectedVerses(state): number[] {
-      if (state.selectedVerse == null) return []
-      const end = state.rangeEnd ?? state.selectedVerse
-      const lo = Math.min(state.selectedVerse, end)
-      const hi = Math.max(state.selectedVerse, end)
-      const inRange = (state.data?.verses ?? []).map((v) => v.n).filter((n) => n >= lo && n <= hi)
+      const bounds = this.selectionBounds
+      if (!bounds || state.selectedVerse == null) return []
+      const inRange = (state.data?.verses ?? [])
+        .map((v) => v.n)
+        .filter((n) => n >= bounds.lo && n <= bounds.hi)
       return inRange.length ? inRange : [state.selectedVerse]
     },
     hasRange(state): boolean {

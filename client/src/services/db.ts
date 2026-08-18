@@ -5,7 +5,7 @@ export interface Note {
   title: string
   body: string
   tags: string[]
-  refs: string[] // e.g. "John 1:4-5 · WEB"
+  refs: string[] // e.g. "John 1:4–5 · WEB"
   createdAt: number
   updatedAt: number
 }

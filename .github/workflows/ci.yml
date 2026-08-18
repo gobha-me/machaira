@@ -32,6 +32,10 @@ jobs:
         working-directory: client
         run: npx vue-tsc --noEmit
 
+      - name: Test client
+        working-directory: client
+        run: npm test
+
       - name: Typecheck server
         working-directory: server
         run: npx tsc --noEmit
