@@ -25,10 +25,7 @@ export function usePassageMenu(opts: UsePassageMenuOptions = {}) {
 
   const selectionLabel = computed(() => {
     if (reader.selectedVerse == null) return ''
-    const vs = reader.selectedVerses
-    const lo = vs[0]
-    const hi = vs[vs.length - 1]
-    return `${reader.bookName} ${reader.chapter}:${lo === hi ? lo : `${lo}–${hi}`}`
+    return reader.selectionRef
   })
 
   const selectionHighlighted = computed(
