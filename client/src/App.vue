@@ -7,6 +7,7 @@ import { useReadingPlan } from './stores/readingPlan'
 import { useNotes } from './stores/notes'
 import { useReader } from './stores/reader'
 import { useAiProvider } from './stores/aiProvider'
+import { useSemanticIndex } from './stores/semanticIndex'
 import { applyVars } from './theme'
 import RailNav from './components/RailNav.vue'
 import ReadScreen from './screens/ReadScreen.vue'
@@ -25,6 +26,7 @@ const readingPlan = useReadingPlan()
 const notes = useNotes()
 const reader = useReader()
 const aiProvider = useAiProvider()
+const semanticIndex = useSemanticIndex()
 const personalLoading = ref(false)
 const personalReady = ref(false)
 const personalError = ref<string | null>(null)
@@ -73,7 +75,9 @@ async function loadPersonalData(userId: string): Promise<void> {
   personalReady.value = false
   personalError.value = null
   try {
-    await Promise.all([notes.load(), reader.loadHighlights(), readingPlan.load(), aiProvider.load()])
+    await Promise.all([
+      notes.load(), reader.loadHighlights(), readingPlan.load(), aiProvider.load(), semanticIndex.load()
+    ])
     if (generation === personalLoadGeneration && auth.user?.id === userId) {
       personalReady.value = true
     }
@@ -97,6 +101,7 @@ watch(
     notes.resetPersonalData()
     reader.resetPersonalData()
     aiProvider.reset()
+    semanticIndex.reset()
     personalReady.value = false
     personalError.value = null
     if (userId) void loadPersonalData(userId)

@@ -95,6 +95,10 @@ export interface SearchHit {
   content: string
 }
 
+export interface SemanticSearchHit extends SearchHit {
+  distance: number
+}
+
 export interface Note {
   id: string
   title: string
@@ -144,6 +148,24 @@ export interface AiProviderConfig {
   hasApiKey: boolean
 }
 
+export type EmbeddingProviderKind = 'openai-compatible' | 'local'
+
+export interface EmbeddingProviderConfig {
+  kind: EmbeddingProviderKind
+  baseUrl: string
+  model: string
+  hasApiKey: boolean
+}
+
+export interface SemanticIndexStatus {
+  state: 'unconfigured' | 'empty' | 'building' | 'ready' | 'stale' | 'failed'
+  chunkCount: number
+  modules: string[]
+  model: string | null
+  updatedAt: number | null
+  lastError: string | null
+}
+
 export interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
@@ -186,11 +208,11 @@ function json(method: string, body?: unknown): RequestInit {
   }
 }
 
-export async function consumeSse(
+export async function consumeSseEvents(
   response: Response,
-  handlers: { delta: (text: string) => void; done?: () => void }
+  handler: (event: string, data: Record<string, unknown>) => void
 ): Promise<void> {
-  if (!response.body) throw new Error('Provider returned no response stream')
+  if (!response.body) throw new Error('Server returned no response stream')
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
@@ -207,16 +229,27 @@ export async function consumeSse(
         const raw = lines.filter((line) => line.startsWith('data:'))
           .map((line) => line.slice(5).trimStart()).join('\n')
         if (!raw) continue
-        const data = JSON.parse(raw) as { text?: string; message?: string }
-        if (event === 'delta' && typeof data.text === 'string') handlers.delta(data.text)
-        else if (event === 'done') handlers.done?.()
-        else if (event === 'error') throw new Error(data.message ?? 'Provider stream failed')
+        const data = JSON.parse(raw) as Record<string, unknown>
+        if (event === 'error') throw new Error(
+          typeof data.message === 'string' ? data.message : 'Server stream failed'
+        )
+        if (event) handler(event, data)
       }
       if (done) break
     }
   } finally {
     reader.releaseLock()
   }
+}
+
+export async function consumeSse(
+  response: Response,
+  handlers: { delta: (text: string) => void; done?: () => void }
+): Promise<void> {
+  return consumeSseEvents(response, (event, data) => {
+    if (event === 'delta' && typeof data.text === 'string') handlers.delta(data.text)
+    else if (event === 'done') handlers.done?.()
+  })
 }
 
 async function getJson<T>(url: string): Promise<T> {
@@ -324,6 +357,56 @@ export const api = {
       `/api/search?q=${encodeURIComponent(q)}&modules=${modules.join(',')}`
     )
     return res.results
+  },
+
+  async semanticSearch(query: string, modules: string[], limit = 50): Promise<SemanticSearchHit[]> {
+    return (await requestJson<{ results: SemanticSearchHit[] }>(
+      '/api/semantic-search',
+      json('POST', { query, modules, limit })
+    )).results
+  },
+
+  async embeddingProvider(): Promise<EmbeddingProviderConfig | null> {
+    return (await getJson<{ provider: EmbeddingProviderConfig | null }>('/api/embeddings/provider')).provider
+  },
+
+  async saveEmbeddingProvider(input: {
+    kind: EmbeddingProviderKind
+    baseUrl: string
+    model: string
+    apiKey?: string
+    clearApiKey?: boolean
+  }): Promise<EmbeddingProviderConfig> {
+    return (await requestJson<{ provider: EmbeddingProviderConfig }>(
+      '/api/embeddings/provider', json('PUT', input)
+    )).provider
+  },
+
+  async removeEmbeddingProvider(): Promise<void> {
+    return requestVoid('/api/embeddings/provider', { method: 'DELETE' })
+  },
+
+  async semanticIndexStatus(): Promise<SemanticIndexStatus> {
+    return (await getJson<{ index: SemanticIndexStatus }>('/api/semantic-index')).index
+  },
+
+  async rebuildSemanticIndex(
+    onProgress: (progress: { module: string; processed: number }) => void
+  ): Promise<SemanticIndexStatus> {
+    const response = await request('/api/semantic-index/rebuild', { method: 'POST' })
+    if (!response.ok) {
+      throw new ApiError(response.status, (await response.json().catch(() => ({}))) as ApiErrorBody)
+    }
+    let status: SemanticIndexStatus | null = null
+    await consumeSseEvents(response, (event, data) => {
+      if (event === 'progress' && typeof data.module === 'string' && typeof data.processed === 'number') {
+        onProgress({ module: data.module, processed: data.processed })
+      } else if (event === 'done') {
+        status = data as unknown as SemanticIndexStatus
+      }
+    })
+    if (!status) throw new Error('Index rebuild ended without a final status')
+    return status
   },
 
   async notes(): Promise<Note[]> {

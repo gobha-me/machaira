@@ -4,15 +4,18 @@ import { useReader } from '../stores/reader'
 import { useLibrary } from '../stores/library'
 import { useUi } from '../stores/ui'
 import { useNotes } from '../stores/notes'
+import { useSemanticIndex } from '../stores/semanticIndex'
 import { api, type Note, type SearchHit } from '../services/api'
 
 const reader = useReader()
 const lib = useLibrary()
 const ui = useUi()
 const notes = useNotes()
+const semantic = useSemanticIndex()
 
 const SCOPES = ['Everything', 'Scripture', 'Apocrypha', 'Notes & journal'] as const
 type Scope = (typeof SCOPES)[number]
+type SearchMode = 'exact' | 'meaning'
 
 // Deuterocanon/apocrypha OSIS codes (mirrors the server's book table) for scope filtering.
 const APOCRYPHA = new Set([
@@ -22,13 +25,16 @@ const APOCRYPHA = new Set([
 
 const q = ref('')
 const scope = ref<Scope>('Everything')
+const mode = ref<SearchMode>('exact')
 const searched = ref(false)
 const loading = ref(false)
 const hits = ref<SearchHit[]>([])
 const noteHits = ref<Note[]>([])
 const error = ref<string | null>(null)
 
-onMounted(() => lib.load())
+onMounted(() => {
+  void Promise.all([lib.load(), semantic.load()]).catch(() => undefined)
+})
 
 const installedNames = computed(() => lib.installedBibles.map((m) => m.name))
 
@@ -49,7 +55,10 @@ async function run() {
   try {
     const tasks: Promise<void>[] = []
     if (showScripture.value && installedNames.value.length) {
-      tasks.push(api.search(query, installedNames.value).then((r) => { hits.value = r }))
+      const scriptureSearch = mode.value === 'meaning'
+        ? api.semanticSearch(query, installedNames.value)
+        : api.search(query, installedNames.value)
+      tasks.push(scriptureSearch.then((r) => { hits.value = r }))
     } else {
       hits.value = []
     }
@@ -61,6 +70,7 @@ async function run() {
     await Promise.all(tasks)
   } catch (e) {
     error.value = (e as Error).message
+    if (mode.value === 'meaning') void semantic.load().catch(() => undefined)
   } finally {
     loading.value = false
   }
@@ -87,6 +97,12 @@ function openHit(h: SearchHit) {
   ui.go('read')
 }
 
+function selectScope(next: Scope): void {
+  scope.value = next
+  if (next === 'Notes & journal') mode.value = 'exact'
+  if (searched.value) void run()
+}
+
 function highlight(text: string): string {
   const query = q.value.trim()
   if (!query) return escapeHtml(text)
@@ -109,8 +125,7 @@ const resultCount = computed(() => scriptureHits.value.length + (showNotes.value
     <div class="wrap">
       <h1 class="serif">Search your library</h1>
       <div class="subtitle">
-        Full-text search across your installed modules and notes. Meaning-based ranking is coming
-        with the semantic index.
+        Search installed scripture by exact text or meaning. Notes and journal entries use exact text.
       </div>
 
       <input
@@ -119,6 +134,24 @@ const resultCount = computed(() => scriptureHits.value.length + (showNotes.value
         placeholder="Search words or phrases…"
         @keydown.enter="run"
       />
+
+      <div class="modes" role="group" aria-label="Search mode">
+        <button
+          class="mode"
+          :class="{ active: mode === 'exact' }"
+          @click="mode = 'exact'; searched && run()"
+        >Exact words</button>
+        <button
+          class="mode"
+          :class="{ active: mode === 'meaning' }"
+          :disabled="!semantic.searchable || scope === 'Notes & journal'"
+          :title="scope === 'Notes & journal'
+            ? 'Notes use exact-text search'
+            : semantic.searchable ? 'Rank scripture by semantic similarity' : semantic.statusText"
+          @click="mode = 'meaning'; searched && run()"
+        >By meaning</button>
+        <span v-if="!semantic.searchable" class="mode-note">{{ semantic.statusText }}</span>
+      </div>
 
       <div class="scopes">
         <button
@@ -130,7 +163,7 @@ const resultCount = computed(() => scriptureHits.value.length + (showNotes.value
             color: scope === s ? 'var(--on-accent)' : 'var(--muted)',
             borderColor: scope === s ? 'var(--accent)' : 'var(--line)'
           }"
-          @click="scope = s; searched && run()"
+          @click="selectScope(s)"
         >{{ s }}</button>
       </div>
 
@@ -157,7 +190,10 @@ const resultCount = computed(() => scriptureHits.value.length + (showNotes.value
               <span class="rref">{{ h.bookName }} {{ h.chapter }}:{{ h.verse }}</span>
               <span class="badge">{{ h.module }}</span>
             </div>
-            <div class="rtext serif" v-html="highlight(h.content)"></div>
+            <div
+              class="rtext serif"
+              v-html="mode === 'exact' ? highlight(h.content) : escapeHtml(h.content)"
+            ></div>
           </div>
 
           <div
@@ -216,6 +252,39 @@ h1 {
   font-size: 17px;
   color: var(--ink);
   outline: none;
+}
+.modes {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+.mode {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 7px 12px;
+  background: var(--card);
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+.mode.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.mode:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.mode-note {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .scopes {
   display: flex;

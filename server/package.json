@@ -1,6 +1,6 @@
 {
   "name": "@machaira/server",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "license": "GPL-2.0-or-later",
   "type": "module",
@@ -18,7 +18,8 @@
     "argon2": "^0.44.0",
     "better-sqlite3": "^12.2.0",
     "fastify": "^5.1.0",
-    "node-sword-interface": "^1.0.124"
+    "node-sword-interface": "^1.0.124",
+    "sqlite-vec": "0.1.9"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",

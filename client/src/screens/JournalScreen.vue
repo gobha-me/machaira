@@ -140,8 +140,8 @@ function relDate(ts: number): string {
         </svg>
       </div>
       <div class="conn-note">
-        A thematic graph — linking notes by cross-references and shared tags — arrives with the
-        semantic index. Not built yet.
+        A thematic graph linking passages through cross-references and embedding similarity is
+        planned next. The interactive graph is not built yet.
       </div>
     </div>
   </div>

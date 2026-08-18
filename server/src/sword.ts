@@ -103,7 +103,10 @@ function allLocalModulesSync(): Array<Record<string, unknown>> {
   const nsi = sword()
   const out: Array<Record<string, unknown>> = []
   for (const t of LOCAL_TYPES) {
-    for (const m of nsi.getAllLocalModules(t)) out.push(m)
+    for (const m of nsi.getAllLocalModules(t)) {
+      m.type = t
+      out.push(m)
+    }
   }
   return out
 }
@@ -428,6 +431,34 @@ export interface SearchHit {
   chapter: number
   verse: number
   content: string
+}
+
+export interface PlainVerse {
+  module: string
+  book: string
+  bookName: string
+  chapter: number
+  verse: number
+  content: string
+}
+
+/** Plain verse text for indexing. Markup stays disabled and single-chapter over-read is removed. */
+export function readPlainChapter(
+  module: string,
+  book: string,
+  chapter: number
+): Promise<PlainVerse[]> {
+  return withSword(() => readChapterSync(module, book, chapter)
+    .filter((verse) => verse.bibleBookShortTitle === book)
+    .map((verse) => ({
+      module,
+      book,
+      bookName: bookInfo(book).name,
+      chapter,
+      verse: verse.verseNr,
+      content: stripMarkup(verse.content).trim()
+    }))
+    .filter((verse) => verse.content.length > 0))
 }
 
 /** Real full-text search across one or more installed modules. */

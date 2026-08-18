@@ -4,8 +4,8 @@ A warm, local-first Bible study tool. **Sword** (repo name *machaira* — Greek 
 "sword") is a member of the [SWORD Project](https://www.crosswire.org/sword/) family, the
 same open ecosystem behind [BibleTime](https://bibletime.info/) and
 [Xiphos](https://xiphos.org/). It pairs a paper-textured reading experience with real study
-tooling: a downloadable module library, verse comparison, Strong's lexicon lookup, full-text
-search, personal journaling, and a bring-your-own-model study partner.
+tooling: a downloadable module library, verse comparison, Strong's lexicon lookup, exact and
+semantic search, personal journaling, and a bring-your-own-model study partner.
 
 > Content is **real, never mocked**. Modules are downloaded from CrossWire's repositories on
 > demand; features that don't yet have a backend show honest empty/disabled states rather than
@@ -17,14 +17,13 @@ search, personal journaling, and a bring-your-own-model study partner.
 | --- | --- |
 | **Read** | Renders a chapter from any installed translation; translation picker, book/chapter navigation, verse selection + persisted highlights. |
 | **Study** | Side-by-side verse comparison, Strong's glosses, and streamed passage-aware chat through a user-configured model provider. |
-| **Search** | Real SWORD full-text search (word / phrase) across installed modules. |
+| **Search** | Real SWORD full-text search plus embedding-backed “by meaning” ranking across installed modules. |
 | **Library** | Browse CrossWire repositories, install modules with live progress, and uninstall. This is the downloader that feeds every other screen. |
 | **Journal** | Per-account notes with tags, synced through the server and exportable as Markdown + JSON. |
-| **Settings** | Account administration, encrypted per-user model-provider configuration, themes, scripture text scale, and reading toggles. |
+| **Settings** | Account administration, encrypted chat/embedding provider configuration, vector-index controls, themes, scripture text scale, and reading toggles. |
 
-Features that are intentionally deferred (semantic "by meaning" ranking and the connections
-graph) are present in the UI as clearly disabled states. See the
-[roadmap](#roadmap).
+Features that are intentionally deferred, such as the connections graph, remain present as
+clearly disabled states. See the [roadmap](#roadmap).
 
 ## Architecture
 
@@ -44,6 +43,8 @@ machaira/
   hashed with Argon2id, and provider credentials have an AES-256-GCM encrypted per-user store
   whose key remains outside the database. API keys are decrypted only for server-side provider
   calls.
+- Per-user semantic indexes store verse metadata and provider-generated vectors in SQLite. A
+  staged rebuild preserves the previous usable index if an embedding request fails.
 - **`client/`** is a single-page app that talks to the server over `/api` (proxied in dev).
   Reading/study data plus per-user notes and highlights come from the server. IndexedDB retains
   reading-plan progress and any legacy notes/highlights until the user explicitly imports them.
@@ -95,6 +96,19 @@ operation path). Local URLs are resolved by the Sword server: `127.0.0.1` means 
 container or pod itself, so containerized deployments generally need a reachable service DNS name
 or host gateway instead. Chat responses stream through Sword; provider keys never return to the
 browser, and conversations are kept only in the current browser tab.
+
+### Semantic search
+
+Open **Settings → Semantic search** and configure either an OpenAI-compatible embeddings API or
+a local endpoint such as Ollama. The embedding provider is separate from the study-partner chat
+provider, so Anthropic chat can be paired with any embeddings service. Enter the provider base URL
+ending at `/v1` and an embedding model identifier, save it, then select **Build index**.
+
+Building sends each verse from every installed, unlocked Bible module to the provider in bounded
+batches; external services may charge for that usage. The UI reports real indexed verse and module
+counts. Installing or removing a Bible, or changing the endpoint/model, marks the index stale until
+the next successful rebuild. Exact note and journal search remains local and does not send personal
+writing to the embeddings provider.
 
 To run the halves separately:
 
@@ -180,9 +194,9 @@ is no longer needed.
 ## Roadmap
 
 Planned work is tracked as [GitHub issues](https://github.com/gobha-me/machaira/issues).
-Authentication, server-side per-user storage, container/Kubernetes deployment, and the
-multi-provider LLM study partner form the current foundation. Next are semantic search, voice
-input, and the connections graph.
+Authentication, server-side per-user storage, container/Kubernetes deployment, the multi-provider
+LLM study partner, and semantic scripture search form the current foundation. Next are voice input
+and the connections graph.
 
 ## License
 

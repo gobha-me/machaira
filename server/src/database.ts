@@ -1,8 +1,9 @@
 import Database from 'better-sqlite3'
+import * as sqliteVec from 'sqlite-vec'
 import { chmodSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 
-const SCHEMA_VERSION = 3
+const SCHEMA_VERSION = 4
 
 export type MachairaDatabase = Database.Database
 
@@ -10,6 +11,7 @@ export function openDatabase(filename: string): MachairaDatabase {
   if (filename !== ':memory:') mkdirSync(dirname(filename), { recursive: true, mode: 0o700 })
 
   const db = new Database(filename)
+  sqliteVec.load(db)
   if (filename !== ':memory:') chmodSync(filename, 0o600)
   db.pragma('foreign_keys = ON')
   if (filename !== ':memory:') db.pragma('journal_mode = WAL')
@@ -104,6 +106,57 @@ export function openDatabase(filename: string): MachairaDatabase {
       `)
       db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)')
         .run(3, Date.now())
+    })()
+  }
+
+  if (current.version < 4) {
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE embedding_provider_configs (
+          user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+          kind TEXT NOT NULL CHECK (kind IN ('openai-compatible', 'local')),
+          base_url TEXT NOT NULL,
+          model TEXT NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE semantic_index_runs (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          provider_signature TEXT NOT NULL,
+          module_signature TEXT NOT NULL,
+          dimension INTEGER,
+          status TEXT NOT NULL CHECK (status IN ('building', 'ready', 'failed')),
+          chunk_count INTEGER NOT NULL DEFAULT 0,
+          created_at INTEGER NOT NULL,
+          completed_at INTEGER,
+          error TEXT
+        );
+
+        CREATE INDEX semantic_runs_by_user_created
+          ON semantic_index_runs(user_id, created_at DESC);
+
+        CREATE TABLE semantic_active_indexes (
+          user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+          run_id TEXT NOT NULL UNIQUE REFERENCES semantic_index_runs(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE semantic_chunks (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          run_id TEXT NOT NULL REFERENCES semantic_index_runs(id) ON DELETE CASCADE,
+          module TEXT NOT NULL,
+          book TEXT NOT NULL,
+          book_name TEXT NOT NULL,
+          chapter INTEGER NOT NULL,
+          verse INTEGER NOT NULL,
+          content TEXT NOT NULL,
+          UNIQUE (run_id, module, book, chapter, verse)
+        );
+
+        CREATE INDEX semantic_chunks_by_run ON semantic_chunks(run_id);
+      `)
+      db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)')
+        .run(4, Date.now())
     })()
   }
 
