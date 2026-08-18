@@ -19,7 +19,7 @@ search, and personal journaling.
 | **Study** | Side-by-side verse comparison across installed translations, plus Strong's glosses for modules that carry Greek/Hebrew tags. |
 | **Search** | Real SWORD full-text search (word / phrase) across installed modules. |
 | **Library** | Browse CrossWire repositories, install modules with live progress, and uninstall. This is the downloader that feeds every other screen. |
-| **Journal** | Personal notes with tags, stored locally in the browser and exportable as Markdown + JSON. |
+| **Journal** | Per-account notes with tags, synced through the server and exportable as Markdown + JSON. |
 | **Settings** | Account administration plus Paper/Ink themes, accent colour, scripture text scale, and reading toggles. |
 
 Features that are intentionally deferred (LLM study-partner chat, semantic "by meaning"
@@ -44,8 +44,8 @@ machaira/
   hashed with Argon2id, and future provider credentials have an AES-256-GCM encrypted per-user
   store whose key remains outside the database.
 - **`client/`** is a single-page app that talks to the server over `/api` (proxied in dev).
-  Reading/study data comes from the server; personal notes and highlights live in the browser via
-  IndexedDB.
+  Reading/study data plus per-user notes and highlights come from the server. IndexedDB retains
+  reading-plan progress and any legacy notes/highlights until the user explicitly imports them.
 
 CrossWire modules can't be fetched directly from a browser (no CORS, and they ship in a binary
 `zText`/OSIS format), which is why the local server exists to decode them into JSON.
@@ -95,10 +95,12 @@ npm run dev:client     # Vite on :5273, proxies /api -> :5274
 
 - **SWORD modules** are downloaded to `server/data/sword/` (gitignored) — the "everything on your
   machine" install root.
-- **Accounts, sessions, and encrypted secrets** live in `server/data/machaira.sqlite` by default.
-  Stop the server before copying the SQLite file for a simple consistent backup.
-- **Notes, highlights, and settings** are personal and stay in the browser (IndexedDB). Export
-  them as Markdown + JSON from Settings.
+- **Accounts, sessions, encrypted secrets, notes, and highlights** live in
+  `server/data/machaira.sqlite` by default and are isolated by account. Stop the server before
+  copying the SQLite file for a simple consistent backup.
+- **Reading-plan progress and settings** remain browser-local. Settings offers a one-time,
+  non-destructive import when legacy IndexedDB notes or highlights are found, and exports current
+  server-backed personal data as Markdown + JSON.
 
 ### Server configuration
 
@@ -113,8 +115,8 @@ npm run dev:client     # Vite on :5273, proxies /api -> :5274
 ## Roadmap
 
 Planned work is tracked as [GitHub issues](https://github.com/gobha-me/machaira/issues). The near
-term is focused on making the app self-hostable and multi-user: authentication and accounts,
-server-side per-user storage for notes, and container/Kubernetes deployment — followed by the
+term is focused on making the app self-hostable and multi-user: container/Kubernetes deployment
+now follows authentication and server-side per-user storage — followed by the
 LLM study partner, semantic search, voice input, and the connections graph.
 
 ## License

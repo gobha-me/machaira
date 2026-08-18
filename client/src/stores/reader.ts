@@ -1,6 +1,5 @@
 import { defineStore } from 'pinia'
 import { api, type BookEntry, type ChapterPayload } from '../services/api'
-import { highlightsDb } from '../services/db'
 import { formatPassageRef } from '../utils/passageRef'
 import { useLibrary } from './library'
 import { useSettings } from './settings'
@@ -14,6 +13,7 @@ interface ReaderState {
   selectedVerse: number | null
   rangeEnd: number | null
   highlights: Record<string, string>
+  highlightError: string | null
   loadingChapter: boolean
   error: string | null
   ready: boolean
@@ -22,6 +22,7 @@ interface ReaderState {
 const HL_COLOR = 'rgba(201,162,39,0.25)'
 
 const POS_KEY = 'sword.reader.pos.v1'
+let highlightLoadGeneration = 0
 
 function loadPos(): { moduleName: string; book: string; chapter: number } | null {
   try {
@@ -47,6 +48,7 @@ export const useReader = defineStore('reader', {
     selectedVerse: null,
     rangeEnd: null,
     highlights: {},
+    highlightError: null,
     loadingChapter: false,
     error: null,
     ready: false
@@ -126,7 +128,6 @@ export const useReader = defineStore('reader', {
     async init(): Promise<void> {
       const lib = useLibrary()
       await lib.load()
-      await this.loadHighlights()
       const bibles = lib.installedBibles
       if (bibles.length === 0) {
         this.ready = true
@@ -146,10 +147,13 @@ export const useReader = defineStore('reader', {
       this.ready = true
     },
     async loadHighlights(): Promise<void> {
-      const all = await highlightsDb.all()
+      const generation = highlightLoadGeneration
+      const all = await api.highlights()
+      if (generation !== highlightLoadGeneration) return
       const map: Record<string, string> = {}
       for (const h of all) map[h.key] = h.color
       this.highlights = map
+      this.highlightError = null
     },
     async setModule(name: string): Promise<void> {
       this.moduleName = name
@@ -250,17 +254,29 @@ export const useReader = defineStore('reader', {
       const keyFor = (v: number) => `${this.moduleName}/${this.book}/${this.chapter}/${v}`
       const allOn = verses.every((v) => this.highlights[keyFor(v)])
       const next = { ...this.highlights }
-      for (const v of verses) {
-        const key = keyFor(v)
-        if (allOn) {
-          delete next[key]
-          await highlightsDb.remove(key)
-        } else {
-          next[key] = HL_COLOR
-          await highlightsDb.set(key, HL_COLOR)
+      try {
+        const keys = verses.map(keyFor)
+        await api.updateHighlights(
+          allOn ? [] : keys.map((key) => ({ key, color: HL_COLOR })),
+          allOn ? keys : []
+        )
+        for (const key of keys) {
+          if (allOn) delete next[key]
+          else next[key] = HL_COLOR
         }
+        this.highlights = next
+        this.highlightError = null
+      } catch (error) {
+        const message = `Highlight was not saved: ${(error as Error).message}`
+        await this.loadHighlights().catch(() => undefined)
+        this.highlightError = message
       }
-      this.highlights = next
+    },
+    resetPersonalData(): void {
+      highlightLoadGeneration += 1
+      this.highlights = {}
+      this.highlightError = null
+      // Library and current passage are shared instance data, so only the per-user fields reset.
     }
   }
 })

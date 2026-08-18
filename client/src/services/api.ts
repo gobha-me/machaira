@@ -95,6 +95,28 @@ export interface SearchHit {
   content: string
 }
 
+export interface Note {
+  id: string
+  title: string
+  body: string
+  tags: string[]
+  refs: string[]
+  createdAt: number
+  updatedAt: number
+}
+
+export interface Highlight {
+  key: string
+  color: string
+}
+
+export interface PersonalDataImportResult {
+  notesImported: number
+  notesSkipped: number
+  highlightsImported: number
+  highlightsSkipped: number
+}
+
 export type UserRole = 'admin' | 'member'
 
 export interface AuthUser {
@@ -249,6 +271,48 @@ export const api = {
       `/api/search?q=${encodeURIComponent(q)}&modules=${modules.join(',')}`
     )
     return res.results
+  },
+
+  async notes(): Promise<Note[]> {
+    return (await getJson<{ notes: Note[] }>('/api/notes')).notes
+  },
+
+  async createNote(seed: Partial<Pick<Note, 'title' | 'body' | 'tags' | 'refs'>> = {}): Promise<Note> {
+    return (await requestJson<{ note: Note }>('/api/notes', json('POST', seed))).note
+  },
+
+  async updateNote(id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'tags' | 'refs'>>): Promise<Note> {
+    return (await requestJson<{ note: Note }>(
+      `/api/notes/${encodeURIComponent(id)}`,
+      json('PATCH', patch)
+    )).note
+  },
+
+  async deleteNote(id: string): Promise<void> {
+    return requestVoid(`/api/notes/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  },
+
+  async highlights(): Promise<Highlight[]> {
+    return (await getJson<{ highlights: Highlight[] }>('/api/highlights')).highlights
+  },
+
+  async setHighlight(key: string, color: string): Promise<void> {
+    return requestVoid('/api/highlights', json('PUT', { key, color }))
+  },
+
+  async deleteHighlight(key: string): Promise<void> {
+    return requestVoid(`/api/highlights/${encodeURIComponent(key)}`, { method: 'DELETE' })
+  },
+
+  async updateHighlights(set: Highlight[], remove: string[]): Promise<void> {
+    return requestVoid('/api/highlights/batch', json('POST', { set, remove }))
+  },
+
+  async importPersonalData(notes: Note[], highlights: Highlight[]): Promise<PersonalDataImportResult> {
+    return requestJson<PersonalDataImportResult>(
+      '/api/personal-data/import',
+      json('POST', { notes, highlights })
+    )
   },
 
   async authStatus(): Promise<AuthStatus> {

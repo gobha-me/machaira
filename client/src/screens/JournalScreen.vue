@@ -1,13 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useNotes } from '../stores/notes'
 import { useReader } from '../stores/reader'
 
 const notes = useNotes()
 const reader = useReader()
 const tagDraft = ref('')
-
-onMounted(() => notes.load())
 
 const dateLabel = computed(() => {
   const n = notes.current
@@ -83,7 +81,14 @@ function relDate(ts: number): string {
     <div class="editor-col">
       <div v-if="notes.current" class="editor">
         <input class="title-input serif" :value="notes.current.title" @input="onTitle" placeholder="Untitled note" />
-        <div class="edit-meta">{{ dateLabel }}</div>
+        <div class="edit-meta">
+          {{ dateLabel }}
+          <span v-if="notes.saving && !notes.saveError"> · Saving…</span>
+          <span v-if="notes.saveError && notes.saveErrorId === notes.currentId" class="save-error">
+            · Save failed: {{ notes.saveError }}
+            <button @click="notes.retrySave">Retry</button>
+          </span>
+        </div>
 
         <div class="refs">
           <button v-for="r in notes.current.refs" :key="r" class="refchip" @click="removeRef(r)" :title="'Remove ' + r">
@@ -247,6 +252,14 @@ function relDate(ts: number): string {
   font-size: 12px;
   color: var(--muted);
   margin-bottom: 16px;
+}
+.save-error { color: #a23b32; }
+.save-error button {
+  border: 0;
+  background: none;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
 }
 .refs {
   display: flex;

@@ -4,7 +4,6 @@ import { useReader } from '../stores/reader'
 import { useUi } from '../stores/ui'
 import { useSettings } from '../stores/settings'
 import { useReadingPlan } from '../stores/readingPlan'
-import { useNotes as useNotesStore } from '../stores/notes'
 import { PLAN_DAYS } from '../services/plan'
 import { type BookEntry } from '../services/api'
 import { useCompare } from '../composables/useCompare'
@@ -22,7 +21,6 @@ const reader = useReader()
 const ui = useUi()
 const settings = useSettings()
 const plan = useReadingPlan()
-const notesStore = useNotesStore()
 
 function openTodayReading() {
   const first = plan.firstUnreadToday
@@ -44,7 +42,6 @@ onMounted(() => {
   // init() re-ran loadChapter on every visit to Read — which nulls the selection and refetches
   // the chapter, so a range built in Study evaporated on the way back.
   if (!reader.ready) reader.init()
-  notesStore.load()
 })
 
 const sectionLabels: Record<BookEntry['section'], string> = {
@@ -562,6 +559,7 @@ function menuNote() {
             </div>
           </div>
 
+          <div v-if="reader.highlightError" class="error">{{ reader.highlightError }}</div>
           <div class="hint-text">Select any verse to compare, highlight, or start a note.</div>
         </aside>
       </div>

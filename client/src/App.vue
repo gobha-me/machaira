@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, watch, watchEffect } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch, watchEffect } from 'vue'
 import { useAuth } from './stores/auth'
 import { useSettings } from './stores/settings'
 import { useUi } from './stores/ui'
 import { useReadingPlan } from './stores/readingPlan'
+import { useNotes } from './stores/notes'
+import { useReader } from './stores/reader'
 import { applyVars } from './theme'
 import RailNav from './components/RailNav.vue'
 import ReadScreen from './screens/ReadScreen.vue'
@@ -19,6 +21,12 @@ const auth = useAuth()
 const settings = useSettings()
 const ui = useUi()
 const readingPlan = useReadingPlan()
+const notes = useNotes()
+const reader = useReader()
+const personalLoading = ref(false)
+const personalReady = ref(false)
+const personalError = ref<string | null>(null)
+let personalLoadGeneration = 0
 
 const screens = {
   read: ReadScreen,
@@ -57,19 +65,55 @@ onMounted(() => {
 })
 onUnmounted(() => window.removeEventListener('keydown', onKey))
 
+async function loadPersonalData(userId: string): Promise<void> {
+  const generation = ++personalLoadGeneration
+  personalLoading.value = true
+  personalReady.value = false
+  personalError.value = null
+  try {
+    await Promise.all([notes.load(), reader.loadHighlights(), readingPlan.load()])
+    if (generation === personalLoadGeneration && auth.user?.id === userId) {
+      personalReady.value = true
+    }
+  } catch (error) {
+    if (generation === personalLoadGeneration && auth.user?.id === userId) {
+      personalError.value = (error as Error).message
+    }
+  } finally {
+    if (generation === personalLoadGeneration) personalLoading.value = false
+  }
+}
+
+function retryPersonalData(): void {
+  if (auth.user) void loadPersonalData(auth.user.id)
+}
+
 watch(
-  () => auth.authenticated,
-  (authenticated) => {
-    if (authenticated) readingPlan.load()
+  () => auth.user?.id ?? null,
+  (userId) => {
+    personalLoadGeneration += 1
+    notes.resetPersonalData()
+    reader.resetPersonalData()
+    personalReady.value = false
+    personalError.value = null
+    if (userId) void loadPersonalData(userId)
+    else personalLoading.value = false
   }
 )
 </script>
 
 <template>
-  <div v-if="auth.state === 'loading'" class="loading-page">
+  <div v-if="auth.state === 'loading' || (auth.authenticated && personalLoading)" class="loading-page">
     <div class="loading-mark"></div>
   </div>
   <AuthScreen v-else-if="!auth.authenticated" />
+  <div v-else-if="personalError || !personalReady" class="personal-error-page">
+    <div class="personal-error-card">
+      <h1>Couldn’t load your journal</h1>
+      <p>{{ personalError ?? 'Personal data is not ready yet.' }}</p>
+      <button @click="retryPersonalData">Try again</button>
+    </div>
+  </div>
   <div v-else class="app-root">
     <RailNav />
     <main class="app-main">
@@ -99,6 +143,31 @@ watch(
   display: grid;
   place-items: center;
   background: var(--paper);
+}
+.personal-error-page {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--paper);
+  color: var(--ink);
+}
+.personal-error-card {
+  max-width: 420px;
+  text-align: center;
+}
+.personal-error-card h1 {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-weight: 500;
+}
+.personal-error-card p { color: var(--muted); }
+.personal-error-card button {
+  border: 0;
+  border-radius: 7px;
+  padding: 9px 16px;
+  background: var(--accent);
+  color: var(--on-accent);
+  cursor: pointer;
 }
 .loading-mark {
   width: 10px;

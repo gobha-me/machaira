@@ -10,6 +10,8 @@ import { registerRead } from './routes/read.js'
 import { registerStudy } from './routes/study.js'
 import { registerCommentary } from './routes/commentary.js'
 import { SecretStore } from './secrets.js'
+import { PersonalDataService } from './personal-data.js'
+import { registerPersonalData } from './routes/personal-data.js'
 
 export interface AppOptions {
   databasePath: string
@@ -31,6 +33,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   const app = Fastify({ logger: options.logger ?? true })
   const db = openDatabase(options.databasePath)
   const auth = new AuthService(db)
+  const personalData = new PersonalDataService(db)
 
   // Constructed here so startup validates the encryption key and the internal service is ready
   // for provider integrations. It is deliberately not exposed as a browser API.
@@ -55,6 +58,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
 
   app.get('/api/health', async () => ({ ok: true }))
   await registerAuth(app, auth, options.production ?? false)
+  await registerPersonalData(app, personalData)
 
   if (options.registerFeatureRoutes ?? true) {
     await registerSources(app)
