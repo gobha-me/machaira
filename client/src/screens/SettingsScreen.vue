@@ -6,6 +6,7 @@ import { useReader } from '../stores/reader'
 import { useNotes } from '../stores/notes'
 import { useAuth } from '../stores/auth'
 import { useAiProvider } from '../stores/aiProvider'
+import { useSemanticIndex } from '../stores/semanticIndex'
 import { ACCENTS } from '../theme'
 import {
   exportAll,
@@ -13,7 +14,13 @@ import {
   legacyPersonalData,
   markLegacyImportComplete
 } from '../services/db'
-import { api, type AiProviderKind, type Highlight, type Note } from '../services/api'
+import {
+  api,
+  type AiProviderKind,
+  type EmbeddingProviderKind,
+  type Highlight,
+  type Note
+} from '../services/api'
 import Toggle from '../components/ui/Toggle.vue'
 import AccountSettings from '../components/AccountSettings.vue'
 
@@ -23,6 +30,7 @@ const reader = useReader()
 const notes = useNotes()
 const auth = useAuth()
 const aiProvider = useAiProvider()
+const semanticIndex = useSemanticIndex()
 const exporting = ref(false)
 const importing = ref(false)
 const importDone = ref(false)
@@ -34,10 +42,20 @@ const providerBaseUrl = ref(aiProvider.provider?.baseUrl ?? 'https://api.openai.
 const providerModel = ref(aiProvider.provider?.model ?? '')
 const providerApiKey = ref('')
 const providerMessage = ref('')
+const embeddingKind = ref<EmbeddingProviderKind>(semanticIndex.provider?.kind ?? 'openai-compatible')
+const embeddingBaseUrl = ref(semanticIndex.provider?.baseUrl ?? 'https://api.openai.com/v1')
+const embeddingModel = ref(semanticIndex.provider?.model ?? '')
+const embeddingApiKey = ref('')
+const embeddingMessage = ref('')
 
 const PROVIDER_DEFAULTS: Record<AiProviderKind, string> = {
   'openai-compatible': 'https://api.openai.com/v1',
   anthropic: 'https://api.anthropic.com/v1',
+  local: 'http://127.0.0.1:11434/v1'
+}
+
+const EMBEDDING_DEFAULTS: Record<EmbeddingProviderKind, string> = {
+  'openai-compatible': 'https://api.openai.com/v1',
   local: 'http://127.0.0.1:11434/v1'
 }
 
@@ -149,6 +167,59 @@ async function removeProvider(): Promise<void> {
     providerMessage.value = 'Provider disconnected'
   } catch (error) {
     providerMessage.value = (error as Error).message
+  }
+}
+
+function resetEmbeddingEndpoint(): void {
+  embeddingBaseUrl.value = EMBEDDING_DEFAULTS[embeddingKind.value]
+  embeddingApiKey.value = ''
+  embeddingMessage.value = ''
+}
+
+async function saveEmbeddingProvider(): Promise<void> {
+  embeddingMessage.value = ''
+  try {
+    await semanticIndex.save({
+      kind: embeddingKind.value,
+      baseUrl: embeddingBaseUrl.value,
+      model: embeddingModel.value,
+      ...(embeddingApiKey.value.trim() ? { apiKey: embeddingApiKey.value.trim() } : {})
+    })
+    embeddingApiKey.value = ''
+    embeddingMessage.value = semanticIndex.status.state === 'stale'
+      ? 'Provider saved · rebuild required'
+      : 'Embedding provider saved'
+  } catch (error) {
+    embeddingMessage.value = (error as Error).message
+  }
+}
+
+async function removeEmbeddingProvider(): Promise<void> {
+  if (!window.confirm('Disconnect the embedding provider and delete its stored API key?')) return
+  embeddingMessage.value = ''
+  try {
+    await semanticIndex.remove()
+    embeddingKind.value = 'openai-compatible'
+    embeddingBaseUrl.value = EMBEDDING_DEFAULTS['openai-compatible']
+    embeddingModel.value = ''
+    embeddingApiKey.value = ''
+    embeddingMessage.value = 'Embedding provider disconnected'
+  } catch (error) {
+    embeddingMessage.value = (error as Error).message
+  }
+}
+
+async function rebuildSemanticIndex(): Promise<void> {
+  if (!window.confirm(
+    'Rebuild the semantic index? Every installed Bible verse will be sent to your embedding '
+      + 'provider in batches. External providers may charge for this usage.'
+  )) return
+  embeddingMessage.value = ''
+  try {
+    await semanticIndex.rebuild()
+    embeddingMessage.value = `Indexed ${semanticIndex.status.chunkCount.toLocaleString()} verses`
+  } catch (error) {
+    embeddingMessage.value = `Rebuild failed: ${(error as Error).message}`
   }
 }
 </script>
@@ -423,17 +494,92 @@ async function removeProvider(): Promise<void> {
         </div>
       </div>
 
-      <!-- Library & data -->
-      <div class="section-label">Library &amp; data</div>
+      <!-- Semantic search -->
+      <div class="section-label">
+        Semantic search
+        <span class="soon">{{ semanticIndex.status.state }}</span>
+      </div>
       <div class="card">
         <div class="row bordered">
           <div class="row-text">
             <div class="row-title">Vector index</div>
-            <div class="row-sub">Meaning-based ranking — not built yet</div>
+            <div class="row-sub">
+              {{ semanticIndex.statusText }}
+              <template v-if="semanticIndex.status.model"> · {{ semanticIndex.status.model }}</template>
+            </div>
           </div>
           <div class="spacer"></div>
-          <span class="pill disabled">Coming soon</span>
+          <button
+            class="pill action hover-line"
+            :disabled="semanticIndex.building || !semanticIndex.provider"
+            @click="rebuildSemanticIndex"
+          >{{ semanticIndex.building ? 'Rebuilding…' : semanticIndex.status.chunkCount ? 'Rebuild' : 'Build index' }}</button>
         </div>
+        <div class="row bordered">
+          <div class="row-text">
+            <div class="row-title">Embedding provider</div>
+            <div class="row-sub">OpenAI-compatible API or a local embeddings server</div>
+          </div>
+          <div class="spacer"></div>
+          <select v-model="embeddingKind" class="setting-select" @change="resetEmbeddingEndpoint">
+            <option value="openai-compatible">OpenAI-compatible</option>
+            <option value="local">Local</option>
+          </select>
+        </div>
+        <div class="row bordered">
+          <div class="row-text">
+            <div class="row-title">Embedding base URL</div>
+            <div class="row-sub">The Sword server calls its /embeddings endpoint</div>
+          </div>
+          <div class="spacer"></div>
+          <input v-model="embeddingBaseUrl" class="provider-input provider-url" type="url" />
+        </div>
+        <div class="row bordered">
+          <div class="row-text">
+            <div class="row-title">Embedding model</div>
+            <div class="row-sub">Use a model intended for semantic similarity</div>
+          </div>
+          <div class="spacer"></div>
+          <input v-model="embeddingModel" class="provider-input" placeholder="Embedding model" />
+        </div>
+        <div class="row bordered">
+          <div class="row-text">
+            <div class="row-title">Embedding API key</div>
+            <div class="row-sub">
+              <template v-if="semanticIndex.provider?.hasApiKey">Encrypted key stored — leave blank to keep it</template>
+              <template v-else-if="embeddingKind === 'local'">Optional for a local endpoint</template>
+              <template v-else>Stored encrypted on the server</template>
+            </div>
+          </div>
+          <div class="spacer"></div>
+          <input
+            v-model="embeddingApiKey"
+            class="provider-input"
+            type="password"
+            autocomplete="off"
+            :placeholder="semanticIndex.provider?.hasApiKey ? '••••••••' : 'API key'"
+          />
+        </div>
+        <div class="row provider-actions">
+          <span class="provider-message" :class="{ failed: semanticIndex.error }">{{ embeddingMessage }}</span>
+          <div class="spacer"></div>
+          <button
+            v-if="semanticIndex.provider"
+            class="pill action danger"
+            :disabled="semanticIndex.loading || semanticIndex.building"
+            @click="removeEmbeddingProvider"
+          >Disconnect</button>
+          <button
+            class="pill action save-provider"
+            :disabled="semanticIndex.loading || semanticIndex.building || !embeddingModel.trim() || !embeddingBaseUrl.trim()"
+            @click="saveEmbeddingProvider"
+          >{{ semanticIndex.loading ? 'Saving…' : 'Save embedding provider' }}</button>
+        </div>
+      </div>
+
+      <!-- Library & data -->
+      <div class="section-label">Library &amp; data</div>
+      <div class="card">
         <div
           v-if="legacyNotes.length || legacyHighlights.length"
           class="row bordered"

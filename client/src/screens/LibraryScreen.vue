@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useLibrary } from '../stores/library'
+import { useSemanticIndex } from '../stores/semanticIndex'
 import SourceRow from '../components/ui/SourceRow.vue'
 
 const lib = useLibrary()
+const semantic = useSemanticIndex()
 const showAll = ref(false)
 
 // Everything on the user's machine, pinned to the top of the catalog.
@@ -16,7 +18,9 @@ const availableBibles = computed(() => lib.featuredBibles.length + lib.otherBibl
 // When nothing featured remains (all featured already installed), show the rest directly.
 const showOthers = computed(() => showAll.value || lib.featuredBibles.length === 0)
 
-onMounted(() => lib.load())
+onMounted(() => {
+  void Promise.all([lib.load(), semantic.load()]).catch(() => undefined)
+})
 </script>
 
 <template>
@@ -214,7 +218,7 @@ onMounted(() => lib.load())
           </div>
         </div>
 
-        <!-- Honest disabled sections -->
+        <!-- Browser-provided voice support -->
         <div class="section-label">Voices</div>
         <div class="card">
           <div class="note-row">
@@ -231,9 +235,9 @@ onMounted(() => lib.load())
           <div class="note-row last">
             <div class="row-main">
               <div class="row-title">Vector search</div>
-              <div class="row-sub">Meaning-based ranking needs an embedding index — not built yet.</div>
+              <div class="row-sub">{{ semantic.statusText }} · manage in Settings.</div>
             </div>
-            <span class="pending">Coming soon</span>
+            <span class="pending">{{ semantic.status.state }}</span>
           </div>
         </div>
       </template>

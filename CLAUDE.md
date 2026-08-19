@@ -75,7 +75,7 @@ npm workspaces: `client/` (Vue 3 + Vite + TS) and `server/` (Fastify + TS, ESM).
 ## Conventions
 
 - **No mock data, ever.** Real SWORD/CrossWire content only. Features without a backend
-  yet (semantic ranking, connections graph) show honest empty/disabled states —
+  yet (such as the connections graph) show honest empty/disabled states —
   never fabricated content. This is a hard product rule.
 - **License: GPL-2.0-or-later** (matches libsword / the SWORD family). Keep new files
   compatible.
@@ -87,5 +87,4 @@ npm workspaces: `client/` (Vue 3 + Vite + TS) and `server/` (Fastify + TS, ESM).
 ## Roadmap
 
 Tracked as GitHub issues (labels `roadmap`, `phase-1-hosting`, etc.). Phase 1 provides the
-self-hosting foundation; Phase 2 continues with semantic search after the multi-provider study
-partner.
+self-hosting foundation; Phase 2 provides the multi-provider study partner and semantic search.

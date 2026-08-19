@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { consumeSse } from './api'
+import { consumeSse, consumeSseEvents } from './api'
 
 function fragmentedResponse(parts: string[]): Response {
   const encoder = new TextEncoder()
@@ -25,5 +25,19 @@ describe('chat SSE parser', () => {
     await expect(consumeSse(fragmentedResponse([
       'event: error\ndata: {"message":"Provider unavailable"}\n\n'
     ]), { delta: () => undefined })).rejects.toThrow('Provider unavailable')
+  })
+})
+
+describe('generic SSE parser', () => {
+  it('parses rebuild progress and completion across fragmented frames', async () => {
+    const events: Array<{ event: string; data: Record<string, unknown> }> = []
+    await consumeSseEvents(fragmentedResponse([
+      'event: progress\ndata: {"module":"WEB",', '"processed":64}\n\n',
+      'event: done\ndata: {"state":"ready","chunkCount":64}\n\n'
+    ]), (event, data) => events.push({ event, data }))
+    expect(events).toEqual([
+      { event: 'progress', data: { module: 'WEB', processed: 64 } },
+      { event: 'done', data: { state: 'ready', chunkCount: 64 } }
+    ])
   })
 })

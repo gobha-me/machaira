@@ -15,6 +15,8 @@ import { PersonalDataService } from './personal-data.js'
 import { registerPersonalData } from './routes/personal-data.js'
 import { AiProviderService } from './ai.js'
 import { registerAi } from './routes/ai.js'
+import { EmbeddingProviderService, SemanticIndexService } from './semantic.js'
+import { registerSemantic } from './routes/semantic.js'
 
 export interface AppOptions {
   databasePath: string
@@ -41,6 +43,8 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
 
   const secrets = new SecretStore(db, options.secretKey)
   const ai = new AiProviderService(db, secrets)
+  const embeddingProviders = new EmbeddingProviderService(db, secrets)
+  const semanticIndex = new SemanticIndexService(db, embeddingProviders)
 
   app.addHook('onClose', async () => db.close())
   await app.register(cookie)
@@ -64,6 +68,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   await registerAuth(app, auth, options.production ?? false)
   await registerPersonalData(app, personalData)
   await registerAi(app, ai)
+  await registerSemantic(app, embeddingProviders, semanticIndex)
 
   if (options.registerFeatureRoutes ?? true) {
     await registerSources(app)
