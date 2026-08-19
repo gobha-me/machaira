@@ -370,7 +370,7 @@ async function rebuildSemanticIndex(): Promise<void> {
         <div class="row bordered">
           <div class="row-text">
             <div class="row-title">Voice</div>
-            <div class="row-sub">Read-aloud uses your browser’s built-in voices</div>
+            <div class="row-sub">Browser read-aloud, plus hold-to-talk in Search and Study where supported</div>
           </div>
           <div class="spacer"></div>
           <span class="pill">System default</span>

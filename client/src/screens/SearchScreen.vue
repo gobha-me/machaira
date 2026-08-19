@@ -6,6 +6,7 @@ import { useUi } from '../stores/ui'
 import { useNotes } from '../stores/notes'
 import { useSemanticIndex } from '../stores/semanticIndex'
 import { api, type Note, type SearchHit } from '../services/api'
+import VoiceInputButton from '../components/VoiceInputButton.vue'
 
 const reader = useReader()
 const lib = useLibrary()
@@ -128,12 +129,15 @@ const resultCount = computed(() => scriptureHits.value.length + (showNotes.value
         Search installed scripture by exact text or meaning. Notes and journal entries use exact text.
       </div>
 
-      <input
-        v-model="q"
-        class="query serif focus-accent"
-        placeholder="Search words or phrases…"
-        @keydown.enter="run"
-      />
+      <div class="query-row">
+        <input
+          v-model="q"
+          class="query serif focus-accent"
+          placeholder="Search words or phrases…"
+          @keydown.enter="run"
+        />
+        <VoiceInputButton v-model="q" label="search query" />
+      </div>
 
       <div class="modes" role="group" aria-label="Search mode">
         <button
@@ -243,7 +247,8 @@ h1 {
   margin-bottom: 26px;
 }
 .query {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   box-sizing: border-box;
   background: var(--card);
   border: 1.5px solid var(--line);
@@ -252,6 +257,16 @@ h1 {
   font-size: 17px;
   color: var(--ink);
   outline: none;
+}
+.query-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.query-row :deep(.voice-button) {
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
 }
 .modes {
   display: flex;

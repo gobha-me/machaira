@@ -15,6 +15,7 @@ import StrongsCard from '../components/StrongsCard.vue'
 import CommentaryPanel from '../components/CommentaryPanel.vue'
 import ComparePanel from '../components/ComparePanel.vue'
 import CrossReferencesPanel from '../components/CrossReferencesPanel.vue'
+import VoiceInputButton from '../components/VoiceInputButton.vue'
 
 const reader = useReader()
 const ui = useUi()
@@ -392,6 +393,11 @@ function menuNote() {
           v-model="chatDraft"
           :disabled="!aiProvider.provider || sending"
           :placeholder="aiProvider.provider ? `Ask about ${passageContext.reference}` : 'Connect a provider in Settings to chat'"
+        />
+        <VoiceInputButton
+          v-model="chatDraft"
+          label="study question"
+          :disabled="!aiProvider.provider || sending"
         />
         <button v-if="sending" type="button" class="send cancel" title="Stop response" @click="cancelChat">■</button>
         <button v-else type="submit" class="send" :disabled="!aiProvider.provider || !chatDraft.trim() || !passageContext.content">→</button>
