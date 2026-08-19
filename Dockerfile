@@ -23,7 +23,8 @@ RUN npm ci
 COPY client client
 COPY server server
 RUN npm run build \
-  && npm prune --omit=dev
+  && npm prune --omit=dev \
+  && mkdir -p server/node_modules
 
 FROM node:22-bookworm-slim AS runtime
 
