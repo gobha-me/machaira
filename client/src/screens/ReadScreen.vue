@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useReader } from '../stores/reader'
 import { useUi } from '../stores/ui'
 import { useSettings } from '../stores/settings'
@@ -10,6 +10,7 @@ import { useCompare } from '../composables/useCompare'
 import { useWordStudy } from '../composables/useWordStudy'
 import { useNotes } from '../composables/useNotes'
 import { usePassageMenu } from '../composables/usePassageMenu'
+import { useSpeechSynthesis } from '../composables/useSpeechSynthesis'
 import { segLead } from '../utils/text'
 import PassageActions from '../components/PassageActions.vue'
 import StrongsCard from '../components/StrongsCard.vue'
@@ -87,81 +88,34 @@ async function pickModule(name: string) {
 }
 
 // ── Listen: browser Web Speech, with verse follow-along ──
-const hasTTS = typeof window !== 'undefined' && 'speechSynthesis' in window
-const listening = ref(false)
-const playing = ref(false)
-const spokenVerse = ref<number | null>(null)
-
-function toggleListen() {
-  if (!hasTTS) return
-  listening.value = !listening.value
-  if (listening.value) startPlayback()
-  else stopListening()
-}
-
-function startPlayback() {
-  if (!reader.data) return
-  window.speechSynthesis.cancel()
-  playing.value = true
-  const verses = reader.data.verses
-  let i = Math.max(
-    0,
-    verses.findIndex((v) => v.n === (reader.selectedVerse ?? verses[0]?.n))
-  )
-  const speakNext = () => {
-    if (i >= verses.length) {
-      playing.value = false
-      spokenVerse.value = null
-      // Finished reading the chapter aloud — count it toward the reading plan.
-      if (plan.enabled && reader.book) plan.markChapterRead(reader.book, reader.chapter)
-      return
-    }
-    const v = verses[i]
-    spokenVerse.value = v.n
-    const u = new SpeechSynthesisUtterance(v.text)
-    u.onend = () => {
-      i += 1
-      if (playing.value) speakNext()
-    }
-    window.speechSynthesis.speak(u)
+const {
+  supported: hasTTS,
+  active: listening,
+  playing,
+  currentVerse: spokenVerse,
+  completed: listeningComplete,
+  error: listeningError,
+  progress: progressPct,
+  toggle: toggleListen,
+  togglePlayback: togglePlay,
+  stop: stopListening
+} = useSpeechSynthesis({
+  verses: () => reader.data?.verses ?? [],
+  startVerse: () => reader.selectedVerse,
+  onComplete: () => {
+    // Only a natural end marks the chapter read; cancellation and synthesis errors do not.
+    if (plan.enabled && reader.book) plan.markChapterRead(reader.book, reader.chapter)
   }
-  speakNext()
-}
-
-function togglePlay() {
-  if (!hasTTS) return
-  if (playing.value) {
-    window.speechSynthesis.pause()
-    playing.value = false
-  } else {
-    if (window.speechSynthesis.paused) window.speechSynthesis.resume()
-    else startPlayback()
-    playing.value = true
-  }
-}
-
-function stopListening() {
-  if (hasTTS) window.speechSynthesis.cancel()
-  playing.value = false
-  spokenVerse.value = null
-  listening.value = false
-}
-
-onUnmounted(stopListening)
+})
 
 // The verse being read aloud outranks both the highlight and the selection tint; everything
 // else is the shared selection presentation (usePassageMenu).
 function verseBg(n: number): string {
-  if (spokenVerse.value === n) return 'color-mix(in oklab, var(--accent) 18%, transparent)'
+  if (settings.followAlong && spokenVerse.value === n) {
+    return 'color-mix(in oklab, var(--accent) 18%, transparent)'
+  }
   return baseVerseBg(n)
 }
-
-const progressPct = computed(() => {
-  if (!reader.data || spokenVerse.value == null) return 0
-  const verses = reader.data.verses
-  const idx = verses.findIndex((v) => v.n === spokenVerse.value)
-  return verses.length ? Math.round(((idx + 1) / verses.length) * 100) : 0
-})
 
 // Footnotes pulled out of each verse, collected under the chapter (keyed by verse+label).
 const chapterNotes = computed(() => {
@@ -218,8 +172,9 @@ function closeWordStudy() {
 // Changing passage is not a word-study gesture. loadChapter clears the selection, so a sticky
 // reveal would silently light up every word of a chapter the user never invoked it on.
 watch(
-  () => [reader.book, reader.chapter],
+  () => [reader.moduleName, reader.book, reader.chapter],
   () => {
+    stopListening()
     if (wordStudyOn.value) closeWordStudy()
   }
 )
@@ -396,6 +351,8 @@ function menuNote() {
       <button
         class="listen"
         :class="{ disabled: !hasTTS }"
+        :disabled="!hasTTS || !reader.data?.verses.length"
+        :aria-pressed="listening"
         :title="hasTTS ? 'Read aloud' : 'Speech not available in this browser'"
         @click="toggleListen"
       >
@@ -582,15 +539,33 @@ function menuNote() {
 
     <!-- listen bar -->
     <div v-if="listening" class="listenbar">
-      <button class="play" @click="togglePlay">{{ playing ? '❚❚' : '▶' }}</button>
+      <button
+        class="play"
+        :title="playing ? 'Pause read-aloud' : listeningComplete ? 'Replay chapter' : 'Resume read-aloud'"
+        :aria-label="playing ? 'Pause read-aloud' : listeningComplete ? 'Replay chapter' : 'Resume read-aloud'"
+        @click="togglePlay"
+      >{{ playing ? '❚❚' : '▶' }}</button>
       <div class="listen-meta">
         <div class="listen-title">{{ reader.bookName }} {{ reader.chapter }} · {{ reader.moduleName }}</div>
-        <div class="listen-sub">
-          {{ spokenVerse ? `Following along — verse ${spokenVerse}` : 'Ready' }}
+        <div class="listen-sub" :class="{ error: listeningError }" aria-live="polite">
+          {{ listeningError
+            ? listeningError
+            : listeningComplete
+              ? 'Chapter complete'
+              : spokenVerse
+                ? `Following along — verse ${spokenVerse}`
+                : 'Ready' }}
         </div>
       </div>
-      <div class="listen-track"><div class="listen-fill" :style="{ width: progressPct + '%' }"></div></div>
-      <button class="listen-close hover-ink" @click="stopListening">Close</button>
+      <div
+        class="listen-track"
+        role="progressbar"
+        aria-label="Read-aloud progress"
+        :aria-valuenow="progressPct"
+        aria-valuemin="0"
+        aria-valuemax="100"
+      ><div class="listen-fill" :style="{ width: progressPct + '%' }"></div></div>
+      <button class="listen-close hover-ink" aria-label="Close read-aloud" @click="stopListening">Close</button>
     </div>
   </div>
 </template>
@@ -659,7 +634,8 @@ function menuNote() {
   font-weight: 600;
   cursor: pointer;
 }
-.listen.disabled {
+.listen.disabled,
+.listen:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
@@ -1171,6 +1147,9 @@ h1 {
 .listen-sub {
   font-size: 11.5px;
   color: var(--muted);
+}
+.listen-sub.error {
+  color: var(--accent);
 }
 .listen-track {
   flex: 1;

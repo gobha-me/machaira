@@ -223,8 +223,8 @@ onMounted(() => {
         <div class="card">
           <div class="note-row">
             <div class="row-main">
-              <div class="row-title">Read-aloud voices</div>
-              <div class="row-sub">Uses your browser's built-in speech voices — no download needed.</div>
+              <div class="row-title">Browser speech</div>
+              <div class="row-sub">Read-aloud and supported voice input use browser-provided speech services — no module download needed.</div>
             </div>
             <span class="pending">Built in</span>
           </div>

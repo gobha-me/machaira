@@ -15,15 +15,16 @@ semantic search, personal journaling, and a bring-your-own-model study partner.
 
 | Screen | What it does |
 | --- | --- |
-| **Read** | Renders a chapter from any installed translation; translation picker, book/chapter navigation, verse selection + persisted highlights. |
-| **Study** | Side-by-side verse comparison, Strong's glosses, and streamed passage-aware chat through a user-configured model provider. |
-| **Search** | Real SWORD full-text search plus embedding-backed “by meaning” ranking across installed modules. |
+| **Read** | Renders a chapter from any installed translation; translation picker, book/chapter navigation, verse selection, persisted highlights, and browser read-aloud follow-along. |
+| **Study** | Side-by-side verse comparison, Strong's glosses, and streamed passage-aware chat—with optional hold-to-talk input—through a user-configured model provider. |
+| **Search** | Real SWORD full-text and embedding-backed “by meaning” search, with typed or hold-to-talk input. |
 | **Library** | Browse CrossWire repositories, install modules with live progress, and uninstall. This is the downloader that feeds every other screen. |
 | **Journal** | Per-account notes with tags, plus an interactive graph of linked, cross-referenced, and thematically related passages. |
 | **Settings** | Account administration, encrypted chat/embedding provider configuration, vector-index controls, themes, scripture text scale, and reading toggles. |
 
-Features that are intentionally deferred, such as voice input and read-aloud, remain present as
-clearly disabled states. See the [roadmap](#roadmap).
+Browser-native voice controls degrade to clearly disabled states when the Web Speech APIs are not
+available. See [Voice input and read-aloud](#voice-input-and-read-aloud) for compatibility and
+privacy details.
 
 ## Architecture
 
@@ -84,6 +85,20 @@ On a new database, the login screen asks you to create the first administrator. 
 then closed; that administrator can provision or disable additional accounts from Settings. Keep
 `MACHAIRA_SECRET_KEY` stable across restarts — losing it makes encrypted provider credentials
 unrecoverable.
+
+### Voice input and read-aloud
+
+Select **Listen** on the Read screen to hear the current chapter through the browser's built-in
+speech-synthesis voice. Playback begins at the selected verse when there is one, highlights each
+verse when **Settings → Listening → Follow along** is enabled, and marks an enabled reading-plan
+chapter complete only after natural playback completion.
+
+Search and the Study partner offer a hold-to-talk button where the browser implements speech
+recognition. Hold the microphone button with a pointer, or hold Space/Enter while it is focused,
+then release to stop. The transcript is added to the draft but is never submitted automatically.
+Microphone permission and recognition availability are controlled by the browser. Depending on
+the browser, recognition audio may be processed by the browser vendor's service; Sword does not
+send microphone audio to its own server or store it.
 
 ### Study partner providers
 
@@ -197,8 +212,9 @@ is no longer needed.
 
 Planned work is tracked as [GitHub issues](https://github.com/gobha-me/machaira/issues).
 Authentication, server-side per-user storage, container/Kubernetes deployment, the multi-provider
-LLM study partner, semantic scripture search, and the Scripture connections graph form the current
-foundation. Next is voice input and read-aloud follow-along.
+LLM study partner, semantic scripture search, browser-native voice input, read-aloud follow-along,
+and the Scripture connections graph form the current foundation. Future work will continue to be
+tracked in GitHub issues.
 
 ## License
 
