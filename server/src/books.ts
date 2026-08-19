@@ -45,10 +45,45 @@ const BOOKS: BookInfo[] = [
 
 const BY_CODE = new Map(BOOKS.map((b) => [b.code, b]))
 
+function normalizedBook(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+const BY_NAME = new Map<string, BookInfo>()
+for (const book of BOOKS) {
+  BY_NAME.set(normalizedBook(book.code), book)
+  BY_NAME.set(normalizedBook(book.name), book)
+}
+
+// A deliberately small set of unambiguous names commonly emitted by SWORD cross-reference
+// modules. Do not add ambiguous abbreviations here: graph links must be trustworthy.
+for (const [alias, code] of [
+  ['Psalm', 'Ps'],
+  ['Song of Songs', 'Song'],
+  ['Canticles', 'Song'],
+  ['Revelation of John', 'Rev']
+] as const) {
+  const book = BY_CODE.get(code)
+  if (book) BY_NAME.set(normalizedBook(alias), book)
+}
+
 export function bookName(code: string): string {
   return BY_CODE.get(code)?.name ?? code
 }
 
 export function bookInfo(code: string): BookInfo {
   return BY_CODE.get(code) ?? { code, name: code, section: 'ot' }
+}
+
+/** Resolve an OSIS code or an unambiguous English display name to the canonical OSIS code. */
+export function bookCode(value: string): string | null {
+  return BY_NAME.get(normalizedBook(value))?.code ?? null
+}
+
+/** Names accepted by bookCode(), longest first so reference parsers do not match prefixes. */
+export function bookReferenceNames(): string[] {
+  return [...new Set(BY_NAME.values())]
+    .flatMap((book) => [book.code, book.name])
+    .concat(['Psalm', 'Song of Songs', 'Canticles', 'Revelation of John'])
+    .sort((left, right) => right.length - left.length)
 }

@@ -5,6 +5,7 @@ import { mkdirSync } from 'node:fs'
 import NodeSwordInterface from 'node-sword-interface'
 import { bookInfo } from './books.js'
 import { stripMarkup, parseVerseMarkup, type VerseNote, type VerseSegment } from './text.js'
+import type { ScriptureTarget } from './scripture-reference.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -259,6 +260,7 @@ export interface ReadVerse {
   notes: VerseNote[]
   segments: VerseSegment[]
   crossReferences: string[]
+  crossReferenceTargets: ScriptureTarget[]
 }
 
 export interface ReadChapterResult {
@@ -285,7 +287,8 @@ export function readChapter(
           text: parsed.text,
           notes: parsed.notes,
           segments: parsed.segments,
-          crossReferences: parsed.crossReferences
+          crossReferences: parsed.crossReferences,
+          crossReferenceTargets: parsed.crossReferenceTargets
         }
       })
     }

@@ -35,7 +35,8 @@ npm workspaces: `client/` (Vue 3 + Vite + TS) and `server/` (Fastify + TS, ESM).
 - `server/src/routes/` — `auth.ts` (bootstrap/login/account administration), `personal-data.ts`
   (per-user notes/highlights and legacy import), `sources.ts`
   (repos, install/uninstall via SSE), `read.ts`
-  (books, chapter), `study.ts` (compare, strongs, search), `ai.ts` (provider settings and chat).
+  (books, chapter), `study.ts` (compare, strongs, search), `ai.ts` (provider settings and chat),
+  `semantic.ts` (embedding index/search), and `connections.ts` (derived passage graph).
 - `server/src/text.ts` — SWORD markup handling (`stripMarkup`, `parseVerseMarkup`).
 - `server/src/books.ts` — book code → display name / section.
 - `server/data/sword/` — downloaded SWORD modules at runtime (gitignored).
@@ -75,7 +76,7 @@ npm workspaces: `client/` (Vue 3 + Vite + TS) and `server/` (Fastify + TS, ESM).
 ## Conventions
 
 - **No mock data, ever.** Real SWORD/CrossWire content only. Features without a backend
-  yet (such as the connections graph) show honest empty/disabled states —
+  yet (such as voice input) show honest empty/disabled states —
   never fabricated content. This is a hard product rule.
 - **License: GPL-2.0-or-later** (matches libsword / the SWORD family). Keep new files
   compatible.

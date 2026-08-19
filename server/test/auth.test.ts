@@ -35,6 +35,10 @@ describe('authentication API', () => {
       assert.equal(health.statusCode, 200)
       const gated = await app.inject({ method: 'GET', url: '/api/users' })
       assert.equal(gated.statusCode, 401)
+      const gatedConnections = await app.inject({
+        method: 'POST', url: '/api/connections', payload: { seeds: [] }
+      })
+      assert.equal(gatedConnections.statusCode, 401)
 
       const weak = await app.inject({
         method: 'POST',
@@ -74,6 +78,14 @@ describe('authentication API', () => {
       })
       assert.equal(status.json().state, 'authenticated')
       assert.equal(status.json().user.username, 'Owner')
+
+      const invalidConnections = await app.inject({
+        method: 'POST',
+        url: '/api/connections',
+        headers: { cookie: ownerCookie },
+        payload: { seeds: [] }
+      })
+      assert.equal(invalidConnections.statusCode, 400)
 
       const created = await app.inject({
         method: 'POST',

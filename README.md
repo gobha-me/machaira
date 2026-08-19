@@ -19,10 +19,10 @@ semantic search, personal journaling, and a bring-your-own-model study partner.
 | **Study** | Side-by-side verse comparison, Strong's glosses, and streamed passage-aware chat through a user-configured model provider. |
 | **Search** | Real SWORD full-text search plus embedding-backed “by meaning” ranking across installed modules. |
 | **Library** | Browse CrossWire repositories, install modules with live progress, and uninstall. This is the downloader that feeds every other screen. |
-| **Journal** | Per-account notes with tags, synced through the server and exportable as Markdown + JSON. |
+| **Journal** | Per-account notes with tags, plus an interactive graph of linked, cross-referenced, and thematically related passages. |
 | **Settings** | Account administration, encrypted chat/embedding provider configuration, vector-index controls, themes, scripture text scale, and reading toggles. |
 
-Features that are intentionally deferred, such as the connections graph, remain present as
+Features that are intentionally deferred, such as voice input and read-aloud, remain present as
 clearly disabled states. See the [roadmap](#roadmap).
 
 ## Architecture
@@ -45,6 +45,8 @@ machaira/
   calls.
 - Per-user semantic indexes store verse metadata and provider-generated vectors in SQLite. A
   staged rebuild preserves the previous usable index if an embedding request fails.
+- Journal connection graphs are derived on demand from module-authored cross-references and the
+  existing stored verse vectors. Opening a graph never makes a new embedding-provider request.
 - **`client/`** is a single-page app that talks to the server over `/api` (proxied in dev).
   Reading/study data plus per-user notes and highlights come from the server. IndexedDB retains
   reading-plan progress and any legacy notes/highlights until the user explicitly imports them.
@@ -195,8 +197,8 @@ is no longer needed.
 
 Planned work is tracked as [GitHub issues](https://github.com/gobha-me/machaira/issues).
 Authentication, server-side per-user storage, container/Kubernetes deployment, the multi-provider
-LLM study partner, and semantic scripture search form the current foundation. Next are voice input
-and the connections graph.
+LLM study partner, semantic scripture search, and the Scripture connections graph form the current
+foundation. Next is voice input and read-aloud follow-along.
 
 ## License
 

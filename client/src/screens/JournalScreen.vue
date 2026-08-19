@@ -1,11 +1,27 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import ConnectionsGraph from '../components/ConnectionsGraph.vue'
+import { api, type ConnectionNode, type ConnectionsPayload } from '../services/api'
 import { useNotes } from '../stores/notes'
 import { useReader } from '../stores/reader'
+import { useUi, type ScreenId } from '../stores/ui'
+import { resolveConnectionSeeds } from '../utils/connectionsGraph'
 
 const notes = useNotes()
 const reader = useReader()
+const ui = useUi()
 const tagDraft = ref('')
+const connections = ref<ConnectionsPayload | null>(null)
+const connectionsLoading = ref(false)
+const connectionsError = ref<string | null>(null)
+const connectionWarnings = ref<string[]>([])
+const selectedConnectionId = ref<string | null>(null)
+let connectionGeneration = 0
+let mounted = false
+
+const selectedConnection = computed(() =>
+  connections.value?.nodes.find((node) => node.id === selectedConnectionId.value) ?? null
+)
 
 const dateLabel = computed(() => {
   const n = notes.current
@@ -46,6 +62,74 @@ function removeRef(r: string) {
 function relDate(ts: number): string {
   return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
+
+async function loadConnections(): Promise<void> {
+  const generation = ++connectionGeneration
+  const note = notes.current
+  connections.value = null
+  selectedConnectionId.value = null
+  connectionsError.value = null
+  connectionWarnings.value = []
+  if (!note || note.refs.length === 0) {
+    connectionsLoading.value = false
+    return
+  }
+
+  connectionsLoading.value = true
+  try {
+    const resolution = await resolveConnectionSeeds(
+      note.refs,
+      reader.moduleName ?? reader.effectiveDefaultModule,
+      (module) => api.books(module)
+    )
+    if (generation !== connectionGeneration) return
+    connectionWarnings.value = resolution.warnings
+    if (resolution.seeds.length === 0) return
+    const payload = await api.connections(resolution.seeds)
+    if (generation !== connectionGeneration) return
+    connections.value = payload
+    connectionWarnings.value = [...new Set([...resolution.warnings, ...payload.warnings])]
+    selectedConnectionId.value = payload.nodes.find((node) => node.seed)?.id ?? payload.nodes[0]?.id ?? null
+  } catch (error) {
+    if (generation === connectionGeneration) connectionsError.value = (error as Error).message
+  } finally {
+    if (generation === connectionGeneration) connectionsLoading.value = false
+  }
+}
+
+function selectConnection(node: ConnectionNode): void {
+  selectedConnectionId.value = node.id
+}
+
+async function openConnection(screen: Extract<ScreenId, 'read' | 'study'>): Promise<void> {
+  const node = selectedConnection.value
+  if (!node) return
+  connectionsError.value = null
+  try {
+    await reader.openRef(
+      node.module,
+      node.book,
+      node.chapter,
+      node.verseStart ?? undefined,
+      node.verseEnd ?? undefined
+    )
+    if (reader.error) throw new Error(reader.error)
+    ui.go(screen)
+  } catch (error) {
+    connectionsError.value = `Could not open ${node.label}: ${(error as Error).message}`
+  }
+}
+
+watch(
+  () => [notes.currentId, notes.current?.refs.join('\u0000') ?? '', reader.moduleName] as const,
+  () => { if (mounted) void loadConnections() }
+)
+
+onMounted(async () => {
+  if (!reader.ready) await reader.init()
+  mounted = true
+  await loadConnections()
+})
 </script>
 
 <template>
@@ -123,25 +207,59 @@ function relDate(ts: number): string {
       </div>
     </div>
 
-    <!-- connections (honest placeholder) -->
+    <!-- real passage connections -->
     <div class="conn-col">
-      <div class="conn-label">Connections</div>
-      <div class="conn-placeholder">
-        <svg viewBox="0 0 230 200" class="conn-svg">
-          <circle cx="115" cy="100" r="15" fill="var(--soft)" stroke="var(--line)" stroke-width="1.5" />
-          <circle cx="50" cy="46" r="9" fill="none" stroke="var(--line)" stroke-width="1.5" />
-          <circle cx="184" cy="52" r="9" fill="none" stroke="var(--line)" stroke-width="1.5" />
-          <circle cx="60" cy="160" r="9" fill="none" stroke="var(--line)" stroke-width="1.5" />
-          <circle cx="176" cy="150" r="9" fill="none" stroke="var(--line)" stroke-width="1.5" />
-          <line x1="115" y1="100" x2="50" y2="46" stroke="var(--line)" stroke-width="1" stroke-dasharray="3 4" />
-          <line x1="115" y1="100" x2="184" y2="52" stroke="var(--line)" stroke-width="1" stroke-dasharray="3 4" />
-          <line x1="115" y1="100" x2="60" y2="160" stroke="var(--line)" stroke-width="1" stroke-dasharray="3 4" />
-          <line x1="115" y1="100" x2="176" y2="150" stroke="var(--line)" stroke-width="1" stroke-dasharray="3 4" />
-        </svg>
+      <div class="conn-head">
+        <div class="conn-label">Connections</div>
+        <span v-if="connections" class="conn-count">
+          {{ connections.nodes.length }} passage{{ connections.nodes.length === 1 ? '' : 's' }}
+        </span>
       </div>
-      <div class="conn-note">
-        A thematic graph linking passages through cross-references and embedding similarity is
-        planned next. The interactive graph is not built yet.
+
+      <div v-if="connectionsLoading" class="conn-state">
+        <div class="graph-loading"></div>
+        Finding real passage connections…
+      </div>
+      <div v-else-if="!notes.current" class="conn-state">
+        Select a note to explore its Scripture connections.
+      </div>
+      <div v-else-if="!notes.current.refs.length" class="conn-state">
+        Link a passage to this note to build its connections graph.
+      </div>
+      <div v-else-if="connectionsError && !connections" class="conn-state error">
+        {{ connectionsError }}
+        <button @click="loadConnections">Try again</button>
+      </div>
+      <div v-else-if="!connections?.nodes.length" class="conn-state">
+        None of this note’s linked passages are available in an installed translation.
+      </div>
+      <template v-else-if="connections">
+        <ConnectionsGraph
+          :payload="connections"
+          :selected-id="selectedConnectionId"
+          @select="selectConnection"
+        />
+
+        <div v-if="connections.edges.length === 0" class="conn-note">
+          No resolvable cross-reference or thematic neighbors were found for these passages.
+        </div>
+
+        <div v-if="selectedConnection" class="conn-detail">
+          <div class="detail-head">
+            <strong class="serif">{{ selectedConnection.label }}</strong>
+            <span>{{ selectedConnection.module }}</span>
+          </div>
+          <p class="serif">{{ selectedConnection.content || 'Passage text is unavailable.' }}</p>
+          <div class="detail-actions">
+            <button @click="openConnection('read')">Read</button>
+            <button @click="openConnection('study')">Study</button>
+          </div>
+        </div>
+      </template>
+
+      <div v-if="connectionsError && connections" class="conn-note error">{{ connectionsError }}</div>
+      <div v-for="warning in connectionWarnings" :key="warning" class="conn-note">
+        {{ warning }}
       </div>
     </div>
   </div>
@@ -348,11 +466,16 @@ function relDate(ts: number): string {
   font-size: 14px;
 }
 .conn-col {
-  width: clamp(180px, 19vw, 270px);
+  width: clamp(280px, 30vw, 430px);
   flex-shrink: 0;
   border-left: 1px solid var(--line);
   padding: 24px 20px;
   overflow-y: auto;
+}
+.conn-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
 }
 .conn-label {
   font-size: 11px;
@@ -361,15 +484,121 @@ function relDate(ts: number): string {
   color: var(--muted);
   margin-bottom: 14px;
 }
-.conn-svg {
-  width: 100%;
-  height: auto;
-  opacity: 0.7;
+.conn-count {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 10px;
+}
+.conn-state {
+  min-height: 220px;
+  display: grid;
+  place-content: center;
+  gap: 12px;
+  padding: 20px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.conn-state button {
+  justify-self: center;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 6px 10px;
+  background: var(--card);
+  color: var(--accent);
+  cursor: pointer;
+}
+.graph-loading {
+  width: 11px;
+  height: 11px;
+  justify-self: center;
+  background: var(--accent);
+  transform: rotate(45deg);
+  animation: graph-pulse 800ms ease-in-out infinite alternate;
+}
+@keyframes graph-pulse { to { opacity: 0.3; } }
+.conn-detail {
+  margin-top: 8px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+.detail-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.detail-head strong {
+  color: var(--ink);
+  font-size: 18px;
+  font-weight: 600;
+}
+.detail-head span {
+  margin-left: auto;
+  border-radius: 999px;
+  padding: 2px 7px;
+  background: var(--soft);
+  color: var(--muted);
+  font-size: 9.5px;
+}
+.conn-detail p {
+  margin: 9px 0 12px;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.55;
+}
+.detail-actions {
+  display: flex;
+  gap: 7px;
+}
+.detail-actions button {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 6px 12px;
+  background: var(--card);
+  color: var(--accent);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
 }
 .conn-note {
   font-size: 11.5px;
   color: var(--muted);
   line-height: 1.6;
   margin-top: 10px;
+}
+.error { color: #a23b32; }
+
+@media (max-width: 1000px) {
+  .journal { flex-wrap: wrap; overflow-y: auto; }
+  .list-col { height: min(62vh, 620px); }
+  .editor-col { height: min(62vh, 620px); }
+  .conn-col {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 420px;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    overflow: visible;
+  }
+}
+
+@media (max-width: 680px) {
+  .journal { display: block; }
+  .list-col,
+  .editor-col,
+  .conn-col {
+    box-sizing: border-box;
+    width: 100%;
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+    border-left: 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .list-col { max-height: 230px; overflow-y: auto; }
+  .editor-col { padding-top: 34px; }
 }
 </style>

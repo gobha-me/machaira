@@ -180,7 +180,13 @@ export const useReader = defineStore('reader', {
       this.chapter = 1
       await this.loadChapter()
     },
-    async openRef(module: string, book: string, chapter: number, verse?: number): Promise<void> {
+    async openRef(
+      module: string,
+      book: string,
+      chapter: number,
+      verse?: number,
+      verseEnd?: number
+    ): Promise<void> {
       if (module !== this.moduleName) {
         this.moduleName = module
         try {
@@ -194,7 +200,7 @@ export const useReader = defineStore('reader', {
       await this.loadChapter()
       if (verse != null) {
         this.selectedVerse = verse
-        this.rangeEnd = verse
+        this.rangeEnd = verseEnd ?? verse
       }
     },
     async setChapter(n: number): Promise<void> {
