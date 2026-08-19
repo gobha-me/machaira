@@ -86,7 +86,9 @@ describe('semantic index', () => {
 
   it('stores per-user provider settings, rebuilds staged vectors, and ranks by meaning', async () => {
     let fail = false
+    let embeddingRequests = 0
     const upstream = await listen(async (request, response) => {
+      embeddingRequests += 1
       assert.equal(request.url, '/v1/embeddings')
       if (fail) {
         response.writeHead(503, { 'content-type': 'application/json' })
@@ -103,6 +105,10 @@ describe('semantic index', () => {
     })
     const db = openDatabase(':memory:')
     seedUser(db)
+    db.prepare(`
+      INSERT INTO users (id, username, username_normalized, password_hash, role, created_at)
+      VALUES ('user-2', 'Reader', 'reader', 'hash', 'member', 2)
+    `).run()
     const providers = new EmbeddingProviderService(db, new SecretStore(db, randomBytes(32)))
     const index = new SemanticIndexService(db, providers, sources)
     try {
@@ -122,6 +128,20 @@ describe('semantic index', () => {
       assert.equal(hits.length, 2)
       assert.equal(hits[0].verse, 1)
       assert.equal(hits[0].distance, 0)
+
+      const beforeNeighbors = embeddingRequests
+      const neighbors = await index.neighbors('user-1', {
+        module: 'WEB', book: 'John', chapter: 1, verseStart: 1, verseEnd: 1
+      }, 2)
+      assert.equal(neighbors.state, 'ready')
+      assert.deepEqual(neighbors.results.map((hit) => hit.verse), [2, 3])
+      assert.equal(embeddingRequests, beforeNeighbors, 'stored vectors should avoid an upstream request')
+
+      providers.save('user-2', { kind: 'local', baseUrl: upstream.baseUrl, model: 'tiny' })
+      const isolated = await index.neighbors('user-2', {
+        module: 'WEB', book: 'John', chapter: 1, verseStart: 1, verseEnd: 1
+      })
+      assert.deepEqual(isolated, { state: 'empty', results: [] })
 
       fail = true
       await assert.rejects(index.rebuild('user-1', () => undefined), /503/)

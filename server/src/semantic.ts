@@ -38,6 +38,19 @@ export interface SemanticSearchHit {
   distance: number
 }
 
+export interface SemanticPassageSeed {
+  module: string
+  book: string
+  chapter: number
+  verseStart: number | null
+  verseEnd: number | null
+}
+
+export interface SemanticNeighborResult {
+  state: SemanticIndexStatus['state']
+  results: SemanticSearchHit[]
+}
+
 interface StoredEmbeddingConfig {
   kind: EmbeddingProviderKind
   base_url: string
@@ -553,6 +566,96 @@ export class SemanticIndexService {
         distance: match.distance
       }] : []
     })
+  }
+
+  /**
+   * Find neighbors for already-indexed Scripture without contacting the embedding provider.
+   * Range and chapter seeds use the mean of their stored verse vectors.
+   */
+  async neighbors(
+    userId: string,
+    seed: SemanticPassageSeed,
+    limit = 4
+  ): Promise<SemanticNeighborResult> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 20) {
+      throw new SemanticInputError('Neighbor limit must be between 1 and 20')
+    }
+    const status = await this.status(userId)
+    if (status.state !== 'ready') return { state: status.state, results: [] }
+
+    const active = this.activeRun(userId)
+    if (!active || active.dimension === null) return { state: status.state, results: [] }
+    const table = ensureVectorTable(this.db, active.dimension)
+    const sourceChunks = this.db.prepare(`
+      SELECT id, verse FROM semantic_chunks
+      WHERE run_id = ? AND module = ? AND book = ? AND chapter = ?
+        AND (? IS NULL OR verse >= ?)
+        AND (? IS NULL OR verse <= ?)
+      ORDER BY verse
+    `).all(
+      active.id, seed.module, seed.book, seed.chapter,
+      seed.verseStart, seed.verseStart,
+      seed.verseEnd, seed.verseEnd
+    ) as Array<{ id: number | bigint; verse: number }>
+    if (sourceChunks.length === 0) return { state: status.state, results: [] }
+
+    const getVector = this.db.prepare(`SELECT embedding FROM ${table} WHERE chunk_id = ? AND run_id = ?`)
+    const average = new Float32Array(active.dimension)
+    let vectorCount = 0
+    for (const chunk of sourceChunks) {
+      const row = getVector.get(chunk.id, active.id) as { embedding: Buffer } | undefined
+      if (!row) continue
+      // Copy out of Node's pooled Buffer so the Float32Array always starts at an aligned offset.
+      const vector = new Float32Array(Uint8Array.from(row.embedding).buffer)
+      if (vector.length !== active.dimension) continue
+      for (let index = 0; index < vector.length; index += 1) average[index] += vector[index]
+      vectorCount += 1
+    }
+    if (vectorCount === 0) return { state: status.state, results: [] }
+    for (let index = 0; index < average.length; index += 1) average[index] /= vectorCount
+    const magnitude = Math.sqrt(average.reduce((sum, value) => sum + value * value, 0))
+    if (!Number.isFinite(magnitude) || magnitude <= Number.EPSILON) {
+      return { state: status.state, results: [] }
+    }
+
+    const nearest = this.db.prepare(`
+      SELECT chunk_id, distance FROM ${table}
+      WHERE embedding MATCH ? AND k = ? AND run_id = ? AND module = ?
+      ORDER BY distance
+    `).all(
+      Buffer.from(average.buffer),
+      Math.min(512, limit + sourceChunks.length + 8),
+      active.id,
+      seed.module
+    ) as Array<{ chunk_id: number | bigint; distance: number }>
+    const sourceIds = new Set(sourceChunks.map((chunk) => String(chunk.id)))
+    const getChunk = this.db.prepare(`
+      SELECT module, book, book_name, chapter, verse, content
+      FROM semantic_chunks WHERE id = ? AND run_id = ?
+    `)
+    return {
+      state: status.state,
+      results: nearest.flatMap((match) => {
+        if (sourceIds.has(String(match.chunk_id))) return []
+        const chunk = getChunk.get(match.chunk_id, active.id) as {
+          module: string
+          book: string
+          book_name: string
+          chapter: number
+          verse: number
+          content: string
+        } | undefined
+        return chunk ? [{
+          module: chunk.module,
+          book: chunk.book,
+          bookName: chunk.book_name,
+          chapter: chunk.chapter,
+          verse: chunk.verse,
+          content: chunk.content,
+          distance: match.distance
+        }] : []
+      }).slice(0, limit)
+    }
   }
 
   private activeRun(userId: string): RunRow | null {

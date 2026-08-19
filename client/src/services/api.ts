@@ -45,6 +45,7 @@ export interface ChapterVerse {
   notes: VerseNote[]
   segments: VerseSegment[]
   crossReferences: string[]
+  crossReferenceTargets?: ScriptureTarget[]
 }
 
 export interface ChapterPayload {
@@ -97,6 +98,39 @@ export interface SearchHit {
 
 export interface SemanticSearchHit extends SearchHit {
   distance: number
+}
+
+export interface ScriptureTarget {
+  book: string
+  chapter: number
+  verseStart: number | null
+  verseEnd: number | null
+}
+
+export interface ConnectionSeed extends ScriptureTarget {
+  module: string
+}
+
+export interface ConnectionNode extends ConnectionSeed {
+  id: string
+  bookName: string
+  label: string
+  content: string
+  seed: boolean
+}
+
+export interface ConnectionEdge {
+  source: string
+  target: string
+  kind: 'cross-reference' | 'thematic'
+  distance?: number
+}
+
+export interface ConnectionsPayload {
+  nodes: ConnectionNode[]
+  edges: ConnectionEdge[]
+  semanticState: SemanticIndexStatus['state'] | 'unavailable'
+  warnings: string[]
 }
 
 export interface Note {
@@ -364,6 +398,10 @@ export const api = {
       '/api/semantic-search',
       json('POST', { query, modules, limit })
     )).results
+  },
+
+  async connections(seeds: ConnectionSeed[]): Promise<ConnectionsPayload> {
+    return requestJson<ConnectionsPayload>('/api/connections', json('POST', { seeds }))
   },
 
   async embeddingProvider(): Promise<EmbeddingProviderConfig | null> {

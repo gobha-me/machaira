@@ -1,3 +1,5 @@
+import { parseCrossReferenceTargets, type ScriptureTarget } from './scripture-reference.js'
+
 // SWORD verse content can carry inline markup and doubled whitespace. Two consumers:
 //   • stripMarkup()      — plain text for search/compare (drops notes entirely).
 //   • parseVerseMarkup() — reading view: pulls footnotes out into structured notes
@@ -74,6 +76,7 @@ export interface ParsedVerse {
   notes: VerseNote[]
   segments: VerseSegment[]
   crossReferences: string[]
+  crossReferenceTargets: ScriptureTarget[]
 }
 
 // Sentinels wrap a note (U+E000) or Strong's-tagged word (U+E001) index in the working
@@ -103,9 +106,13 @@ function noteLabel(i: number): string {
 
 export function parseVerseMarkup(raw: string): ParsedVerse {
   const crossReferences: string[] = []
-  const takeCrossReference = (inner: string): string => {
+  const crossReferenceTargets: ScriptureTarget[] = []
+  const takeCrossReference = (markup: string, inner: string): string => {
     const text = stripInline(inner)
-    if (text) crossReferences.push(text)
+    if (text) {
+      crossReferences.push(text)
+      crossReferenceTargets.push(...parseCrossReferenceTargets(markup, text))
+    }
     return ' '
   }
 
@@ -127,8 +134,8 @@ export function parseVerseMarkup(raw: string): ParsedVerse {
     return `${WSENT}${j}${WSENT}`
   }
 
-  let s = raw.replace(CROSS_REF_DIV, (_m, inner: string) => takeCrossReference(inner))
-  s = s.replace(CROSS_REF_OSIS, (_m, inner: string) => takeCrossReference(inner))
+  let s = raw.replace(CROSS_REF_DIV, (markup, inner: string) => takeCrossReference(markup, inner))
+  s = s.replace(CROSS_REF_OSIS, (markup, inner: string) => takeCrossReference(markup, inner))
   s = s.replace(NOTE_DIV, (_m, inner: string) => take(inner))
   s = s.replace(TITLE_DIV, ' ')
   s = s.replace(GBF_NOTE, (_m, inner: string) => take(inner))
@@ -163,5 +170,15 @@ export function parseVerseMarkup(raw: string): ParsedVerse {
     }
   }
 
-  return { text: tighten(text).trim(), notes, segments, crossReferences }
+  const seenTargets = new Set<string>()
+  const targets = crossReferenceTargets.filter((target) => {
+    const id = `${target.book}/${target.chapter}/${target.verseStart ?? ''}/${target.verseEnd ?? ''}`
+    if (seenTargets.has(id)) return false
+    seenTargets.add(id)
+    return true
+  })
+  return {
+    text: tighten(text).trim(), notes, segments, crossReferences,
+    crossReferenceTargets: targets
+  }
 }
