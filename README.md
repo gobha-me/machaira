@@ -127,6 +127,14 @@ counts. Installing or removing a Bible, or changing the endpoint/model, marks th
 the next successful rebuild. Exact note and journal search remains local and does not send personal
 writing to the embeddings provider.
 
+The embedding provider setting defaults to 32 verses per rebuild request and accepts values from
+1 to 64. OpenAI-compatible cloud services commonly accept the default; LiteLLM/vLLM deployments,
+Ollama, and small local or sidecar runtimes may need a lower value depending on their configured
+limits and available memory. If a provider explicitly rejects a batch as too large, Sword retries
+that batch at the reported limit (or progressively halves it) and uses the smaller size for the
+rest of the rebuild. Other 400/413/422 responses are reported without retrying so configuration or
+model errors cannot loop indefinitely. Semantic-search queries remain single-input requests.
+
 To run the halves separately:
 
 ```sh
