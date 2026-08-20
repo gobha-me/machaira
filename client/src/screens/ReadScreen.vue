@@ -37,6 +37,14 @@ const versesStyle = computed(() => ({
 const transOpen = ref(false)
 const bookOpen = ref(false)
 const draftBook = ref<string | null>(null)
+const activeTranslation = computed(() =>
+  reader.installedBibles.find((module) => module.name === reader.moduleName)
+)
+const activeTranslationLabel = computed(() => {
+  const module = activeTranslation.value
+  if (!module) return reader.moduleName ?? 'Translation'
+  return `${module.name} — ${module.description}`
+})
 
 onMounted(() => {
   // Guard the init like Study already does. Screens are swapped, not kept alive, so a bare
@@ -325,15 +333,22 @@ function menuNote() {
         </div>
       </div>
 
-      <div class="pick">
-        <button class="chip chip-accent hover-line" @click="transOpen = !transOpen">
-          {{ reader.moduleName }} <span class="caret">▾</span>
+      <div class="pick trans-pick">
+        <button
+          class="chip chip-accent hover-line"
+          :title="activeTranslationLabel"
+          :aria-label="`Choose translation. Current: ${activeTranslationLabel}`"
+          @click="transOpen = !transOpen"
+        >
+          <span class="chip-label">{{ reader.moduleName }}</span><span class="caret">▾</span>
         </button>
         <div v-if="transOpen" class="panel trans-panel">
           <button
             v-for="m in reader.installedBibles"
             :key="m.name"
             class="trans-item hover-soft"
+            :title="`${m.name} — ${m.description}`"
+            :aria-label="`${m.name}: ${m.description}`"
             @click="pickModule(m.name)"
           >
             <span class="trans-mark" :style="{ background: reader.moduleName === m.name ? 'var(--accent)' : 'transparent' }"></span>
@@ -369,7 +384,7 @@ function menuNote() {
           <template v-else-if="reader.data">
             <div class="eyebrow">{{ sectionLabels[reader.currentBook?.section ?? 'nt'] }}</div>
             <h1 class="serif">{{ reader.bookName }} <span class="accent">{{ reader.chapter }}</span></h1>
-            <div class="meta">{{ reader.data.verses.length }} verses · {{ reader.moduleName }}</div>
+            <div class="meta" :title="activeTranslationLabel">{{ reader.data.verses.length }} verses · {{ reader.moduleName }}</div>
 
             <div class="verses serif" :style="versesStyle">
               <span
@@ -493,7 +508,7 @@ function menuNote() {
 
           <div class="hint-card">
             <div class="hint-label">Reading</div>
-            <div class="hint-body">
+            <div class="hint-body" :title="activeTranslationLabel">
               {{ reader.moduleName }} · {{ reader.bookName }} {{ reader.chapter }}
             </div>
           </div>
@@ -546,7 +561,7 @@ function menuNote() {
         @click="togglePlay"
       >{{ playing ? '❚❚' : '▶' }}</button>
       <div class="listen-meta">
-        <div class="listen-title">{{ reader.bookName }} {{ reader.chapter }} · {{ reader.moduleName }}</div>
+        <div class="listen-title" :title="`${reader.bookName} ${reader.chapter} · ${activeTranslationLabel}`">{{ reader.bookName }} {{ reader.chapter }} · {{ reader.moduleName }}</div>
         <div class="listen-sub" :class="{ error: listeningError }" aria-live="polite">
           {{ listeningError
             ? listeningError
@@ -589,6 +604,10 @@ function menuNote() {
 .pick {
   position: relative;
 }
+.trans-pick {
+  min-width: 0;
+  max-width: min(220px, 28vw);
+}
 .chip {
   display: flex;
   align-items: center;
@@ -601,6 +620,13 @@ function menuNote() {
   font-weight: 600;
   color: var(--ink);
   cursor: pointer;
+  max-width: 100%;
+}
+.chip-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .chip-accent {
   color: var(--accent);
@@ -608,6 +634,7 @@ function menuNote() {
 .caret {
   color: var(--muted);
   font-size: 11px;
+  flex-shrink: 0;
 }
 .spacer {
   flex: 1;
@@ -650,7 +677,7 @@ function menuNote() {
   z-index: 40;
 }
 .trans-panel {
-  width: 330px;
+  width: min(330px, calc(100vw - 32px));
   padding: 6px;
 }
 .trans-item {
@@ -664,6 +691,7 @@ function menuNote() {
   padding: 9px 10px;
   cursor: pointer;
   text-align: left;
+  min-width: 0;
 }
 .trans-mark {
   width: 5px;
@@ -677,13 +705,18 @@ function menuNote() {
   font-weight: 700;
   color: var(--ink);
   min-width: 48px;
-  flex-shrink: 0;
+  max-width: 100px;
+  flex: 0 1 100px;
+  overflow-wrap: anywhere;
 }
 .trans-name {
+  flex: 1;
+  min-width: 0;
   font-size: 12.5px;
   color: var(--muted);
   white-space: normal;
   line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 .trans-foot {
   border-top: 1px solid var(--line);
@@ -698,6 +731,12 @@ function menuNote() {
   font-weight: 600;
   color: var(--accent);
   padding: 0;
+}
+@media (max-width: 680px) {
+  .trans-panel {
+    right: 0;
+    left: auto;
+  }
 }
 .book-panel {
   width: 460px;
@@ -791,6 +830,7 @@ h1 {
   font-size: 12.5px;
   color: var(--muted);
   margin-bottom: 34px;
+  overflow-wrap: anywhere;
 }
 .verses {
   line-height: 1.85;
@@ -1033,6 +1073,7 @@ h1 {
 .hint-body {
   font-size: 13px;
   line-height: 1.55;
+  overflow-wrap: anywhere;
 }
 .plan-card {
   background: var(--card);
@@ -1143,6 +1184,9 @@ h1 {
 .listen-title {
   font-size: 13px;
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .listen-sub {
   font-size: 11.5px;

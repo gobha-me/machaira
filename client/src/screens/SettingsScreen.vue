@@ -50,6 +50,11 @@ const embeddingApiKey = ref('')
 const embeddingMessage = ref('')
 const embeddingBatchSizeValid = computed(() => Number.isSafeInteger(embeddingBatchSize.value)
   && embeddingBatchSize.value >= 1 && embeddingBatchSize.value <= 64)
+const defaultModuleLabel = computed(() => {
+  if (!settings.defaultModuleName) return 'Automatic (WEB)'
+  const module = reader.installedBibles.find((item) => item.name === settings.defaultModuleName)
+  return module ? `${module.name} — ${module.description}` : settings.defaultModuleName
+})
 
 const PROVIDER_DEFAULTS: Record<AiProviderKind, string> = {
   'openai-compatible': 'https://api.openai.com/v1',
@@ -303,7 +308,7 @@ async function rebuildSemanticIndex(): Promise<void> {
           <div class="spacer"></div>
           <Toggle :model-value="settings.extraSpacing" @update:model-value="settings.toggle('extraSpacing')" />
         </div>
-        <div class="row bordered">
+        <div class="row bordered translation-default-row">
           <div class="row-text">
             <div class="row-title">Default translation</div>
             <div class="row-sub">Opens on a fresh start when no reading position is saved</div>
@@ -312,6 +317,8 @@ async function rebuildSemanticIndex(): Promise<void> {
           <select
             class="setting-select"
             :value="settings.defaultModuleName ?? ''"
+            :title="defaultModuleLabel"
+            aria-label="Default translation"
             @change="settings.setDefaultModule(($event.target as HTMLSelectElement).value || null)"
           >
             <option value="">Automatic (WEB)</option>
@@ -356,7 +363,7 @@ async function rebuildSemanticIndex(): Promise<void> {
           class="row"
           :class="{ bordered: i < reader.installedBibles.length - 1 }"
         >
-          <div class="row-text">
+          <div class="row-text" :title="`${m.name} — ${m.description}`">
             <div class="row-title">
               {{ m.name }}
               <span v-if="m.name === reader.effectiveDefaultModule" class="badge">Primary</span>
@@ -689,14 +696,21 @@ h1 {
 .row-title {
   font-size: 14px;
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
 .row-sub {
   font-size: 12px;
   color: var(--muted);
   margin-top: 2px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.row-text {
+  min-width: 0;
 }
 .spacer {
   flex: 1;
+  min-width: 0;
 }
 .segmented {
   display: flex;
@@ -776,7 +790,10 @@ h1 {
   font-weight: 600;
   color: var(--ink);
   cursor: pointer;
+  width: min(260px, 42vw);
+  min-width: 0;
   max-width: 260px;
+  text-overflow: ellipsis;
 }
 .provider-input {
   width: 220px;
@@ -807,5 +824,19 @@ h1 {
 .pill.action:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+@media (max-width: 560px) {
+  .translation-default-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .translation-default-row .spacer {
+    display: none;
+  }
+  .setting-select {
+    width: 100%;
+    max-width: none;
+  }
 }
 </style>

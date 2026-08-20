@@ -371,13 +371,16 @@ function menuNote() {
         </div>
         <div v-else-if="!chatMessages.length" class="disabled-note">
           <div class="dn-title serif">Ask about this passage</div>
-          <p>
+          <p :title="`${passageContext.reference} · ${passageContext.module}`">
             {{ passageContext.reference }} from {{ passageContext.module }} is included as context.
             Conversation history stays in this browser tab only.
           </p>
         </div>
         <div v-else class="messages" aria-live="polite">
-          <div class="context-chip">Context · {{ passageContext.reference }} · {{ passageContext.module }}</div>
+          <div
+            class="context-chip"
+            :title="`Context · ${passageContext.reference} · ${passageContext.module}`"
+          >Context · {{ passageContext.reference }} · {{ passageContext.module }}</div>
           <div v-for="(message, index) in chatMessages" :key="index" class="message" :class="message.role">
             <div class="message-role">{{ message.role === 'user' ? 'You' : 'Study partner' }}</div>
             <div class="message-content">{{ message.content }}<span v-if="sending && index === chatMessages.length - 1" class="stream-cursor"></span></div>
@@ -698,6 +701,7 @@ function menuNote() {
   line-height: 1.6;
   color: var(--muted);
   margin: 0 0 16px;
+  overflow-wrap: anywhere;
 }
 .dn-btn {
   background: none;
