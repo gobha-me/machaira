@@ -218,6 +218,36 @@ export interface TtsEndpointInput {
   clearApiKey?: boolean
 }
 
+export type SttTier = 'browser' | 'local' | 'cloud'
+export type SttProviderKind = 'openai-compatible' | 'venice'
+
+export interface SttEndpointConfig {
+  provider: SttProviderKind
+  baseUrl: string
+  model: string
+  hasApiKey: boolean
+}
+
+export interface SttConfig {
+  order: SttTier[]
+  local: SttEndpointConfig | null
+  cloud: SttEndpointConfig | null
+}
+
+export interface SttEndpointInput {
+  provider: SttProviderKind
+  baseUrl: string
+  model: string
+  apiKey?: string
+  clearApiKey?: boolean
+}
+
+export interface SttConnectionResult {
+  ok: true
+  modelAvailable: boolean | null
+  message: string
+}
+
 export interface SemanticIndexStatus {
   state: 'unconfigured' | 'empty' | 'building' | 'ready' | 'stale' | 'failed'
   chunkCount: number
@@ -566,6 +596,46 @@ export const api = {
       )
     }
     return response.blob()
+  },
+
+  async sttConfig(): Promise<SttConfig> {
+    return (await getJson<{ config: SttConfig }>('/api/stt/config')).config
+  },
+
+  async saveSttConfig(input: {
+    order: SttTier[]
+    local: SttEndpointInput | null
+    cloud: SttEndpointInput | null
+  }): Promise<SttConfig> {
+    return (await requestJson<{ config: SttConfig }>(
+      '/api/stt/config', json('PUT', input)
+    )).config
+  },
+
+  async checkStt(
+    tier: 'local' | 'cloud',
+    endpoint?: SttEndpointInput,
+    signal?: AbortSignal
+  ): Promise<SttConnectionResult> {
+    return requestJson<SttConnectionResult>(
+      '/api/stt/check',
+      { ...json('POST', { tier, ...(endpoint ? { endpoint } : {}) }), signal }
+    )
+  },
+
+  async sttTranscription(
+    provider: 'local' | 'cloud',
+    audio: Blob,
+    durationMs: number,
+    signal?: AbortSignal
+  ): Promise<string> {
+    const form = new FormData()
+    form.set('provider', provider)
+    form.set('durationMs', String(durationMs))
+    form.set('file', audio, `recording.${audio.type.includes('mp4') ? 'mp4' : audio.type.includes('ogg') ? 'ogg' : 'webm'}`)
+    return (await requestJson<{ text: string }>(
+      '/api/stt/transcriptions', { method: 'POST', body: form, signal }
+    )).text
   },
 
   async streamChat(

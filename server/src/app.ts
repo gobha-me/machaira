@@ -3,6 +3,7 @@ import cookie from '@fastify/cookie'
 import cors from '@fastify/cors'
 import rateLimit from '@fastify/rate-limit'
 import staticFiles from '@fastify/static'
+import multipart from '@fastify/multipart'
 import { AuthService, SESSION_COOKIE } from './auth.js'
 import { openDatabase } from './database.js'
 import { registerAuth } from './routes/auth.js'
@@ -21,6 +22,8 @@ import { ConnectionsService } from './connections.js'
 import { registerConnections } from './routes/connections.js'
 import { TtsService } from './tts.js'
 import { registerTts } from './routes/tts.js'
+import { SttService } from './stt.js'
+import { registerStt } from './routes/stt.js'
 
 export interface AppOptions {
   databasePath: string
@@ -51,10 +54,14 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   const semanticIndex = new SemanticIndexService(db, embeddingProviders)
   const connections = new ConnectionsService(semanticIndex)
   const tts = new TtsService(db, secrets)
+  const stt = new SttService(db, secrets)
 
   app.addHook('onClose', async () => db.close())
   await app.register(cookie)
   await app.register(rateLimit, { global: false })
+  await app.register(multipart, {
+    limits: { fields: 2, files: 1, parts: 3, fileSize: 8 * 1024 * 1024, fieldSize: 200 }
+  })
   await app.register(cors, {
     origin: options.origin ? [options.origin] : false,
     credentials: true
@@ -77,6 +84,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   await registerSemantic(app, embeddingProviders, semanticIndex)
   await registerConnections(app, connections)
   await registerTts(app, tts)
+  await registerStt(app, stt)
 
   if (options.registerFeatureRoutes ?? true) {
     await registerSources(app)

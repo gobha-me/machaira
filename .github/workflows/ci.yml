@@ -34,7 +34,10 @@ jobs:
             -o Acquire::https::Timeout=30 \
             install -y \
             build-essential cmake pkg-config subversion \
-            libcurl4-openssl-dev libicu-dev zlib1g-dev
+            ffmpeg libcurl4-openssl-dev libicu-dev zlib1g-dev
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
 
       - name: Install dependencies
         run: npm ci
@@ -54,6 +57,19 @@ jobs:
       - name: Test server
         working-directory: server
         run: npm test
+
+      - name: Validate Helm chart
+        run: |
+          helm lint deploy/helm/machaira
+          helm template machaira deploy/helm/machaira > /tmp/machaira-default.yaml
+          helm template machaira deploy/helm/machaira \
+            --set stt.sidecar.enabled=true > /tmp/machaira-stt.yaml
+          grep -q 'name: stt' /tmp/machaira-stt.yaml
+          grep -q 'subPath: stt-model-cache' /tmp/machaira-stt.yaml
+          if grep -q 'targetPort: stt' /tmp/machaira-stt.yaml; then
+            echo 'STT must not be exposed through the Service' >&2
+            exit 1
+          fi
 
       - name: Build
         run: npm run build

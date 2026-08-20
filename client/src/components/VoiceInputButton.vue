@@ -19,45 +19,72 @@ const draft = computed({
   set: (value: string) => emit('update:modelValue', value)
 })
 
-const { supported, active, error, start, stop, cancel } = useSpeechRecognition(draft)
+const {
+  supported, active, phase, currentProvider, error, notice, start, stop, cancel
+} = useSpeechRecognition(draft)
 const unavailable = computed(() => props.disabled || !supported.value)
+const providerLabel = computed(() => {
+  if (currentProvider.value === 'browser') return 'Browser STT'
+  if (currentProvider.value === 'local') return 'Local STT'
+  if (currentProvider.value === 'cloud') return 'Cloud STT'
+  return ''
+})
 const title = computed(() => {
-  if (!supported.value) return 'Voice input is not available in this browser'
+  if (!supported.value) return 'No configured voice-input provider is available in this browser'
   if (props.disabled) return `Voice input for ${props.label} is currently unavailable`
+  if (phase.value === 'starting') return 'Requesting microphone access'
+  if (phase.value === 'recording') return `Release to transcribe with ${providerLabel.value}`
+  if (phase.value === 'transcribing') return `${providerLabel.value} is transcribing · press to cancel`
   if (error.value) return error.value
-  return active.value ? 'Release to stop dictating' : `Hold to dictate ${props.label}`
+  if (notice.value) return notice.value
+  return `Hold to dictate ${props.label}`
 })
 
 watch(() => props.disabled, (disabled) => {
-  if (disabled) cancel()
+  if (disabled && active.value) cancel()
 })
 
 function beginPointer(event: PointerEvent): void {
-  if (unavailable.value) return
+  if (phase.value === 'transcribing') {
+    event.preventDefault()
+    cancel()
+    return
+  }
+  if (unavailable.value || active.value) return
   event.preventDefault()
   const button = event.currentTarget as HTMLButtonElement
   button.setPointerCapture?.(event.pointerId)
-  start()
+  void start()
 }
 
 function endPointer(event: PointerEvent): void {
-  if (unavailable.value && !active.value) return
+  if (!['starting', 'recording'].includes(phase.value)) return
   event.preventDefault()
-  stop()
+  void stop()
   const button = event.currentTarget as HTMLButtonElement
   if (button.hasPointerCapture?.(event.pointerId)) button.releasePointerCapture(event.pointerId)
 }
 
 function beginKey(event: KeyboardEvent): void {
+  if (event.key === 'Escape' && active.value) {
+    event.preventDefault()
+    cancel()
+    return
+  }
+  if (phase.value === 'transcribing' && [' ', 'Enter'].includes(event.key)) {
+    event.preventDefault()
+    cancel()
+    return
+  }
   if (unavailable.value || event.repeat || ![' ', 'Enter'].includes(event.key)) return
   event.preventDefault()
-  start()
+  void start()
 }
 
 function endKey(event: KeyboardEvent): void {
-  if ((unavailable.value && !active.value) || ![' ', 'Enter'].includes(event.key)) return
+  if (!['starting', 'recording'].includes(phase.value) || ![' ', 'Enter'].includes(event.key)) return
   event.preventDefault()
-  stop()
+  void stop()
 }
 </script>
 
@@ -67,19 +94,24 @@ function endKey(event: KeyboardEvent): void {
       type="button"
       class="voice-button"
       :class="{ active, failed: error }"
-      :disabled="unavailable"
+      :disabled="unavailable && !active"
       :title="title"
       :aria-label="title"
       :aria-pressed="active"
       @pointerdown="beginPointer"
       @pointerup="endPointer"
-      @pointercancel="endPointer"
-      @lostpointercapture="stop"
+      @pointercancel="cancel"
+      @lostpointercapture="phase === 'recording' && stop()"
       @keydown="beginKey"
       @keyup="endKey"
       @contextmenu.prevent
-    >{{ active ? '●' : '🎙' }}</button>
-    <div v-if="error" class="voice-error" role="alert">{{ error }}</div>
+    >{{ phase === 'recording' ? '●' : phase === 'transcribing' || phase === 'starting' ? '…' : '🎙' }}</button>
+    <div
+      v-if="error || notice || currentProvider"
+      class="voice-status"
+      :class="{ failed: error }"
+      :role="error ? 'alert' : 'status'"
+    >{{ error || notice || providerLabel }}</div>
   </div>
 </template>
 
@@ -119,20 +151,24 @@ function endKey(event: KeyboardEvent): void {
   cursor: not-allowed;
   opacity: 0.45;
 }
-.voice-error {
+.voice-status {
   position: absolute;
   right: 0;
   bottom: calc(100% + 7px);
   z-index: 60;
   width: max-content;
   max-width: 260px;
-  border: 1px solid var(--accent);
+  border: 1px solid var(--line);
   border-radius: 7px;
   background: var(--card);
-  color: var(--accent);
+  color: var(--muted);
   padding: 6px 8px;
   box-shadow: 0 6px 18px rgba(30, 22, 10, 0.12);
   font-size: 11px;
   line-height: 1.35;
+}
+.voice-status.failed {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 </style>

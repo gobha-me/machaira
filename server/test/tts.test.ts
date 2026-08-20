@@ -252,7 +252,7 @@ describe('TTS schema migration', () => {
     const db = openDatabase(filename)
     try {
       const version = db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get() as { version: number }
-      assert.equal(version.version, 6)
+      assert.equal(version.version, 7)
       db.prepare(`
         INSERT INTO tts_configs (user_id, provider_order_json, updated_at)
         VALUES ('user-1', '["browser"]', 1)

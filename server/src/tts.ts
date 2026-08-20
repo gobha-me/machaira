@@ -1,7 +1,16 @@
 import type { MachairaDatabase } from './database.js'
 import type { SecretStore } from './secrets.js'
+import {
+  VoiceConfigError,
+  limitedProviderError,
+  parseVoiceOrder,
+  voiceEndpoint,
+  voiceProviderUrl,
+  voiceString,
+  type VoiceTier
+} from './voice-providers.js'
 
-export type TtsTier = 'browser' | 'local' | 'cloud'
+export type TtsTier = VoiceTier
 export type TtsProviderKind = 'openai-compatible' | 'venice'
 
 export interface TtsEndpointConfig {
@@ -39,61 +48,13 @@ interface EndpointInput {
   clearApiKey: boolean
 }
 
-const TIERS = new Set<TtsTier>(['browser', 'local', 'cloud'])
 const PROVIDERS = new Set<TtsProviderKind>(['openai-compatible', 'venice'])
 const LOCAL_KEY = 'tts-local-api-key'
 const CLOUD_KEY = 'tts-cloud-api-key'
 const MAX_AUDIO_BYTES = 10 * 1024 * 1024
 
-export class TtsInputError extends Error {}
+export const TtsInputError = VoiceConfigError
 export class TtsProviderError extends Error {}
-
-function stringField(value: unknown, name: string, max: number): string {
-  if (typeof value !== 'string' || !value.trim()) throw new TtsInputError(`${name} is required`)
-  const result = value.trim()
-  if (result.length > max) throw new TtsInputError(`${name} is too long`)
-  return result
-}
-
-function providerUrl(value: unknown): string {
-  const raw = stringField(value, 'Base URL', 2048)
-  let url: URL
-  try {
-    url = new URL(raw)
-  } catch {
-    throw new TtsInputError('Base URL must be a valid HTTP or HTTPS URL')
-  }
-  if (!['http:', 'https:'].includes(url.protocol)) {
-    throw new TtsInputError('Base URL must use HTTP or HTTPS')
-  }
-  if (url.username || url.password || url.search || url.hash) {
-    throw new TtsInputError('Base URL cannot include credentials, a query, or a fragment')
-  }
-  url.pathname = url.pathname.replace(/\/+$/, '')
-  return url.toString().replace(/\/$/, '')
-}
-
-function endpoint(baseUrl: string, suffix: string): string {
-  const url = new URL(baseUrl)
-  url.pathname = `${url.pathname.replace(/\/+$/, '')}/${suffix.replace(/^\/+/, '')}`
-  return url.toString()
-}
-
-function parseOrder(value: unknown): TtsTier[] {
-  if (!Array.isArray(value) || value.length > 3) {
-    throw new TtsInputError('Provider order must be an array with at most three entries')
-  }
-  const order = value.map((entry) => {
-    if (typeof entry !== 'string' || !TIERS.has(entry as TtsTier)) {
-      throw new TtsInputError('Provider order contains an invalid tier')
-    }
-    return entry as TtsTier
-  })
-  if (new Set(order).size !== order.length) {
-    throw new TtsInputError('Provider order cannot contain duplicates')
-  }
-  return order
-}
 
 function parseEndpoint(value: unknown, tier: 'local' | 'cloud'): EndpointInput | null {
   if (value == null) return null
@@ -113,15 +74,15 @@ function parseEndpoint(value: unknown, tier: 'local' | 'cloud'): EndpointInput |
   }
   const apiKey = input.apiKey === undefined
     ? undefined
-    : stringField(input.apiKey, 'API key', 4096)
+    : voiceString(input.apiKey, 'API key', 4096)
   if (apiKey !== undefined && input.clearApiKey === true) {
     throw new TtsInputError('Cannot replace and clear the API key together')
   }
   return {
     provider,
-    baseUrl: providerUrl(input.baseUrl),
-    model: stringField(input.model, 'TTS model', 200),
-    voice: stringField(input.voice, 'TTS voice', 200),
+    baseUrl: voiceProviderUrl(input.baseUrl),
+    model: voiceString(input.model, 'TTS model', 200),
+    voice: voiceString(input.voice, 'TTS voice', 200),
     apiKey,
     clearApiKey: input.clearApiKey === true
   }
@@ -138,24 +99,6 @@ function storedEndpoint(
   const voice = row[`${tier}_voice`]
   if (!provider || !baseUrl || !model || !voice) return null
   return { provider, baseUrl, model, voice, hasApiKey }
-}
-
-async function limitedError(response: Response): Promise<string> {
-  if (!response.body) return response.statusText || `HTTP ${response.status}`
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let text = ''
-  try {
-    while (text.length < 2000) {
-      const { done, value } = await reader.read()
-      text += decoder.decode(value, { stream: !done })
-      if (done) break
-    }
-  } finally {
-    await reader.cancel().catch(() => undefined)
-    reader.releaseLock()
-  }
-  return text.slice(0, 2000).trim() || response.statusText || `HTTP ${response.status}`
 }
 
 async function limitedAudio(response: Response): Promise<Buffer> {
@@ -195,7 +138,7 @@ export class TtsService {
     if (!row) return { order: ['browser'], local: null, cloud: null }
     let order: TtsTier[] = ['browser']
     try {
-      order = parseOrder(JSON.parse(row.provider_order_json))
+      order = parseVoiceOrder(JSON.parse(row.provider_order_json))
     } catch {
       // A corrupt preference must not accidentally enable a remote provider.
     }
@@ -211,7 +154,7 @@ export class TtsService {
       throw new TtsInputError('TTS configuration is required')
     }
     const input = value as Record<string, unknown>
-    const order = parseOrder(input.order)
+    const order = parseVoiceOrder(input.order)
     const local = parseEndpoint(input.local, 'local')
     const cloud = parseEndpoint(input.cloud, 'cloud')
     if (order.includes('local') && !local) {
@@ -288,7 +231,7 @@ export class TtsService {
       throw new TtsInputError('Speech provider must be local or cloud')
     }
     const tier = body.provider
-    const text = stringField(body.text, 'Speech text', 4096)
+    const text = voiceString(body.text, 'Speech text', 4096)
     const config = this.get(userId)
     if (!config.order.includes(tier)) throw new TtsInputError(`${tier} TTS is not enabled`)
     const selected = config[tier]
@@ -305,7 +248,7 @@ export class TtsService {
     if (apiKey) headers.authorization = `Bearer ${apiKey}`
     let response: Response
     try {
-      response = await fetch(endpoint(selected.baseUrl, 'audio/speech'), {
+      response = await fetch(voiceEndpoint(selected.baseUrl, 'audio/speech'), {
         method: 'POST',
         redirect: 'error',
         signal: combinedSignal,
@@ -323,7 +266,7 @@ export class TtsService {
       throw new TtsProviderError(`Could not reach TTS provider: ${(error as Error).message}`)
     }
     if (!response.ok) {
-      throw new TtsProviderError(`TTS provider rejected the request (${response.status}): ${await limitedError(response)}`)
+      throw new TtsProviderError(`TTS provider rejected the request (${response.status}): ${await limitedProviderError(response)}`)
     }
     const contentType = response.headers.get('content-type')?.split(';', 1)[0].trim().toLowerCase() ?? ''
     if (!contentType.startsWith('audio/')) {
