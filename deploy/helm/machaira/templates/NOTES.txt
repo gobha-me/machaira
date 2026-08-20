@@ -7,3 +7,9 @@ Machaira is available at:
 {{- end }}
 
 The application will offer first-administrator setup while its database is empty.
+{{- if .Values.stt.sidecar.enabled }}
+
+Private STT is enabled with {{ .Values.stt.sidecar.model }}. The model is downloaded into the
+persistent stt-model-cache directory before the sidecar becomes ready. In Machaira, select the
+Speaches preset under Settings -> Voice input; the in-Pod base URL is http://127.0.0.1:8000/v1.
+{{- end }}

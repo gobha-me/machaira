@@ -9,6 +9,7 @@ import { useReader } from './stores/reader'
 import { useAiProvider } from './stores/aiProvider'
 import { useSemanticIndex } from './stores/semanticIndex'
 import { useTtsProvider } from './stores/ttsProvider'
+import { useSttProvider } from './stores/sttProvider'
 import { applyVars } from './theme'
 import RailNav from './components/RailNav.vue'
 import ReadScreen from './screens/ReadScreen.vue'
@@ -29,6 +30,7 @@ const reader = useReader()
 const aiProvider = useAiProvider()
 const semanticIndex = useSemanticIndex()
 const ttsProvider = useTtsProvider()
+const sttProvider = useSttProvider()
 const personalLoading = ref(false)
 const personalReady = ref(false)
 const personalError = ref<string | null>(null)
@@ -84,7 +86,8 @@ async function loadPersonalData(userId: string): Promise<void> {
       readingPlan.load(),
       aiProvider.load(),
       semanticIndex.load(),
-      ttsProvider.load()
+      ttsProvider.load(),
+      sttProvider.load()
     ])
     if (generation === personalLoadGeneration && auth.user?.id === userId) {
       personalReady.value = true
@@ -111,6 +114,7 @@ watch(
     aiProvider.reset()
     semanticIndex.reset()
     ttsProvider.reset()
+    sttProvider.reset()
     personalReady.value = false
     personalError.value = null
     if (userId) void loadPersonalData(userId)

@@ -57,6 +57,22 @@ tts:
         cpu: "2"
         memory: 4Gi
 
+stt:
+  sidecar:
+    enabled: false
+    image:
+      repository: ghcr.io/speaches-ai/speaches
+      tag: 0.8.3-cpu
+      pullPolicy: IfNotPresent
+    model: Systran/faster-whisper-small
+    resources:
+      requests:
+        cpu: "1"
+        memory: 2Gi
+      limits:
+        cpu: "2"
+        memory: 4Gi
+
 nodeSelector: {}
 tolerations: []
 affinity: {}

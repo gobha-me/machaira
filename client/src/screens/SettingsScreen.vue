@@ -8,6 +8,7 @@ import { useAuth } from '../stores/auth'
 import { useAiProvider } from '../stores/aiProvider'
 import { useSemanticIndex } from '../stores/semanticIndex'
 import { useTtsProvider } from '../stores/ttsProvider'
+import { useSttProvider } from '../stores/sttProvider'
 import { ACCENTS } from '../theme'
 import {
   exportAll,
@@ -21,6 +22,9 @@ import {
   type EmbeddingProviderKind,
   type Highlight,
   type Note,
+  type SttEndpointInput,
+  type SttProviderKind,
+  type SttTier,
   type TtsEndpointInput,
   type TtsProviderKind,
   type TtsTier
@@ -36,6 +40,7 @@ const auth = useAuth()
 const aiProvider = useAiProvider()
 const semanticIndex = useSemanticIndex()
 const ttsProvider = useTtsProvider()
+const sttProvider = useSttProvider()
 const exporting = ref(false)
 const importing = ref(false)
 const importDone = ref(false)
@@ -68,6 +73,20 @@ const cloudTtsVoice = ref(ttsProvider.config.cloud?.voice ?? 'af_sky')
 const cloudTtsApiKey = ref('')
 const cloudTtsRemoved = ref(false)
 const ttsMessage = ref('')
+const browserSttPriority = ref(sttPriorityOf('browser'))
+const localSttPriority = ref(sttPriorityOf('local'))
+const cloudSttPriority = ref(sttPriorityOf('cloud'))
+const localSttBaseUrl = ref(sttProvider.config.local?.baseUrl ?? 'http://127.0.0.1:8000/v1')
+const localSttModel = ref(sttProvider.config.local?.model ?? 'Systran/faster-whisper-small')
+const localSttApiKey = ref('')
+const localSttRemoved = ref(false)
+const cloudSttProvider = ref<SttProviderKind>(sttProvider.config.cloud?.provider ?? 'venice')
+const cloudSttBaseUrl = ref(sttProvider.config.cloud?.baseUrl ?? 'https://api.venice.ai/api/v1')
+const cloudSttModel = ref(sttProvider.config.cloud?.model ?? 'nvidia/parakeet-tdt-0.6b-v3')
+const cloudSttApiKey = ref('')
+const cloudSttRemoved = ref(false)
+const sttMessage = ref('')
+const checkingStt = ref<SttTier | null>(null)
 const embeddingBatchSizeValid = computed(() => Number.isSafeInteger(embeddingBatchSize.value)
   && embeddingBatchSize.value >= 1 && embeddingBatchSize.value <= 64)
 const defaultModuleLabel = computed(() => {
@@ -129,6 +148,44 @@ const ttsReadyToSave = computed(() => ttsOrderValid.value
   && (localTtsPriority.value === 0 || localTtsComplete.value)
   && (cloudTtsPriority.value === 0 || cloudTtsComplete.value)
   && cloudTtsKeyReady.value)
+
+function sttPriorityOf(tier: SttTier): number {
+  const index = sttProvider.config.order.indexOf(tier)
+  return index < 0 ? 0 : index + 1
+}
+
+const sttOrder = computed<SttTier[]>(() => {
+  const entries: { tier: SttTier; priority: number }[] = [
+    { tier: 'browser', priority: browserSttPriority.value },
+    { tier: 'local', priority: localSttPriority.value },
+    { tier: 'cloud', priority: cloudSttPriority.value }
+  ]
+  return entries.filter((entry) => entry.priority > 0)
+    .sort((a, b) => a.priority - b.priority)
+    .map((entry) => entry.tier)
+})
+
+const sttOrderValid = computed(() => {
+  const enabled = [browserSttPriority.value, localSttPriority.value, cloudSttPriority.value]
+    .filter((priority) => priority > 0)
+    .sort((a, b) => a - b)
+  return new Set(enabled).size === enabled.length
+    && enabled.every((priority, index) => priority === index + 1)
+})
+const localSttComplete = computed(() => !!(localSttBaseUrl.value.trim() && localSttModel.value.trim()))
+const cloudSttComplete = computed(() => !!(cloudSttBaseUrl.value.trim() && cloudSttModel.value.trim()))
+const cloudSttKeyReady = computed(() => cloudSttRemoved.value
+  || (cloudSttPriority.value === 0
+    && !sttProvider.config.cloud
+    && !cloudSttApiKey.value.trim())
+  || !!cloudSttApiKey.value.trim()
+  || (sttProvider.config.cloud?.hasApiKey === true
+    && sttProvider.config.cloud.provider === cloudSttProvider.value
+    && sttProvider.config.cloud.baseUrl === cloudSttBaseUrl.value.trim()))
+const sttReadyToSave = computed(() => sttOrderValid.value
+  && (localSttPriority.value === 0 || localSttComplete.value)
+  && (cloudSttPriority.value === 0 || cloudSttComplete.value)
+  && cloudSttKeyReady.value)
 
 onMounted(async () => {
   const legacy = await legacyPersonalData()
@@ -354,6 +411,96 @@ function removeCloudTts(): void {
   cloudTtsRemoved.value = true
   cloudTtsApiKey.value = ''
   ttsMessage.value = 'Save to remove the cloud provider and its key'
+}
+
+function resetCloudSttEndpoint(): void {
+  if (cloudSttProvider.value === 'venice') {
+    cloudSttBaseUrl.value = 'https://api.venice.ai/api/v1'
+    cloudSttModel.value = 'nvidia/parakeet-tdt-0.6b-v3'
+  } else {
+    cloudSttBaseUrl.value = 'https://api.openai.com/v1'
+    cloudSttModel.value = 'gpt-4o-mini-transcribe'
+  }
+  cloudSttApiKey.value = ''
+  cloudSttRemoved.value = false
+  sttMessage.value = ''
+}
+
+function sttEndpointInput(tier: 'local' | 'cloud'): SttEndpointInput | null {
+  if (tier === 'local') {
+    if (localSttRemoved.value
+      || (localSttPriority.value === 0 && !sttProvider.config.local && !localSttApiKey.value.trim())
+      || (!localSttComplete.value && !sttProvider.config.local)) return null
+    return {
+      provider: 'openai-compatible',
+      baseUrl: localSttBaseUrl.value,
+      model: localSttModel.value,
+      ...(localSttApiKey.value.trim() ? { apiKey: localSttApiKey.value.trim() } : {})
+    }
+  }
+  if (cloudSttRemoved.value
+    || (cloudSttPriority.value === 0 && !sttProvider.config.cloud && !cloudSttApiKey.value.trim())
+    || (!cloudSttComplete.value && !sttProvider.config.cloud)) return null
+  return {
+    provider: cloudSttProvider.value,
+    baseUrl: cloudSttBaseUrl.value,
+    model: cloudSttModel.value,
+    ...(cloudSttApiKey.value.trim() ? { apiKey: cloudSttApiKey.value.trim() } : {})
+  }
+}
+
+async function checkStt(tier: 'local' | 'cloud'): Promise<void> {
+  const endpoint = sttEndpointInput(tier)
+  if (!endpoint) return
+  checkingStt.value = tier
+  sttMessage.value = ''
+  try {
+    const result = await api.checkStt(tier, endpoint)
+    sttMessage.value = result.message
+  } catch (error) {
+    sttMessage.value = (error as Error).message
+  } finally {
+    checkingStt.value = null
+  }
+}
+
+async function saveSttConfig(): Promise<void> {
+  sttMessage.value = ''
+  if (sttOrder.value.includes('cloud') && !sttProvider.config.order.includes('cloud')) {
+    const confirmed = window.confirm(
+      'Enable cloud voice input? Microphone recordings will be sent to the configured cloud provider '
+      + 'when Cloud STT is reached in this saved order.'
+    )
+    if (!confirmed) return
+  }
+  try {
+    await sttProvider.save({
+      order: sttOrder.value,
+      local: sttEndpointInput('local'),
+      cloud: sttEndpointInput('cloud')
+    })
+    localSttApiKey.value = ''
+    cloudSttApiKey.value = ''
+    localSttRemoved.value = false
+    cloudSttRemoved.value = false
+    sttMessage.value = 'Voice-input providers saved'
+  } catch (error) {
+    sttMessage.value = (error as Error).message
+  }
+}
+
+function removeLocalStt(): void {
+  localSttPriority.value = 0
+  localSttRemoved.value = true
+  localSttApiKey.value = ''
+  sttMessage.value = 'Save to remove the local provider and its key'
+}
+
+function removeCloudStt(): void {
+  cloudSttPriority.value = 0
+  cloudSttRemoved.value = true
+  cloudSttApiKey.value = ''
+  sttMessage.value = 'Save to remove the cloud provider and its key'
 }
 
 async function rebuildSemanticIndex(): Promise<void> {
@@ -626,6 +773,115 @@ async function rebuildSemanticIndex(): Promise<void> {
           </div>
           <div class="spacer"></div>
           <Toggle :model-value="settings.followAlong" @update:model-value="settings.toggle('followAlong')" />
+        </div>
+      </div>
+
+      <!-- Voice input -->
+      <div class="section-label">
+        Voice input
+        <span class="soon">{{ sttOrder.length ? sttOrder.join(' → ') : 'disabled' }}</span>
+      </div>
+      <div class="card">
+        <div class="row bordered">
+          <div class="row-text">
+            <div class="row-title">Browser recognition</div>
+            <div class="row-sub">Uses the browser’s recognition service when genuinely available; the browser vendor may process audio remotely</div>
+          </div>
+          <div class="spacer"></div>
+          <select v-model.number="browserSttPriority" class="setting-select priority-select" aria-label="Browser STT priority">
+            <option :value="0">Disabled</option>
+            <option :value="1">First</option>
+            <option :value="2">Second</option>
+            <option :value="3">Third</option>
+          </select>
+        </div>
+        <div class="row bordered provider-heading">
+          <div class="row-text">
+            <div class="row-title">Local STT</div>
+            <div class="row-sub">Records in this browser, then sends audio only to the configured local network or private sidecar</div>
+          </div>
+          <div class="spacer"></div>
+          <select v-model.number="localSttPriority" class="setting-select priority-select" aria-label="Local STT priority" @change="localSttRemoved = false">
+            <option :value="0">Disabled</option>
+            <option :value="1">First</option>
+            <option :value="2">Second</option>
+            <option :value="3">Third</option>
+          </select>
+        </div>
+        <div class="row bordered compact-provider-row">
+          <input v-model="localSttBaseUrl" class="provider-input provider-url" type="url" aria-label="Local STT base URL" />
+          <input v-model="localSttModel" class="provider-input" placeholder="Model" aria-label="Local STT model" />
+        </div>
+        <div class="row bordered compact-provider-row">
+          <input
+            v-model="localSttApiKey"
+            class="provider-input provider-key"
+            type="password"
+            autocomplete="off"
+            :placeholder="sttProvider.config.local?.hasApiKey ? 'Encrypted key stored — blank keeps it' : 'Optional local API key'"
+            aria-label="Local STT API key"
+          />
+          <button class="pill action" type="button" :disabled="checkingStt !== null || !localSttComplete" @click="checkStt('local')">
+            {{ checkingStt === 'local' ? 'Testing…' : 'Test local' }}
+          </button>
+          <button
+            v-if="sttProvider.config.local && !localSttRemoved"
+            class="pill action danger"
+            type="button"
+            @click="removeLocalStt"
+          >Remove local</button>
+        </div>
+        <div class="row bordered provider-heading">
+          <div class="row-text">
+            <div class="row-title">Cloud STT</div>
+            <div class="row-sub">Microphone audio leaves this deployment only when this tier is explicitly present in the saved order</div>
+          </div>
+          <div class="spacer"></div>
+          <select v-model.number="cloudSttPriority" class="setting-select priority-select" aria-label="Cloud STT priority" @change="cloudSttRemoved = false">
+            <option :value="0">Disabled</option>
+            <option :value="1">First</option>
+            <option :value="2">Second</option>
+            <option :value="3">Third</option>
+          </select>
+        </div>
+        <div class="row bordered compact-provider-row">
+          <select v-model="cloudSttProvider" class="setting-select" aria-label="Cloud STT provider" @change="resetCloudSttEndpoint">
+            <option value="venice">Venice</option>
+            <option value="openai-compatible">OpenAI-compatible</option>
+          </select>
+          <input v-model="cloudSttBaseUrl" class="provider-input provider-url" type="url" aria-label="Cloud STT base URL" />
+        </div>
+        <div class="row bordered compact-provider-row">
+          <input v-model="cloudSttModel" class="provider-input" placeholder="Model" aria-label="Cloud STT model" />
+          <input
+            v-model="cloudSttApiKey"
+            class="provider-input provider-key"
+            type="password"
+            autocomplete="off"
+            :placeholder="sttProvider.config.cloud?.hasApiKey ? 'Encrypted key stored' : 'API key'"
+            aria-label="Cloud STT API key"
+          />
+          <button class="pill action" type="button" :disabled="checkingStt !== null || !cloudSttComplete || !cloudSttKeyReady" @click="checkStt('cloud')">
+            {{ checkingStt === 'cloud' ? 'Testing…' : 'Test cloud' }}
+          </button>
+          <button
+            v-if="sttProvider.config.cloud && !cloudSttRemoved"
+            class="pill action danger"
+            type="button"
+            @click="removeCloudStt"
+          >Remove cloud</button>
+        </div>
+        <div v-if="!sttOrderValid" class="row bordered provider-warning" role="alert">
+          Enabled providers need unique, consecutive priorities beginning with First.
+        </div>
+        <div class="row provider-actions">
+          <span class="provider-message" :class="{ failed: sttProvider.error || !sttOrderValid }">{{ sttMessage }}</span>
+          <div class="spacer"></div>
+          <button
+            class="pill action save-provider"
+            :disabled="sttProvider.loading || checkingStt !== null || !sttReadyToSave"
+            @click="saveSttConfig"
+          >{{ sttProvider.loading ? 'Saving…' : 'Save voice input' }}</button>
         </div>
       </div>
 

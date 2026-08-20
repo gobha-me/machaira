@@ -218,15 +218,15 @@ onMounted(() => {
           </div>
         </div>
 
-        <!-- Browser-provided voice support -->
+        <!-- Voice support -->
         <div class="section-label">Voices</div>
         <div class="card">
           <div class="note-row">
             <div class="row-main">
-              <div class="row-title">Browser speech</div>
-              <div class="row-sub">Read-aloud and supported voice input use browser-provided speech services — no module download needed.</div>
+              <div class="row-title">Speech providers</div>
+              <div class="row-sub">Read-aloud and voice input can use ordered browser, local, or cloud providers. Configure them in Settings.</div>
             </div>
-            <span class="pending">Built in</span>
+            <span class="pending">Configurable</span>
           </div>
         </div>
 

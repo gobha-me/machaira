@@ -119,6 +119,72 @@ spec:
             - name: tmp
               mountPath: /tmp
         {{- end }}
+        {{- if .Values.stt.sidecar.enabled }}
+        - name: stt
+          image: "{{ .Values.stt.sidecar.image.repository }}:{{ .Values.stt.sidecar.image.tag }}"
+          imagePullPolicy: {{ .Values.stt.sidecar.image.pullPolicy }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: stt
+              containerPort: 8000
+              protocol: TCP
+          env:
+            - name: ENABLE_UI
+              value: "false"
+            - name: LOG_LEVEL
+              value: warning
+            - name: WHISPER__INFERENCE_DEVICE
+              value: cpu
+            - name: WHISPER__COMPUTE_TYPE
+              value: int8
+            - name: WHISPER__TTL
+              value: "-1"
+            - name: STT_MODEL
+              value: {{ .Values.stt.sidecar.model | quote }}
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - >-
+                    until curl --fail --silent http://127.0.0.1:8000/health >/dev/null; do sleep 2; done;
+                    curl --fail --silent --request POST
+                    "http://127.0.0.1:8000/v1/models/${STT_MODEL}" >/dev/null
+          startupProbe:
+            httpGet:
+              path: /health
+              port: stt
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 120
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - >-
+                    curl --fail --silent http://127.0.0.1:8000/v1/models |
+                    grep --fixed-strings --quiet "${STT_MODEL}"
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.stt.sidecar.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /home/ubuntu/.cache/huggingface
+              subPath: stt-model-cache
+            - name: tmp
+              mountPath: /tmp
+        {{- end }}
       volumes:
         - name: data
           {{- if .Values.persistence.enabled }}

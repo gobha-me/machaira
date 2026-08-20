@@ -33,7 +33,7 @@ ENV NODE_ENV=production \
     PORT=5274
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates libcurl4 \
+  && apt-get install -y --no-install-recommends ca-certificates ffmpeg libcurl4 \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

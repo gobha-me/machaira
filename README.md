@@ -16,15 +16,15 @@ semantic search, personal journaling, and a bring-your-own-model study partner.
 | Screen | What it does |
 | --- | --- |
 | **Read** | Renders a chapter from any installed translation in a responsive phone, tablet, or desktop layout; translation picker, book/chapter navigation, touch-friendly passage tools and range selection, persisted highlights, and browser read-aloud follow-along. |
-| **Study** | Side-by-side verse comparison, Strong's glosses, and streamed passage-aware chat—with optional hold-to-talk input—through a user-configured model provider. |
+| **Study** | Side-by-side verse comparison, Strong's glosses, and streamed passage-aware chat—with pluggable hold-to-talk input—through user-configured providers. |
 | **Search** | Real SWORD full-text and embedding-backed “by meaning” search, with typed or hold-to-talk input. |
 | **Library** | Browse CrossWire repositories, install modules with live progress, and uninstall. This is the downloader that feeds every other screen. |
 | **Journal** | Per-account notes with tags, plus an interactive graph of linked, cross-referenced, and thematically related passages. |
 | **Settings** | Account administration, encrypted chat/embedding provider configuration, vector-index controls, themes, scripture text scale, and reading toggles. |
 
-Browser-native voice controls degrade to clearly disabled states when the Web Speech APIs are not
-available. See [Voice input and read-aloud](#voice-input-and-read-aloud) for compatibility and
-privacy details.
+Voice controls use explicit browser, local, and cloud provider orders and degrade to honest
+disabled states when no configured path is available. See
+[Voice input and read-aloud](#voice-input-and-read-aloud) for compatibility and privacy details.
 
 ## Architecture
 
@@ -64,12 +64,13 @@ CrossWire modules can't be fetched directly from a browser (no CORS, and they sh
   Debian/Ubuntu:
 
   ```sh
-  sudo apt-get install build-essential cmake pkg-config subversion \
+  sudo apt-get install build-essential cmake ffmpeg pkg-config subversion \
     libcurl4-openssl-dev libicu-dev zlib1g-dev
   ```
 
   (`subversion` is required by the build; a missing `svn` shows up as a CMake
-  `Subversion_WC_INFO` failure.)
+  `Subversion_WC_INFO` failure. `ffmpeg`/`ffprobe` validate and normalize microphone recordings
+  before transcription.)
 
 ## Getting started
 
@@ -112,12 +113,28 @@ Remote audio is generated a verse at a time with one-verse prefetch for prompt s
 follow-along. Stop, pause/resume, replay, navigation cancellation, provider failure, and fallback
 apply to browser and generated audio. Browser-local WASM/WebGPU voices are not supported yet.
 
-Search and the Study partner offer a hold-to-talk button where the browser implements speech
-recognition. Hold the microphone button with a pointer, or hold Space/Enter while it is focused,
-then release to stop. The transcript is added to the draft but is never submitted automatically.
-Microphone permission and recognition availability are controlled by the browser. Depending on
-the browser, recognition audio may be processed by the browser vendor's service; Sword does not
-send microphone audio to its own server or store it.
+Search and the Study partner use a separate ordered voice-input graph configured under
+**Settings → Voice input**. Hold the microphone button with a pointer, or hold Space/Enter while it
+is focused, then release to transcribe. The control names the active browser, local, or cloud tier,
+reports fallback, and lets Escape or another press cancel. The transcript is appended to the draft
+but is never submitted automatically.
+
+- **Browser recognition** remains an opportunistic fast path. Depending on the browser, its vendor
+  may process microphone audio remotely.
+- **Local OpenAI-compatible STT** sends a recording through Machaira to a private endpoint exposing
+  `POST /v1/audio/transcriptions`. The tested CPU-first runtime is Speaches 0.8.3 with
+  `Systran/faster-whisper-small`, base URL `http://127.0.0.1:8000/v1`, and no required key.
+- **Cloud STT** supports Venice and other OpenAI-compatible transcription APIs. The Venice preset
+  uses `https://api.venice.ai/api/v1` and `nvidia/parakeet-tdt-0.6b-v3`. Cloud audio is sent only
+  after the user confirms and saves a provider order containing Cloud STT; keys remain encrypted
+  and server-side.
+
+The remote path requires `getUserMedia`, `MediaRecorder`, and a secure browser context. Current
+Chrome/Chromium, Firefox, and Safari can record a provider-supported WebM, Ogg, MP4, or WAV format;
+the server verifies the real duration and converts it to mono 16-kHz WAV. Recordings are limited to
+60 seconds and 8 MiB, live only in browser memory and a private temporary server directory with
+mode-0600 files, and are deleted immediately after the provider request. They are never stored in SQLite or logged.
+This path supplies reliable Linux/KDE voice input even when `SpeechRecognition` is absent.
 
 ### Study partner providers
 
@@ -191,12 +208,13 @@ The chart deploys exactly one application replica because SQLite and the native 
 single-writer resources. It creates a `ReadWriteOnce` claim for both the database and installed
 modules, and expects the encryption key in an existing Secret.
 
-The chart can also add a private, CPU-first Kokoro TTS sidecar to the same Pod:
+The chart can also add private, CPU-first Kokoro TTS and Speaches STT sidecars to the same Pod:
 
 ```sh
 helm upgrade --install machaira deploy/helm/machaira \
   --namespace machaira \
-  --set tts.sidecar.enabled=true
+  --set tts.sidecar.enabled=true \
+  --set stt.sidecar.enabled=true
 ```
 
 No TTS port is added to the Service or Ingress. After installation, save a **Local TTS** provider
@@ -205,6 +223,15 @@ The image is pinned to `ghcr.io/remsky/kokoro-fastapi-cpu:v0.8.0` and supports a
 The defaults request 500m CPU/1 GiB RAM and limit the sidecar to 2 CPU/4 GiB RAM; adjust
 `tts.sidecar.resources` for the node and expected latency. The model is baked into the image, so
 routine Pod replacement does not redownload it.
+
+The STT sidecar is pinned to `ghcr.io/speaches-ai/speaches:0.8.3-cpu`, which publishes amd64 and
+arm64 images. It pre-downloads the multilingual `Systran/faster-whisper-small` model, runs CPU
+`int8`, and keeps the model loaded. The model is about 486 MiB; the chart persists its cache on the
+application PVC so Pod replacement does not redownload it. Defaults request 1 CPU/2 GiB RAM and
+limit the sidecar to 2 CPU/4 GiB RAM. Startup time depends on the first model download and storage
+speed. No STT port is added to the Service or Ingress. After installation, test and save **Local
+STT** with `http://127.0.0.1:8000/v1` and `Systran/faster-whisper-small`, then place Local in the
+voice-input order. Override `stt.sidecar.model`, image, or resources for another tested profile.
 
 ```sh
 kubectl create namespace machaira
