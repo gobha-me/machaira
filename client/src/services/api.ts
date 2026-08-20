@@ -192,6 +192,32 @@ export interface EmbeddingProviderConfig {
   hasApiKey: boolean
 }
 
+export type TtsTier = 'browser' | 'local' | 'cloud'
+export type TtsProviderKind = 'openai-compatible' | 'venice'
+
+export interface TtsEndpointConfig {
+  provider: TtsProviderKind
+  baseUrl: string
+  model: string
+  voice: string
+  hasApiKey: boolean
+}
+
+export interface TtsConfig {
+  order: TtsTier[]
+  local: TtsEndpointConfig | null
+  cloud: TtsEndpointConfig | null
+}
+
+export interface TtsEndpointInput {
+  provider: TtsProviderKind
+  baseUrl: string
+  model: string
+  voice: string
+  apiKey?: string
+  clearApiKey?: boolean
+}
+
 export interface SemanticIndexStatus {
   state: 'unconfigured' | 'empty' | 'building' | 'ready' | 'stale' | 'failed'
   chunkCount: number
@@ -515,6 +541,31 @@ export const api = {
 
   async removeAiProvider(): Promise<void> {
     return requestVoid('/api/ai/provider', { method: 'DELETE' })
+  },
+
+  async ttsConfig(): Promise<TtsConfig> {
+    return (await getJson<{ config: TtsConfig }>('/api/tts/config')).config
+  },
+
+  async saveTtsConfig(input: {
+    order: TtsTier[]
+    local: TtsEndpointInput | null
+    cloud: TtsEndpointInput | null
+  }): Promise<TtsConfig> {
+    return (await requestJson<{ config: TtsConfig }>(
+      '/api/tts/config', json('PUT', input)
+    )).config
+  },
+
+  async ttsSpeech(provider: 'local' | 'cloud', text: string, signal?: AbortSignal): Promise<Blob> {
+    const response = await request('/api/tts/speech', { ...json('POST', { provider, text }), signal })
+    if (!response.ok) {
+      throw new ApiError(
+        response.status,
+        (await response.json().catch(() => ({}))) as ApiErrorBody
+      )
+    }
+    return response.blob()
   },
 
   async streamChat(

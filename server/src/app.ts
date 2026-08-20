@@ -19,6 +19,8 @@ import { EmbeddingProviderService, SemanticIndexService } from './semantic.js'
 import { registerSemantic } from './routes/semantic.js'
 import { ConnectionsService } from './connections.js'
 import { registerConnections } from './routes/connections.js'
+import { TtsService } from './tts.js'
+import { registerTts } from './routes/tts.js'
 
 export interface AppOptions {
   databasePath: string
@@ -48,6 +50,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   const embeddingProviders = new EmbeddingProviderService(db, secrets)
   const semanticIndex = new SemanticIndexService(db, embeddingProviders)
   const connections = new ConnectionsService(semanticIndex)
+  const tts = new TtsService(db, secrets)
 
   app.addHook('onClose', async () => db.close())
   await app.register(cookie)
@@ -73,6 +76,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   await registerAi(app, ai)
   await registerSemantic(app, embeddingProviders, semanticIndex)
   await registerConnections(app, connections)
+  await registerTts(app, tts)
 
   if (options.registerFeatureRoutes ?? true) {
     await registerSources(app)

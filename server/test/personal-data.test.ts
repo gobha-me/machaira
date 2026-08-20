@@ -252,7 +252,7 @@ describe('personal data storage migration', () => {
     try {
       const version = db.prepare('SELECT MAX(version) AS version FROM schema_migrations')
         .get() as { version: number }
-      assert.equal(version.version, 5)
+      assert.equal(version.version, 6)
       const data = new PersonalDataService(db)
       const note = data.createNote('user-1', { title: 'Persisted' })
       data.setHighlight('user-1', { key: 'WEB/John/1/1', color: 'gold' })

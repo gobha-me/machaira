@@ -7,6 +7,7 @@ import { useNotes } from '../stores/notes'
 import { useAuth } from '../stores/auth'
 import { useAiProvider } from '../stores/aiProvider'
 import { useSemanticIndex } from '../stores/semanticIndex'
+import { useTtsProvider } from '../stores/ttsProvider'
 import { ACCENTS } from '../theme'
 import {
   exportAll,
@@ -19,7 +20,10 @@ import {
   type AiProviderKind,
   type EmbeddingProviderKind,
   type Highlight,
-  type Note
+  type Note,
+  type TtsEndpointInput,
+  type TtsProviderKind,
+  type TtsTier
 } from '../services/api'
 import Toggle from '../components/ui/Toggle.vue'
 import AccountSettings from '../components/AccountSettings.vue'
@@ -31,6 +35,7 @@ const notes = useNotes()
 const auth = useAuth()
 const aiProvider = useAiProvider()
 const semanticIndex = useSemanticIndex()
+const ttsProvider = useTtsProvider()
 const exporting = ref(false)
 const importing = ref(false)
 const importDone = ref(false)
@@ -48,6 +53,21 @@ const embeddingModel = ref(semanticIndex.provider?.model ?? '')
 const embeddingBatchSize = ref(semanticIndex.provider?.batchSize ?? 32)
 const embeddingApiKey = ref('')
 const embeddingMessage = ref('')
+const browserTtsPriority = ref(priorityOf('browser'))
+const localTtsPriority = ref(priorityOf('local'))
+const cloudTtsPriority = ref(priorityOf('cloud'))
+const localTtsBaseUrl = ref(ttsProvider.config.local?.baseUrl ?? 'http://127.0.0.1:8880/v1')
+const localTtsModel = ref(ttsProvider.config.local?.model ?? 'kokoro')
+const localTtsVoice = ref(ttsProvider.config.local?.voice ?? 'af_heart')
+const localTtsApiKey = ref('')
+const localTtsRemoved = ref(false)
+const cloudTtsProvider = ref<TtsProviderKind>(ttsProvider.config.cloud?.provider ?? 'venice')
+const cloudTtsBaseUrl = ref(ttsProvider.config.cloud?.baseUrl ?? 'https://api.venice.ai/api/v1')
+const cloudTtsModel = ref(ttsProvider.config.cloud?.model ?? 'tts-kokoro')
+const cloudTtsVoice = ref(ttsProvider.config.cloud?.voice ?? 'af_sky')
+const cloudTtsApiKey = ref('')
+const cloudTtsRemoved = ref(false)
+const ttsMessage = ref('')
 const embeddingBatchSizeValid = computed(() => Number.isSafeInteger(embeddingBatchSize.value)
   && embeddingBatchSize.value >= 1 && embeddingBatchSize.value <= 64)
 const defaultModuleLabel = computed(() => {
@@ -66,6 +86,49 @@ const EMBEDDING_DEFAULTS: Record<EmbeddingProviderKind, string> = {
   'openai-compatible': 'https://api.openai.com/v1',
   local: 'http://127.0.0.1:11434/v1'
 }
+
+function priorityOf(tier: TtsTier): number {
+  const index = ttsProvider.config.order.indexOf(tier)
+  return index < 0 ? 0 : index + 1
+}
+
+const ttsOrder = computed<TtsTier[]>(() => {
+  const entries: { tier: TtsTier; priority: number }[] = [
+    { tier: 'browser', priority: browserTtsPriority.value },
+    { tier: 'local', priority: localTtsPriority.value },
+    { tier: 'cloud', priority: cloudTtsPriority.value }
+  ]
+  return entries.filter((entry) => entry.priority > 0)
+    .sort((a, b) => a.priority - b.priority)
+    .map((entry) => entry.tier)
+})
+
+const ttsOrderValid = computed(() => {
+  const enabled = [browserTtsPriority.value, localTtsPriority.value, cloudTtsPriority.value]
+    .filter((priority) => priority > 0)
+    .sort((a, b) => a - b)
+  return new Set(enabled).size === enabled.length
+    && enabled.every((priority, index) => priority === index + 1)
+})
+
+const localTtsComplete = computed(() => !!(
+  localTtsBaseUrl.value.trim() && localTtsModel.value.trim() && localTtsVoice.value.trim()
+))
+const cloudTtsComplete = computed(() => !!(
+  cloudTtsBaseUrl.value.trim() && cloudTtsModel.value.trim() && cloudTtsVoice.value.trim()
+))
+const cloudTtsKeyReady = computed(() => cloudTtsRemoved.value
+  || (cloudTtsPriority.value === 0
+    && !ttsProvider.config.cloud
+    && !cloudTtsApiKey.value.trim())
+  || !!cloudTtsApiKey.value.trim()
+  || (ttsProvider.config.cloud?.hasApiKey === true
+    && ttsProvider.config.cloud.provider === cloudTtsProvider.value
+    && ttsProvider.config.cloud.baseUrl === cloudTtsBaseUrl.value.trim()))
+const ttsReadyToSave = computed(() => ttsOrderValid.value
+  && (localTtsPriority.value === 0 || localTtsComplete.value)
+  && (cloudTtsPriority.value === 0 || cloudTtsComplete.value)
+  && cloudTtsKeyReady.value)
 
 onMounted(async () => {
   const legacy = await legacyPersonalData()
@@ -217,6 +280,80 @@ async function removeEmbeddingProvider(): Promise<void> {
   } catch (error) {
     embeddingMessage.value = (error as Error).message
   }
+}
+
+function resetCloudTtsEndpoint(): void {
+  if (cloudTtsProvider.value === 'venice') {
+    cloudTtsBaseUrl.value = 'https://api.venice.ai/api/v1'
+    cloudTtsModel.value = 'tts-kokoro'
+    cloudTtsVoice.value = 'af_sky'
+  } else {
+    cloudTtsBaseUrl.value = 'https://api.openai.com/v1'
+    cloudTtsModel.value = 'gpt-4o-mini-tts'
+    cloudTtsVoice.value = 'alloy'
+  }
+  cloudTtsApiKey.value = ''
+  cloudTtsRemoved.value = false
+  ttsMessage.value = ''
+}
+
+function endpointInput(
+  tier: 'local' | 'cloud'
+): TtsEndpointInput | null {
+  if (tier === 'local') {
+    if (localTtsRemoved.value
+      || (localTtsPriority.value === 0 && !ttsProvider.config.local && !localTtsApiKey.value.trim())
+      || (!localTtsComplete.value && !ttsProvider.config.local)) return null
+    return {
+      provider: 'openai-compatible',
+      baseUrl: localTtsBaseUrl.value,
+      model: localTtsModel.value,
+      voice: localTtsVoice.value,
+      ...(localTtsApiKey.value.trim() ? { apiKey: localTtsApiKey.value.trim() } : {})
+    }
+  }
+  if (cloudTtsRemoved.value
+    || (cloudTtsPriority.value === 0 && !ttsProvider.config.cloud && !cloudTtsApiKey.value.trim())
+    || (!cloudTtsComplete.value && !ttsProvider.config.cloud)) return null
+  return {
+    provider: cloudTtsProvider.value,
+    baseUrl: cloudTtsBaseUrl.value,
+    model: cloudTtsModel.value,
+    voice: cloudTtsVoice.value,
+    ...(cloudTtsApiKey.value.trim() ? { apiKey: cloudTtsApiKey.value.trim() } : {})
+  }
+}
+
+async function saveTtsConfig(): Promise<void> {
+  ttsMessage.value = ''
+  try {
+    await ttsProvider.save({
+      order: ttsOrder.value,
+      local: endpointInput('local'),
+      cloud: endpointInput('cloud')
+    })
+    localTtsApiKey.value = ''
+    cloudTtsApiKey.value = ''
+    localTtsRemoved.value = false
+    cloudTtsRemoved.value = false
+    ttsMessage.value = 'Read-aloud providers saved'
+  } catch (error) {
+    ttsMessage.value = (error as Error).message
+  }
+}
+
+function removeLocalTts(): void {
+  localTtsPriority.value = 0
+  localTtsRemoved.value = true
+  localTtsApiKey.value = ''
+  ttsMessage.value = 'Save to remove the local provider and its key'
+}
+
+function removeCloudTts(): void {
+  cloudTtsPriority.value = 0
+  cloudTtsRemoved.value = true
+  cloudTtsApiKey.value = ''
+  ttsMessage.value = 'Save to remove the cloud provider and its key'
 }
 
 async function rebuildSemanticIndex(): Promise<void> {
@@ -380,15 +517,107 @@ async function rebuildSemanticIndex(): Promise<void> {
       </div>
 
       <!-- Listening -->
-      <div class="section-label">Listening</div>
+      <div class="section-label">
+        Listening
+        <span class="soon">{{ ttsOrder.length ? ttsOrder.join(' → ') : 'disabled' }}</span>
+      </div>
       <div class="card">
         <div class="row bordered">
           <div class="row-text">
-            <div class="row-title">Voice</div>
-            <div class="row-sub">Browser read-aloud, plus hold-to-talk in Search and Study where supported</div>
+            <div class="row-title">Browser voice</div>
+            <div class="row-sub">Uses the browser or operating system speech service when available</div>
           </div>
           <div class="spacer"></div>
-          <span class="pill">System default</span>
+          <select v-model.number="browserTtsPriority" class="setting-select priority-select" aria-label="Browser voice priority">
+            <option :value="0">Disabled</option>
+            <option :value="1">First</option>
+            <option :value="2">Second</option>
+            <option :value="3">Third</option>
+          </select>
+        </div>
+        <div class="row bordered provider-heading">
+          <div class="row-text">
+            <div class="row-title">Local TTS</div>
+            <div class="row-sub">Text stays on the configured local network or Kubernetes sidecar</div>
+          </div>
+          <div class="spacer"></div>
+          <select v-model.number="localTtsPriority" class="setting-select priority-select" aria-label="Local TTS priority" @change="localTtsRemoved = false">
+            <option :value="0">Disabled</option>
+            <option :value="1">First</option>
+            <option :value="2">Second</option>
+            <option :value="3">Third</option>
+          </select>
+        </div>
+        <div class="row bordered compact-provider-row">
+          <input v-model="localTtsBaseUrl" class="provider-input provider-url" type="url" aria-label="Local TTS base URL" />
+          <input v-model="localTtsModel" class="provider-input" placeholder="Model" aria-label="Local TTS model" />
+          <input v-model="localTtsVoice" class="provider-input" placeholder="Voice" aria-label="Local TTS voice" />
+        </div>
+        <div class="row bordered compact-provider-row">
+          <input
+            v-model="localTtsApiKey"
+            class="provider-input provider-key"
+            type="password"
+            autocomplete="off"
+            :placeholder="ttsProvider.config.local?.hasApiKey ? 'Encrypted key stored — blank keeps it' : 'Optional local API key'"
+            aria-label="Local TTS API key"
+          />
+          <button
+            v-if="ttsProvider.config.local && !localTtsRemoved"
+            class="pill action danger"
+            type="button"
+            @click="removeLocalTts"
+          >Remove local</button>
+        </div>
+        <div class="row bordered provider-heading">
+          <div class="row-text">
+            <div class="row-title">Cloud TTS</div>
+            <div class="row-sub">Enabled only through this explicit priority list; verse text is sent to the selected provider</div>
+          </div>
+          <div class="spacer"></div>
+          <select v-model.number="cloudTtsPriority" class="setting-select priority-select" aria-label="Cloud TTS priority" @change="cloudTtsRemoved = false">
+            <option :value="0">Disabled</option>
+            <option :value="1">First</option>
+            <option :value="2">Second</option>
+            <option :value="3">Third</option>
+          </select>
+        </div>
+        <div class="row bordered compact-provider-row">
+          <select v-model="cloudTtsProvider" class="setting-select" @change="resetCloudTtsEndpoint">
+            <option value="venice">Venice</option>
+            <option value="openai-compatible">OpenAI-compatible</option>
+          </select>
+          <input v-model="cloudTtsBaseUrl" class="provider-input provider-url" type="url" aria-label="Cloud TTS base URL" />
+        </div>
+        <div class="row bordered compact-provider-row">
+          <input v-model="cloudTtsModel" class="provider-input" placeholder="Model" aria-label="Cloud TTS model" />
+          <input v-model="cloudTtsVoice" class="provider-input" placeholder="Voice" aria-label="Cloud TTS voice" />
+          <input
+            v-model="cloudTtsApiKey"
+            class="provider-input provider-key"
+            type="password"
+            autocomplete="off"
+            :placeholder="ttsProvider.config.cloud?.hasApiKey ? 'Encrypted key stored' : 'API key'"
+            aria-label="Cloud TTS API key"
+          />
+          <button
+            v-if="ttsProvider.config.cloud && !cloudTtsRemoved"
+            class="pill action danger"
+            type="button"
+            @click="removeCloudTts"
+          >Remove cloud</button>
+        </div>
+        <div v-if="!ttsOrderValid" class="row bordered provider-warning" role="alert">
+          Enabled providers need unique, consecutive priorities beginning with First.
+        </div>
+        <div class="row bordered provider-actions">
+          <span class="provider-message" :class="{ failed: ttsProvider.error || !ttsOrderValid }">{{ ttsMessage }}</span>
+          <div class="spacer"></div>
+          <button
+            class="pill action save-provider"
+            :disabled="ttsProvider.loading || !ttsReadyToSave"
+            @click="saveTtsConfig"
+          >{{ ttsProvider.loading ? 'Saving…' : 'Save read-aloud' }}</button>
         </div>
         <div class="row">
           <div class="row-text">
@@ -809,6 +1038,13 @@ h1 {
 .provider-url { width: 270px; }
 .batch-size-input { width: 88px; }
 .provider-input:focus { outline: none; border-color: var(--accent); }
+.priority-select { min-width: 92px; }
+.provider-heading { background: color-mix(in srgb, var(--soft) 42%, transparent); }
+.compact-provider-row { align-items: stretch; flex-wrap: wrap; }
+.compact-provider-row .provider-input { flex: 1 1 130px; width: auto; }
+.compact-provider-row .provider-url { flex-basis: 260px; }
+.compact-provider-row .provider-key { flex-basis: 220px; }
+.provider-warning { color: var(--accent); font-size: 12px; }
 .provider-actions { gap: 8px; }
 .provider-message { font-size: 12px; color: var(--muted); }
 .provider-message.failed { color: var(--accent); }

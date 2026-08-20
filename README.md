@@ -88,10 +88,29 @@ unrecoverable.
 
 ### Voice input and read-aloud
 
-Select **Listen** on the Read screen to hear the current chapter through the browser's built-in
-speech-synthesis voice. Playback begins at the selected verse when there is one, highlights each
-verse when **Settings → Listening → Follow along** is enabled, and marks an enabled reading-plan
-chapter complete only after natural playback completion.
+Select **Listen** on the Read screen to hear the current chapter through an explicit ordered list
+of browser, local, and cloud providers. Playback begins at the selected verse when there is one,
+highlights each verse when **Settings → Listening → Follow along** is enabled, and marks an enabled
+reading-plan chapter complete only after natural playback completion. The Listen bar names the
+active backend and reports visible fallback when a provider fails.
+
+Configure the order under **Settings → Listening**. Browser speech remains an opportunistic option,
+not the definition of read-aloud support. Local and cloud requests go through the Sword server so
+API keys never reach the browser. Cloud TTS is disabled until it is explicitly placed in the saved
+order; only then may verse text be sent to that provider.
+
+Two non-browser paths are supported:
+
+- **Local OpenAI-compatible:** use a service exposing `POST /v1/audio/speech`. The tested CPU-first
+  runtime is Kokoro-FastAPI v0.8.0 with base URL `http://127.0.0.1:8880/v1`, model `kokoro`, and
+  voice `af_heart`. A local key is optional.
+- **Venice or another OpenAI-compatible cloud:** the Venice preset uses
+  `https://api.venice.ai/api/v1`, model `tts-kokoro`, and voice `af_sky`. A cloud key is required,
+  encrypted at rest, and used only by the server.
+
+Remote audio is generated a verse at a time with one-verse prefetch for prompt start and accurate
+follow-along. Stop, pause/resume, replay, navigation cancellation, provider failure, and fallback
+apply to browser and generated audio. Browser-local WASM/WebGPU voices are not supported yet.
 
 Search and the Study partner offer a hold-to-talk button where the browser implements speech
 recognition. Hold the microphone button with a pointer, or hold Space/Enter while it is focused,
@@ -171,6 +190,21 @@ are published as `ghcr.io/gobha-me/machaira:<version>` for `linux/amd64` and `li
 The chart deploys exactly one application replica because SQLite and the native SWORD engine are
 single-writer resources. It creates a `ReadWriteOnce` claim for both the database and installed
 modules, and expects the encryption key in an existing Secret.
+
+The chart can also add a private, CPU-first Kokoro TTS sidecar to the same Pod:
+
+```sh
+helm upgrade --install machaira deploy/helm/machaira \
+  --namespace machaira \
+  --set tts.sidecar.enabled=true
+```
+
+No TTS port is added to the Service or Ingress. After installation, save a **Local TTS** provider
+with `http://127.0.0.1:8880/v1`, `kokoro`, and `af_heart`; then place Local in the read-aloud order.
+The image is pinned to `ghcr.io/remsky/kokoro-fastapi-cpu:v0.8.0` and supports amd64 and arm64.
+The defaults request 500m CPU/1 GiB RAM and limit the sidecar to 2 CPU/4 GiB RAM; adjust
+`tts.sidecar.resources` for the node and expected latency. The model is baked into the image, so
+routine Pod replacement does not redownload it.
 
 ```sh
 kubectl create namespace machaira
