@@ -21,6 +21,7 @@ const visibleScreens = computed(() => SCREENS.filter((s) => s.id !== 'plan' || p
         v-for="s in visibleScreens"
         :key="s.id"
         class="rail-btn hover-soft"
+        :aria-current="ui.screen === s.id ? 'page' : undefined"
         @click="ui.go(s.id)"
       >
         <span class="rail-dot" :style="{ background: ui.screen === s.id ? 'var(--accent)' : 'transparent' }"></span>
@@ -100,5 +101,43 @@ const visibleScreens = computed(() => SCREENS.filter((s) => s.id !== 'plan' || p
   letter-spacing: 0.08em;
   text-align: center;
   line-height: 1.7;
+}
+
+@media (max-width: 768px) {
+  .rail {
+    width: 100%;
+    height: calc(58px + env(safe-area-inset-bottom));
+    flex-direction: row;
+    align-items: stretch;
+    padding: 0 0 env(safe-area-inset-bottom);
+    border-top: 1px solid var(--line);
+    border-right: 0;
+    background: var(--paper);
+  }
+  .brand,
+  .rail-foot {
+    display: none;
+  }
+  .rail-items {
+    flex: 1;
+    flex-direction: row;
+    gap: 0;
+    min-width: 0;
+  }
+  .rail-btn {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 58px;
+    gap: 5px;
+    padding: 8px 1px 7px;
+  }
+  .rail-label {
+    max-width: 100%;
+    overflow: hidden;
+    font-size: clamp(7.5px, 2.3vw, 9px);
+    letter-spacing: 0.04em;
+    text-overflow: clip;
+    white-space: nowrap;
+  }
 }
 </style>

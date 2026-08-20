@@ -827,6 +827,21 @@ h1 {
 }
 
 @media (max-width: 560px) {
+  .wrap {
+    padding: 36px 16px 80px;
+  }
+  .row {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .provider-input,
+  .provider-url {
+    width: 100%;
+  }
+  .provider-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
   .translation-default-row {
     align-items: stretch;
     flex-direction: column;

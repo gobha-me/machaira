@@ -60,7 +60,7 @@ const style = computed<CSSProperties>(() => {
 
 <template>
   <Teleport to="body">
-    <div ref="root" class="passage-actions" :style="style">
+    <div ref="root" class="passage-actions" role="toolbar" aria-label="Passage actions" :style="style">
       <span class="pa-ref">{{ refLabel }}</span>
       <button class="pa-act hover-soft" @click="$emit('word-study')">Word study</button>
       <button class="pa-act hover-soft" @click="$emit('compare')">Compare</button>
@@ -121,5 +121,29 @@ const style = computed<CSSProperties>(() => {
 .pa-act:disabled {
   cursor: not-allowed;
   opacity: 0.42;
+}
+
+@media (max-width: 768px) {
+  .passage-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: calc(100vw - 16px);
+    max-height: calc(100dvh - 16px);
+    gap: 4px;
+    padding: 8px;
+    overflow-y: auto;
+  }
+  .pa-ref {
+    grid-column: 1 / -1;
+    padding: 5px 7px 7px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .pa-act {
+    min-height: 44px;
+    padding: 8px 10px;
+    text-align: left;
+    white-space: normal;
+  }
 }
 </style>

@@ -383,4 +383,16 @@ h1 {
   font-size: 13px;
   color: var(--accent);
 }
+@media (max-width: 768px) {
+  .wrap {
+    padding: 36px 16px 80px;
+  }
+  .modes {
+    flex-wrap: wrap;
+  }
+  .mode-note {
+    flex-basis: 100%;
+    white-space: normal;
+  }
+}
 </style>

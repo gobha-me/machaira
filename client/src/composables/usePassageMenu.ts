@@ -1,6 +1,12 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useReader } from '../stores/reader'
 import { crossReferencesForVerses } from '../utils/crossReferences'
+import {
+  createLongPress,
+  shouldSuppressNativeTouch,
+  touchSelectionAction,
+  type NativeTouchSuppression
+} from '../utils/longPress'
 
 interface UsePassageMenuOptions {
   // Plain (non-shift) tap on a Strong's-tagged word. The composable owns the shift case — it
@@ -64,6 +70,11 @@ export function usePassageMenu(opts: UsePassageMenuOptions = {}) {
     menuDismissed.value = false
   }
 
+  function openAtPosition(position: { x: number; y: number }) {
+    menuPos.value = position
+    menuDismissed.value = false
+  }
+
   function dismiss() {
     menuDismissed.value = true
   }
@@ -76,6 +87,7 @@ export function usePassageMenu(opts: UsePassageMenuOptions = {}) {
   // rather than doing nothing, because a menu already open from a right-click is anchored at that
   // earlier click point and would sit over the range as it grows.
   function onVerseClick(n: number, e: MouseEvent) {
+    if (suppressesNativeTouchEvent(n)) return
     if (e.shiftKey && reader.selectedVerse != null) {
       reader.extendSelection(n)
       dismiss()
@@ -92,8 +104,41 @@ export function usePassageMenu(opts: UsePassageMenuOptions = {}) {
   // selection here, selectVerse's toggle-off branch can't fire from a right-click.
   function onVerseContext(n: number, e: MouseEvent) {
     e.preventDefault()
+    if (suppressesNativeTouchEvent(n)) return
     if (!reader.selectedVerses.includes(n)) reader.selectVerse(n)
     openAt(e)
+  }
+
+  // Mobile browsers do not expose Shift, and native context-menu timing varies by platform.
+  // Own a movement-cancelled long press so touch users can extend a range and open the same
+  // passage actions as a desktop right-click without turning a vertical scroll into a selection.
+  let suppressNativeTouch: NativeTouchSuppression | null = null
+  const longPress = createLongPress((verse, position) => {
+    const action = touchSelectionAction(reader.selectedVerse, reader.selectedVerses, verse)
+    if (action === 'extend') reader.extendSelection(verse)
+    else if (action === 'select') reader.selectVerse(verse)
+    suppressNativeTouch = { verse, until: Date.now() + 1200 }
+    openAtPosition(position)
+  })
+
+  function suppressesNativeTouchEvent(verse: number): boolean {
+    if (!suppressNativeTouch || Date.now() > suppressNativeTouch.until) {
+      suppressNativeTouch = null
+      return false
+    }
+    return shouldSuppressNativeTouch(suppressNativeTouch, verse)
+  }
+
+  function onVersePointerDown(n: number, e: PointerEvent) {
+    longPress.start(n, e)
+  }
+
+  function onVersePointerMove(e: PointerEvent) {
+    longPress.move(e)
+  }
+
+  function onVersePointerEnd(e: PointerEvent) {
+    longPress.end(e.pointerId)
   }
 
   // Shift-drag on running prose would start a native text selection that fights the range
@@ -121,7 +166,10 @@ export function usePassageMenu(opts: UsePassageMenuOptions = {}) {
     }
   }
   onMounted(() => window.addEventListener('keydown', onSelectionKey))
-  onUnmounted(() => window.removeEventListener('keydown', onSelectionKey))
+  onUnmounted(() => {
+    window.removeEventListener('keydown', onSelectionKey)
+    longPress.cancel()
+  })
 
   // menuDismissed stays private — dismiss() is the only way to close the menu, so future work
   // added there can't apply on one screen and not the other.
@@ -138,6 +186,9 @@ export function usePassageMenu(opts: UsePassageMenuOptions = {}) {
     onVerseClick,
     onVerseContext,
     onVerseMouseDown,
+    onVersePointerDown,
+    onVersePointerMove,
+    onVersePointerEnd,
     onWordClick,
     dismiss
   }

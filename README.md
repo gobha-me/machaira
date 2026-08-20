@@ -15,7 +15,7 @@ semantic search, personal journaling, and a bring-your-own-model study partner.
 
 | Screen | What it does |
 | --- | --- |
-| **Read** | Renders a chapter from any installed translation; translation picker, book/chapter navigation, verse selection, persisted highlights, and browser read-aloud follow-along. |
+| **Read** | Renders a chapter from any installed translation in a responsive phone, tablet, or desktop layout; translation picker, book/chapter navigation, touch-friendly passage tools and range selection, persisted highlights, and browser read-aloud follow-along. |
 | **Study** | Side-by-side verse comparison, Strong's glosses, and streamed passage-aware chat—with optional hold-to-talk input—through a user-configured model provider. |
 | **Search** | Real SWORD full-text and embedding-backed “by meaning” search, with typed or hold-to-talk input. |
 | **Library** | Browse CrossWire repositories, install modules with live progress, and uninstall. This is the downloader that feeds every other screen. |

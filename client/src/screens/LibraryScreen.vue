@@ -422,4 +422,24 @@ h1 {
 .section-label:not(:first-of-type) {
   margin-top: 16px;
 }
+@media (max-width: 768px) {
+  .wrap {
+    padding: 36px 16px 80px;
+  }
+  .head {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .search {
+    grid-column: 1 / -1;
+  }
+  .lang-select {
+    width: 100%;
+    max-width: none;
+  }
+}
 </style>
