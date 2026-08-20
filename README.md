@@ -201,9 +201,10 @@ is no longer needed.
 - **Accounts, sessions, encrypted secrets, notes, and highlights** live in
   `server/data/machaira.sqlite` by default and are isolated by account. Stop the server before
   copying the SQLite file for a simple consistent backup.
-- **Reading-plan progress and settings** remain browser-local. Settings offers a one-time,
-  non-destructive import when legacy IndexedDB notes or highlights are found, and exports current
-  server-backed personal data as Markdown + JSON.
+- **Reader position, reading-plan progress, and settings** remain browser-local. Reader position
+  is isolated by account in each browser and does not sync across browsers or devices. Settings
+  offers a one-time, non-destructive import when legacy IndexedDB notes or highlights are found,
+  and exports current server-backed personal data as Markdown + JSON.
 
 ### Server configuration
 

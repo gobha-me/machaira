@@ -76,7 +76,12 @@ async function loadPersonalData(userId: string): Promise<void> {
   personalError.value = null
   try {
     await Promise.all([
-      notes.load(), reader.loadHighlights(), readingPlan.load(), aiProvider.load(), semanticIndex.load()
+      notes.load(),
+      reader.init(),
+      reader.loadHighlights(),
+      readingPlan.load(),
+      aiProvider.load(),
+      semanticIndex.load()
     ])
     if (generation === personalLoadGeneration && auth.user?.id === userId) {
       personalReady.value = true
@@ -99,7 +104,7 @@ watch(
   (userId) => {
     personalLoadGeneration += 1
     notes.resetPersonalData()
-    reader.resetPersonalData()
+    reader.activateUser(userId)
     aiProvider.reset()
     semanticIndex.reset()
     personalReady.value = false
