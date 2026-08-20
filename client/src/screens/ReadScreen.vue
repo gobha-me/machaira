@@ -10,7 +10,7 @@ import { useCompare } from '../composables/useCompare'
 import { useWordStudy } from '../composables/useWordStudy'
 import { useNotes } from '../composables/useNotes'
 import { usePassageMenu } from '../composables/usePassageMenu'
-import { useSpeechSynthesis } from '../composables/useSpeechSynthesis'
+import { useReadAloud } from '../composables/useReadAloud'
 import { segLead } from '../utils/text'
 import PassageActions from '../components/PassageActions.vue'
 import StrongsCard from '../components/StrongsCard.vue'
@@ -101,7 +101,7 @@ async function pickModule(name: string) {
   stopListening()
 }
 
-// ── Listen: browser Web Speech, with verse follow-along ──
+// ── Listen: explicit browser/local/cloud providers, with verse follow-along ──
 const {
   supported: hasTTS,
   active: listening,
@@ -109,11 +109,13 @@ const {
   currentVerse: spokenVerse,
   completed: listeningComplete,
   error: listeningError,
+  notice: listeningNotice,
+  currentProvider: listeningProvider,
   progress: progressPct,
   toggle: toggleListen,
   togglePlayback: togglePlay,
   stop: stopListening
-} = useSpeechSynthesis({
+} = useReadAloud({
   verses: () => reader.data?.verses ?? [],
   startVerse: () => reader.selectedVerse,
   onComplete: () => {
@@ -428,7 +430,7 @@ async function menuNote() {
         :class="{ disabled: !hasTTS }"
         :disabled="!hasTTS || !reader.data?.verses.length"
         :aria-pressed="listening"
-        :title="hasTTS ? 'Read aloud' : 'Speech not available in this browser'"
+        :title="hasTTS ? 'Read aloud' : 'Configure a read-aloud provider in Settings'"
         @click="toggleListen"
       >
         Listen
@@ -647,10 +649,12 @@ async function menuNote() {
         <div class="listen-sub" :class="{ error: listeningError }" aria-live="polite">
           {{ listeningError
             ? listeningError
+            : listeningNotice
+              ? listeningNotice
             : listeningComplete
               ? 'Chapter complete'
               : spokenVerse
-                ? `Following along — verse ${spokenVerse}`
+                ? `Following along — verse ${spokenVerse} · ${listeningProvider === 'browser' ? 'browser' : listeningProvider}`
                 : 'Ready' }}
         </div>
       </div>

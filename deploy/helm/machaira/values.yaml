@@ -42,6 +42,21 @@ resources:
     cpu: "1"
     memory: 1Gi
 
+tts:
+  sidecar:
+    enabled: false
+    image:
+      repository: ghcr.io/remsky/kokoro-fastapi-cpu
+      tag: v0.8.0
+      pullPolicy: IfNotPresent
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: "2"
+        memory: 4Gi
+
 nodeSelector: {}
 tolerations: []
 affinity: {}

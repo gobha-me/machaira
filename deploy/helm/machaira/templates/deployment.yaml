@@ -77,6 +77,48 @@ spec:
               mountPath: /app/server/data
             - name: tmp
               mountPath: /tmp
+        {{- if .Values.tts.sidecar.enabled }}
+        - name: tts
+          image: "{{ .Values.tts.sidecar.image.repository }}:{{ .Values.tts.sidecar.image.tag }}"
+          imagePullPolicy: {{ .Values.tts.sidecar.image.pullPolicy }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: tts
+              containerPort: 8880
+              protocol: TCP
+          env:
+            - name: API_LOG_LEVEL
+              value: WARNING
+            - name: ENABLE_DEBUG_ENDPOINTS
+              value: "false"
+            - name: ALLOW_DEV_UNLOAD
+              value: "false"
+          startupProbe:
+            httpGet:
+              path: /health
+              port: tts
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: tts
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.tts.sidecar.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+        {{- end }}
       volumes:
         - name: data
           {{- if .Values.persistence.enabled }}
