@@ -49,11 +49,13 @@ watch(
 <template>
   <div class="commentary-card" :class="variant">
     <div class="cc-head">
-      <span class="cc-label">Commentary<template v-if="activeModule"> · {{ activeModule }}</template></span>
+      <span class="cc-label" :title="activeModule ?? undefined">Commentary<template v-if="activeModule"> · {{ activeModule }}</template></span>
       <select
         v-if="installedCommentaries.length > 1"
         class="cc-picker"
         :value="activeModule ?? ''"
+        :title="activeModule ?? undefined"
+        aria-label="Choose commentary"
         @change="onPick"
       >
         <option v-for="name in installedCommentaries" :key="name" :value="name">{{ name }}</option>
@@ -104,15 +106,21 @@ watch(
   margin-bottom: 8px;
 }
 .cc-label {
+  min-width: 0;
   font-size: 10.5px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .cc-spacer {
   flex: 1;
+  min-width: 0;
 }
 .cc-picker {
+  min-width: 0;
   max-width: 40%;
   background: var(--paper);
   border: 1px solid var(--line);
@@ -123,6 +131,7 @@ watch(
   font-weight: 600;
   color: var(--ink);
   cursor: pointer;
+  text-overflow: ellipsis;
 }
 .cc-picker:focus {
   outline: none;
@@ -136,6 +145,7 @@ watch(
   font-size: 13px;
   line-height: 1;
   padding: 2px;
+  flex-shrink: 0;
 }
 .cc-state {
   font-size: 13px;

@@ -1,6 +1,6 @@
 {
   "name": "@machaira/client",
-  "version": "0.8.4",
+  "version": "0.8.5",
   "private": true,
   "license": "GPL-2.0-or-later",
   "type": "module",
@@ -17,6 +17,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.2.1",
+    "@vue/server-renderer": "^3.5.13",
     "typescript": "^5.7.2",
     "vite": "^6.0.3",
     "vitest": "^4.1.10",

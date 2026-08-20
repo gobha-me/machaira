@@ -32,7 +32,11 @@ const multiVerse = computed(() => props.rows.some((r) => r.verses.length > 1))
       class="cp-row"
       :class="{ last: i === rows.length - 1 }"
     >
-      <span class="cp-tag" :style="{ color: i === 0 ? 'var(--accent)' : 'var(--muted)' }">
+      <span
+        class="cp-tag"
+        :style="{ color: i === 0 ? 'var(--accent)' : 'var(--muted)' }"
+        :title="r.module"
+      >
         {{ r.module }}
       </span>
       <div class="cp-verses">
@@ -64,6 +68,13 @@ const multiVerse = computed(() => props.rows.some((r) => r.verses.length > 1))
   flex-direction: column;
   gap: 4px;
   min-width: 0;
+}
+.cp-row,
+.cp-tag {
+  min-width: 0;
+}
+.cp-tag {
+  overflow-wrap: anywhere;
 }
 .cp-verse {
   margin: 0;
@@ -109,7 +120,8 @@ const multiVerse = computed(() => props.rows.some((r) => r.verses.length > 1))
   margin-bottom: 16px;
 }
 .page .cp-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(52px, 30%) minmax(0, 1fr);
   gap: 14px;
   padding: 14px 18px;
   border-bottom: 1px solid var(--line);
@@ -121,8 +133,6 @@ const multiVerse = computed(() => props.rows.some((r) => r.verses.length > 1))
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.08em;
-  width: 52px;
-  flex-shrink: 0;
   padding-top: 3px;
 }
 .page .cp-verse {

@@ -19,7 +19,7 @@ defineEmits<{ (e: 'close'): void }>()
 <template>
   <div class="xref-card" :class="variant">
     <div class="xref-head">
-      <span class="xref-label">
+      <span class="xref-label" :title="moduleName || undefined">
         Cross-references<template v-if="moduleName"> · {{ moduleName }}</template>
       </span>
       <div class="xref-spacer"></div>
@@ -52,10 +52,12 @@ defineEmits<{ (e: 'close'): void }>()
   margin-bottom: 8px;
 }
 .xref-label {
+  min-width: 0;
   font-size: 10.5px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--muted);
+  overflow-wrap: anywhere;
 }
 .xref-spacer {
   flex: 1;
@@ -68,6 +70,7 @@ defineEmits<{ (e: 'close'): void }>()
   font-size: 13px;
   line-height: 1;
   padding: 2px;
+  flex-shrink: 0;
 }
 .xref-state {
   font-size: 13px;

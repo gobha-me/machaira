@@ -1,6 +1,6 @@
 {
   "name": "machaira",
-  "version": "0.8.4",
+  "version": "0.8.5",
   "private": true,
   "description": "Sword — a SWORD-family Bible study tool (Vue 3 + Vite frontend, Node SWORD backend)",
   "license": "GPL-2.0-or-later",
