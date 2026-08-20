@@ -2,5 +2,5 @@ apiVersion: v2
 name: machaira
 description: A local-first SWORD-family Bible study application
 type: application
-version: 0.8.5
-appVersion: "0.8.5"
+version: 0.9.0
+appVersion: "0.9.0"

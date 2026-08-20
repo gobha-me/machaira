@@ -173,6 +173,9 @@ const {
   onVerseClick,
   onVerseContext,
   onVerseMouseDown,
+  onVersePointerDown,
+  onVersePointerMove,
+  onVersePointerEnd,
   onWordClick,
   dismiss
 } = usePassageMenu({ onWordTap: studyWord })
@@ -295,6 +298,10 @@ function menuNote() {
             class="cverse"
             :style="{ background: cverseBg(v.n), opacity: verseOpacity(v.n) }"
             @mousedown="onVerseMouseDown"
+            @pointerdown="onVersePointerDown(v.n, $event)"
+            @pointermove="onVersePointerMove"
+            @pointerup="onVersePointerEnd"
+            @pointercancel="onVersePointerEnd"
             @click="onVerseClick(v.n, $event)"
             @contextmenu="onVerseContext(v.n, $event)"
           ><sup class="cvnum">{{ v.n }}</sup><template
@@ -806,5 +813,53 @@ function menuNote() {
 .composer input:disabled,
 .send:disabled {
   cursor: not-allowed;
+}
+
+@media (max-width: 768px) {
+  .study {
+    display: block;
+    overflow-y: auto;
+  }
+  .left {
+    min-height: 100%;
+    border-right: 0;
+  }
+  .topbar {
+    height: auto;
+    min-height: 58px;
+    flex-wrap: wrap;
+    gap: 7px 9px;
+    padding: 10px 14px;
+  }
+  .topbar .spacer {
+    display: none;
+  }
+  .topbar .back {
+    margin-left: auto;
+  }
+  .step {
+    width: 44px;
+    height: 44px;
+  }
+  .scroll {
+    overflow: visible;
+    padding: 20px 16px 56px;
+  }
+  .cverse {
+    padding: 3px 2px;
+    touch-action: pan-y;
+    -webkit-touch-callout: none;
+  }
+  .partner {
+    width: 100%;
+    min-height: 70dvh;
+    border-top: 1px solid var(--line);
+  }
+  .partner-body {
+    min-height: 320px;
+  }
+  .composer {
+    padding: 12px 14px;
+  }
 }
 </style>

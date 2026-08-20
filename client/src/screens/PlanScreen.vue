@@ -387,4 +387,20 @@ h1 {
 .swatch.past {
   background: color-mix(in oklab, var(--accent) 14%, var(--soft));
 }
+@media (max-width: 768px) {
+  .wrap {
+    padding: 36px 16px 80px;
+  }
+  .head,
+  .today-foot {
+    flex-wrap: wrap;
+  }
+  .today-open,
+  .today-mark {
+    flex: 1 1 120px;
+  }
+  .progress-card {
+    padding: 18px 16px;
+  }
+}
 </style>

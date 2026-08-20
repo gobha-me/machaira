@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useReader } from '../stores/reader'
 import { useUi } from '../stores/ui'
 import { useSettings } from '../stores/settings'
@@ -29,7 +29,7 @@ function openTodayReading() {
 }
 
 const versesStyle = computed(() => ({
-  fontSize: 'calc(20px * var(--vs))',
+  fontSize: 'calc(var(--reader-font-base, 20px) * var(--vs))',
   letterSpacing: settings.extraSpacing ? '0.03em' : 'normal',
   wordSpacing: settings.extraSpacing ? '0.12em' : 'normal'
 }))
@@ -75,7 +75,13 @@ const draftChapters = computed(() => {
 
 function openBookPicker() {
   draftBook.value = reader.book
+  transOpen.value = false
   bookOpen.value = !bookOpen.value
+}
+
+function openTranslationPicker() {
+  bookOpen.value = false
+  transOpen.value = !transOpen.value
 }
 
 async function pickChapter(n: number) {
@@ -139,6 +145,27 @@ const chapterNotes = computed(() => {
 // The menu's "Word study" button opens this in place; wordStudyOn reveals the tappable
 // words for the current chapter even when the global Strong's-display setting is off.
 const wordStudyOn = ref(false)
+const toolsOpen = ref(false)
+const toolsToggleEl = ref<HTMLButtonElement | null>(null)
+const toolsCloseEl = ref<HTMLButtonElement | null>(null)
+
+async function openTools() {
+  toolsOpen.value = true
+  await nextTick()
+  toolsCloseEl.value?.focus()
+}
+
+async function closeTools() {
+  toolsOpen.value = false
+  await nextTick()
+  toolsToggleEl.value?.focus()
+}
+
+function onReadEscape() {
+  bookOpen.value = false
+  transOpen.value = false
+  if (toolsOpen.value) void closeTools()
+}
 const {
   strongsKey,
   entry: strongsEntry,
@@ -147,6 +174,11 @@ const {
   tapWord,
   clear: clearWordStudy
 } = useWordStudy()
+
+async function tapReaderWord(keys: string[]) {
+  openTools()
+  await tapWord(keys)
+}
 
 // Whether the chapter renders word segments at all. Deliberately chapter-wide rather than
 // per-verse: gating the segment subtree on the selection would swap ~130 DOM nodes per verse
@@ -170,6 +202,7 @@ const chapterHasStrongs = computed(
 
 function openWordStudy() {
   wordStudyOn.value = true
+  openTools()
 }
 
 function closeWordStudy() {
@@ -183,6 +216,9 @@ watch(
   () => [reader.moduleName, reader.book, reader.chapter],
   () => {
     stopListening()
+    toolsOpen.value = false
+    bookOpen.value = false
+    transOpen.value = false
     if (wordStudyOn.value) closeWordStudy()
   }
 )
@@ -200,6 +236,7 @@ const {
 function openCompare() {
   // Set active first — loadCompare reads it synchronously.
   compareOpen.value = true
+  openTools()
   syncCompare()
 }
 
@@ -211,6 +248,7 @@ function closeCompare() {
 const commentaryOpen = ref(false)
 function openCommentary() {
   commentaryOpen.value = true
+  openTools()
 }
 function closeCommentary() {
   commentaryOpen.value = false
@@ -220,6 +258,7 @@ function closeCommentary() {
 const crossReferencesOpen = ref(false)
 function openCrossReferences() {
   crossReferencesOpen.value = true
+  openTools()
 }
 function closeCrossReferences() {
   crossReferencesOpen.value = false
@@ -254,9 +293,12 @@ const {
   onVerseClick,
   onVerseContext,
   onVerseMouseDown,
+  onVersePointerDown,
+  onVersePointerMove,
+  onVersePointerEnd,
   onWordClick,
   dismiss
-} = usePassageMenu({ onWordTap: (_n, keys) => tapWord(keys) })
+} = usePassageMenu({ onWordTap: (_n, keys) => tapReaderWord(keys) })
 
 function menuWordStudy() {
   openWordStudy()
@@ -278,9 +320,11 @@ function menuHighlight() {
   reader.toggleHighlightRange(reader.selectedVerses)
   dismiss()
 }
-function menuNote() {
-  focusNoteComposer()
+async function menuNote() {
+  openTools()
   dismiss()
+  await nextTick()
+  focusNoteComposer()
 }
 </script>
 
@@ -295,14 +339,21 @@ function menuNote() {
     </div>
   </div>
 
-  <div v-else class="read">
+  <div v-else class="read" @keydown.esc="onReadEscape">
     <!-- top bar -->
     <div class="topbar">
       <div class="pick">
-        <button class="chip hover-line" @click="openBookPicker">
-          {{ reader.bookName }} {{ reader.chapter }} <span class="caret">▾</span>
+        <button
+          class="chip hover-line"
+          :title="`${reader.bookName} ${reader.chapter}`"
+          aria-controls="reader-book-picker"
+          :aria-expanded="bookOpen"
+          @click="openBookPicker"
+        >
+          <span class="chip-label">{{ reader.bookName }} {{ reader.chapter }}</span>
+          <span class="caret">▾</span>
         </button>
-        <div v-if="bookOpen" class="panel book-panel">
+        <div v-if="bookOpen" id="reader-book-picker" class="panel book-panel">
           <div class="book-cols">
             <div class="book-list">
               <template v-for="g in grouped" :key="g.key">
@@ -338,11 +389,13 @@ function menuNote() {
           class="chip chip-accent hover-line"
           :title="activeTranslationLabel"
           :aria-label="`Choose translation. Current: ${activeTranslationLabel}`"
-          @click="transOpen = !transOpen"
+          aria-controls="reader-translation-picker"
+          :aria-expanded="transOpen"
+          @click="openTranslationPicker"
         >
           <span class="chip-label">{{ reader.moduleName }}</span><span class="caret">▾</span>
         </button>
-        <div v-if="transOpen" class="panel trans-panel">
+        <div v-if="transOpen" id="reader-translation-picker" class="panel trans-panel">
           <button
             v-for="m in reader.installedBibles"
             :key="m.name"
@@ -363,6 +416,13 @@ function menuNote() {
 
       <div class="spacer"></div>
       <button class="ghost hover-ink" @click="ui.go('study')">Study this chapter</button>
+      <button
+        ref="toolsToggleEl"
+        class="tools-toggle hover-line"
+        aria-controls="passage-tools"
+        :aria-expanded="toolsOpen"
+        @click="toolsOpen ? closeTools() : openTools()"
+      >Tools</button>
       <button
         class="listen"
         :class="{ disabled: !hasTTS }"
@@ -393,6 +453,10 @@ function menuNote() {
                 class="verse"
                 :style="{ background: verseBg(v.n), opacity: verseOpacity(v.n) }"
                 @mousedown="onVerseMouseDown"
+                @pointerdown="onVersePointerDown(v.n, $event)"
+                @pointermove="onVersePointerMove"
+                @pointerup="onVersePointerEnd"
+                @pointercancel="onVersePointerEnd"
                 @click="onVerseClick(v.n, $event)"
                 @contextmenu="onVerseContext(v.n, $event)"
               ><sup class="vnum">{{ v.n }}</sup><template
@@ -424,7 +488,24 @@ function menuNote() {
           </template>
         </div>
 
-        <aside class="rail-side">
+        <div
+          v-if="toolsOpen"
+          class="tools-backdrop"
+          aria-hidden="true"
+          @click="closeTools"
+        ></div>
+
+        <aside
+          id="passage-tools"
+          class="rail-side"
+          :class="{ open: toolsOpen }"
+          aria-label="Passage tools"
+          @keydown.esc.stop="closeTools"
+        >
+          <div class="tools-drawer-head">
+            <span>Passage tools</span>
+            <button ref="toolsCloseEl" class="word-card-close hover-ink" aria-label="Close passage tools" @click="closeTools">✕</button>
+          </div>
           <div
             v-if="compareOpen"
             class="word-card"
@@ -532,7 +613,8 @@ function menuNote() {
           </div>
 
           <div v-if="reader.highlightError" class="error">{{ reader.highlightError }}</div>
-          <div class="hint-text">Select any verse to compare, highlight, or start a note.</div>
+          <div class="hint-text desktop-hint">Select any verse to compare, highlight, or start a note.</div>
+          <div class="hint-text mobile-hint">Tap a verse to select it. Long-press another verse to select a range and open its actions.</div>
         </aside>
       </div>
     </div>
@@ -666,6 +748,17 @@ function menuNote() {
   opacity: 0.45;
   cursor: not-allowed;
 }
+.tools-toggle {
+  display: none;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 12px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
 .panel {
   position: absolute;
   top: 44px;
@@ -731,12 +824,6 @@ function menuNote() {
   font-weight: 600;
   color: var(--accent);
   padding: 0;
-}
-@media (max-width: 680px) {
-  .trans-panel {
-    right: 0;
-    left: auto;
-  }
 }
 .book-panel {
   width: 460px;
@@ -906,6 +993,11 @@ h1 {
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+.tools-drawer-head,
+.tools-backdrop,
+.mobile-hint {
+  display: none;
 }
 .word-card {
   background: var(--card);
@@ -1252,5 +1344,240 @@ h1 {
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+}
+
+@media (max-width: 768px) {
+  .read {
+    --reader-font-base: 18px;
+  }
+  .topbar {
+    height: auto;
+    min-height: 104px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+  .topbar > .pick:first-child {
+    grid-column: 1 / 3;
+    min-width: 0;
+  }
+  .topbar > .pick:first-child .chip {
+    width: 100%;
+  }
+  .trans-pick {
+    grid-column: 3;
+    width: 72px;
+    max-width: none;
+  }
+  .trans-pick .chip {
+    width: 100%;
+    justify-content: center;
+  }
+  .topbar .spacer {
+    display: none;
+  }
+  .ghost {
+    grid-column: 1;
+    min-height: 44px;
+    padding: 8px 2px;
+    text-align: left;
+  }
+  .tools-toggle {
+    display: block;
+    grid-column: 2;
+    min-height: 44px;
+  }
+  .listen {
+    grid-column: 3;
+    min-height: 44px;
+    justify-content: center;
+    padding: 8px 12px;
+  }
+  .panel {
+    position: fixed;
+    z-index: 70;
+    top: 124px;
+    right: 8px;
+    bottom: calc(66px + env(safe-area-inset-bottom));
+    left: 8px;
+    width: auto;
+    max-height: none;
+  }
+  .trans-panel {
+    overflow-y: auto;
+    padding: 8px;
+  }
+  .book-cols {
+    height: 100%;
+    min-height: 0;
+  }
+  .book-list {
+    width: 52%;
+  }
+  .book-item,
+  .trans-item {
+    min-height: 44px;
+  }
+  .chapter-grid {
+    grid-template-columns: repeat(4, minmax(34px, 1fr));
+  }
+  .body {
+    min-height: 0;
+  }
+  .cols {
+    display: block;
+    padding: 34px 16px 96px;
+  }
+  .reading {
+    width: 100%;
+    max-width: 680px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 38px;
+  }
+  .meta {
+    margin-bottom: 26px;
+  }
+  .verse {
+    padding: 3px 2px;
+    touch-action: pan-y;
+    -webkit-touch-callout: none;
+  }
+  .tools-backdrop {
+    display: block;
+    position: fixed;
+    z-index: 54;
+    inset: 0 0 calc(58px + env(safe-area-inset-bottom));
+    width: 100%;
+    border: 0;
+    padding: 0;
+    background: color-mix(in oklab, var(--ink) 28%, transparent);
+    cursor: pointer;
+  }
+  .rail-side {
+    display: none;
+    position: fixed;
+    z-index: 55;
+    right: 8px;
+    bottom: calc(58px + env(safe-area-inset-bottom));
+    left: 8px;
+    width: auto;
+    max-height: min(74dvh, 680px);
+    overflow-y: auto;
+    padding: 0 14px 18px;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-bottom: 0;
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -18px 44px rgba(30, 22, 10, 0.2);
+  }
+  .rail-side.open {
+    display: flex;
+  }
+  .tools-drawer-head {
+    position: sticky;
+    z-index: 1;
+    top: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 0 -14px;
+    padding: 14px;
+    border-bottom: 1px solid var(--line);
+    background: var(--paper);
+    color: var(--ink);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .tools-drawer-head .word-card-close {
+    width: 44px;
+    height: 44px;
+    margin: -10px;
+  }
+  .desktop-hint {
+    display: none;
+  }
+  .mobile-hint {
+    display: block;
+  }
+  .listenbar {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 8px 12px;
+    padding: 10px 12px;
+  }
+  .play {
+    width: 44px;
+    height: 44px;
+  }
+  .listen-track {
+    grid-column: 2 / 4;
+  }
+  .listen-close {
+    min-height: 44px;
+  }
+  .empty-screen {
+    padding: 24px 16px;
+  }
+}
+
+@media (min-width: 600px) and (max-width: 768px) {
+  .topbar {
+    min-height: 58px;
+    grid-template-columns: minmax(140px, auto) 80px minmax(0, 1fr) auto auto auto;
+  }
+  .topbar > .pick:first-child {
+    grid-column: 1;
+  }
+  .trans-pick {
+    grid-column: 2;
+    width: 80px;
+  }
+  .ghost {
+    grid-column: 4;
+    text-align: center;
+  }
+  .tools-toggle {
+    grid-column: 5;
+  }
+  .listen {
+    grid-column: 6;
+  }
+  .panel {
+    top: 66px;
+  }
+}
+
+@media (max-width: 360px) {
+  .topbar {
+    gap: 6px;
+  }
+  .trans-pick {
+    width: 64px;
+  }
+  .chip,
+  .listen,
+  .tools-toggle {
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+  .cols {
+    padding-right: 13px;
+    padding-left: 13px;
+  }
+}
+
+@media (max-width: 480px) {
+  .book-list {
+    width: 45%;
+  }
+  .chapter-grid {
+    grid-template-columns: repeat(3, minmax(44px, 1fr));
+    padding: 8px;
+  }
 }
 </style>

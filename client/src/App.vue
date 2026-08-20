@@ -151,6 +151,14 @@ watch(
   flex-direction: column;
   overflow: hidden;
 }
+@media (max-width: 768px) {
+  .app-root {
+    flex-direction: column-reverse;
+  }
+  .app-main {
+    min-height: 0;
+  }
+}
 .loading-page {
   min-height: 100dvh;
   display: grid;
