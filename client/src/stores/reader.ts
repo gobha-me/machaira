@@ -5,6 +5,7 @@ import { useLibrary } from './library'
 import { useSettings } from './settings'
 
 interface ReaderState {
+  activeUserId: string | null
   moduleName: string | null
   books: BookEntry[]
   book: string | null
@@ -21,15 +22,33 @@ interface ReaderState {
 
 const HL_COLOR = 'rgba(201,162,39,0.25)'
 
-const POS_KEY = 'sword.reader.pos.v1'
+const LEGACY_POS_KEY = 'sword.reader.pos.v1'
+const POS_KEY_PREFIX = 'sword.reader.pos.v2:'
+let readerGeneration = 0
+let moduleLoadGeneration = 0
+let chapterLoadGeneration = 0
 let highlightLoadGeneration = 0
 
-function loadPos(): { moduleName: string; book: string; chapter: number } | null {
+interface ReaderPosition {
+  moduleName: string
+  book: string
+  chapter: number
+}
+
+function positionKey(userId: string): string {
+  return `${POS_KEY_PREFIX}${encodeURIComponent(userId)}`
+}
+
+function loadPos(userId: string): ReaderPosition | null {
   try {
-    const raw = localStorage.getItem(POS_KEY)
+    const raw = localStorage.getItem(positionKey(userId))
     if (!raw) return null
     const p = JSON.parse(raw)
-    if (typeof p?.moduleName === 'string' && p.moduleName && typeof p?.book === 'string' && p.book && typeof p?.chapter === 'number') {
+    if (
+      typeof p?.moduleName === 'string' && p.moduleName &&
+      typeof p?.book === 'string' && p.book &&
+      Number.isInteger(p?.chapter) && p.chapter >= 1
+    ) {
       return { moduleName: p.moduleName, book: p.book, chapter: p.chapter }
     }
     return null
@@ -38,8 +57,27 @@ function loadPos(): { moduleName: string; book: string; chapter: number } | null
   }
 }
 
+function discardLegacyPos(): void {
+  try {
+    // The v1 record was browser-global. It cannot be assigned to an account without risking
+    // that one user's passage is restored for another user on the same browser.
+    localStorage.removeItem(LEGACY_POS_KEY)
+  } catch {
+    // Reader startup must still work when browser storage is unavailable.
+  }
+}
+
+function landingBook(books: BookEntry[]): BookEntry | undefined {
+  return books.find((book) => book.code === 'Gen') ?? books[0]
+}
+
+function validChapter(book: BookEntry | undefined, chapter: number): boolean {
+  return !!book && Number.isInteger(chapter) && chapter >= 1 && chapter <= book.chapters
+}
+
 export const useReader = defineStore('reader', {
   state: (): ReaderState => ({
+    activeUserId: null,
     moduleName: null,
     books: [],
     book: null,
@@ -126,17 +164,20 @@ export const useReader = defineStore('reader', {
   },
   actions: {
     async init(): Promise<void> {
+      const userId = this.activeUserId
+      const generation = readerGeneration
+      if (!userId) return
       const lib = useLibrary()
       await lib.load()
+      if (generation !== readerGeneration || this.activeUserId !== userId) return
       const bibles = lib.installedBibles
       if (bibles.length === 0) {
         this.ready = true
         return
       }
-      const saved = loadPos()
+      const saved = loadPos(userId)
       if (saved && bibles.some((m) => m.name === saved.moduleName)) {
-        // Set book/chapter first so setModule's `keep` check preserves them
-        // (or drops to John 1 if the saved module lacks the saved book).
+        // Set book/chapter first so setModule can preserve a fully valid saved passage.
         this.book = saved.book
         this.chapter = saved.chapter
         await this.setModule(saved.moduleName)
@@ -144,7 +185,7 @@ export const useReader = defineStore('reader', {
         const preferred = this.effectiveDefaultModule
         if (preferred) await this.setModule(preferred)
       }
-      this.ready = true
+      if (generation === readerGeneration && this.activeUserId === userId) this.ready = true
     },
     async loadHighlights(): Promise<void> {
       const generation = highlightLoadGeneration
@@ -156,20 +197,35 @@ export const useReader = defineStore('reader', {
       this.highlightError = null
     },
     async setModule(name: string): Promise<void> {
+      const userId = this.activeUserId
+      const readerLoadGeneration = readerGeneration
+      const moduleGeneration = ++moduleLoadGeneration
       this.moduleName = name
       this.error = null
+      let books: BookEntry[]
       try {
-        this.books = await api.books(name)
+        books = await api.books(name)
       } catch (e) {
+        if (
+          readerLoadGeneration !== readerGeneration ||
+          moduleGeneration !== moduleLoadGeneration ||
+          this.activeUserId !== userId
+        ) return
         this.books = []
         this.error = (e as Error).message
         return
       }
-      // Keep the current book/chapter if the new module has it; else default.
-      const keep = this.book && this.books.some((b) => b.code === this.book)
-      if (!keep) {
-        const john = this.books.find((b) => b.code === 'John')
-        const target = john ?? this.books[0]
+      if (
+        readerLoadGeneration !== readerGeneration ||
+        moduleGeneration !== moduleLoadGeneration ||
+        this.activeUserId !== userId
+      ) return
+      this.books = books
+      // Preserve the current passage only when both its book and chapter exist in the target
+      // module. Otherwise use the canonical fresh landing for that module.
+      const currentBook = this.books.find((book) => book.code === this.book)
+      if (!validChapter(currentBook, this.chapter)) {
+        const target = landingBook(this.books)
         this.book = target?.code ?? null
         this.chapter = 1
       }
@@ -187,17 +243,45 @@ export const useReader = defineStore('reader', {
       verse?: number,
       verseEnd?: number
     ): Promise<void> {
+      const userId = this.activeUserId
+      const readerLoadGeneration = readerGeneration
+      const moduleGeneration = ++moduleLoadGeneration
       if (module !== this.moduleName) {
         this.moduleName = module
         try {
-          this.books = await api.books(module)
+          const books = await api.books(module)
+          if (
+            readerLoadGeneration !== readerGeneration ||
+            moduleGeneration !== moduleLoadGeneration ||
+            this.activeUserId !== userId
+          ) return
+          this.books = books
         } catch (e) {
+          if (
+            readerLoadGeneration !== readerGeneration ||
+            moduleGeneration !== moduleLoadGeneration ||
+            this.activeUserId !== userId
+          ) return
           this.error = (e as Error).message
+          return
         }
       }
+      if (
+        readerLoadGeneration !== readerGeneration ||
+        moduleGeneration !== moduleLoadGeneration ||
+        this.activeUserId !== userId
+      ) return
       this.book = book
       this.chapter = chapter
       await this.loadChapter()
+      if (
+        readerLoadGeneration !== readerGeneration ||
+        moduleGeneration !== moduleLoadGeneration ||
+        this.activeUserId !== userId ||
+        this.moduleName !== module ||
+        this.book !== book ||
+        this.chapter !== chapter
+      ) return
       if (verse != null) {
         this.selectedVerse = verse
         this.rangeEnd = verseEnd ?? verse
@@ -209,26 +293,46 @@ export const useReader = defineStore('reader', {
     },
     async loadChapter(): Promise<void> {
       if (!this.moduleName || !this.book) return
+      const userId = this.activeUserId
+      const readerLoadGeneration = readerGeneration
+      const loadGeneration = ++chapterLoadGeneration
+      const moduleName = this.moduleName
+      const book = this.book
+      const chapter = this.chapter
+      const stale = () =>
+        readerLoadGeneration !== readerGeneration ||
+        loadGeneration !== chapterLoadGeneration ||
+        this.activeUserId !== userId ||
+        this.moduleName !== moduleName ||
+        this.book !== book ||
+        this.chapter !== chapter
       this.loadingChapter = true
       this.error = null
       try {
-        this.data = await api.chapter(this.moduleName, this.book, this.chapter)
+        const data = await api.chapter(moduleName, book, chapter)
+        if (stale()) return
+        this.data = data
         this.selectedVerse = null
         this.rangeEnd = null
         this.persistPos()
       } catch (e) {
+        if (stale()) return
         this.data = null
         this.error = (e as Error).message
       } finally {
-        this.loadingChapter = false
+        if (loadGeneration === chapterLoadGeneration) this.loadingChapter = false
       }
     },
     persistPos(): void {
-      if (!this.moduleName || !this.book) return
-      localStorage.setItem(
-        POS_KEY,
-        JSON.stringify({ moduleName: this.moduleName, book: this.book, chapter: this.chapter })
-      )
+      if (!this.activeUserId || !this.moduleName || !this.book) return
+      try {
+        localStorage.setItem(
+          positionKey(this.activeUserId),
+          JSON.stringify({ moduleName: this.moduleName, book: this.book, chapter: this.chapter })
+        )
+      } catch {
+        // A disabled/full localStorage must not turn a successful chapter read into an error.
+      }
     },
     // Plain click: single-verse select, toggling off only when re-clicking a lone verse.
     // Clicking within an existing range collapses back to a single anchor.
@@ -278,11 +382,25 @@ export const useReader = defineStore('reader', {
         this.highlightError = message
       }
     },
-    resetPersonalData(): void {
+    activateUser(userId: string | null): void {
+      readerGeneration += 1
+      moduleLoadGeneration += 1
+      chapterLoadGeneration += 1
       highlightLoadGeneration += 1
+      this.activeUserId = userId
+      this.moduleName = null
+      this.books = []
+      this.book = null
+      this.chapter = 1
+      this.data = null
+      this.selectedVerse = null
+      this.rangeEnd = null
       this.highlights = {}
       this.highlightError = null
-      // Library and current passage are shared instance data, so only the per-user fields reset.
+      this.loadingChapter = false
+      this.error = null
+      this.ready = false
+      discardLegacyPos()
     }
   }
 })
