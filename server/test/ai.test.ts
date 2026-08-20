@@ -281,7 +281,7 @@ describe('AI provider migration', () => {
     const db = openDatabase(filename)
     try {
       const version = db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get() as { version: number }
-      assert.equal(version.version, 4)
+      assert.equal(version.version, 5)
       db.prepare(`
         INSERT INTO ai_provider_configs (user_id, kind, base_url, model, updated_at)
         VALUES ('user-1', 'local', 'http://localhost:11434/v1', 'llama', 1)

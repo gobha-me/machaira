@@ -188,6 +188,7 @@ export interface EmbeddingProviderConfig {
   kind: EmbeddingProviderKind
   baseUrl: string
   model: string
+  batchSize: number
   hasApiKey: boolean
 }
 
@@ -412,6 +413,7 @@ export const api = {
     kind: EmbeddingProviderKind
     baseUrl: string
     model: string
+    batchSize?: number
     apiKey?: string
     clearApiKey?: boolean
   }): Promise<EmbeddingProviderConfig> {
@@ -429,7 +431,7 @@ export const api = {
   },
 
   async rebuildSemanticIndex(
-    onProgress: (progress: { module: string; processed: number }) => void
+    onProgress: (progress: { module: string; processed: number; batchSize: number }) => void
   ): Promise<SemanticIndexStatus> {
     const response = await request('/api/semantic-index/rebuild', { method: 'POST' })
     if (!response.ok) {
@@ -437,8 +439,13 @@ export const api = {
     }
     let status: SemanticIndexStatus | null = null
     await consumeSseEvents(response, (event, data) => {
-      if (event === 'progress' && typeof data.module === 'string' && typeof data.processed === 'number') {
-        onProgress({ module: data.module, processed: data.processed })
+      if (
+        event === 'progress'
+        && typeof data.module === 'string'
+        && typeof data.processed === 'number'
+        && typeof data.batchSize === 'number'
+      ) {
+        onProgress({ module: data.module, processed: data.processed, batchSize: data.batchSize })
       } else if (event === 'done') {
         status = data as unknown as SemanticIndexStatus
       }

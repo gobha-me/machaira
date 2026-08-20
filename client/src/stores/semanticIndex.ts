@@ -23,13 +23,15 @@ export const useSemanticIndex = defineStore('semanticIndex', {
     building: false,
     processed: 0,
     currentModule: '',
+    effectiveBatchSize: 0,
     error: null as string | null
   }),
   getters: {
     searchable: (state): boolean => state.status.state === 'ready',
     statusText: (state): string => {
       if (state.building) {
-        return `Indexing ${state.currentModule || 'library'} · ${state.processed.toLocaleString()} verses`
+        const batch = state.effectiveBatchSize ? ` · up to ${state.effectiveBatchSize}/request` : ''
+        return `Indexing ${state.currentModule || 'library'} · ${state.processed.toLocaleString()} verses${batch}`
       }
       switch (state.status.state) {
         case 'ready': return `${state.status.chunkCount.toLocaleString()} verses across ${state.status.modules.length} module${state.status.modules.length === 1 ? '' : 's'}`
@@ -51,6 +53,7 @@ export const useSemanticIndex = defineStore('semanticIndex', {
           api.semanticIndexStatus()
         ])
         this.provider = provider
+        this.effectiveBatchSize = provider?.batchSize ?? 0
         this.status = status
       } catch (error) {
         this.error = (error as Error).message
@@ -63,6 +66,7 @@ export const useSemanticIndex = defineStore('semanticIndex', {
       kind: EmbeddingProviderKind
       baseUrl: string
       model: string
+      batchSize?: number
       apiKey?: string
       clearApiKey?: boolean
     }): Promise<void> {
@@ -70,6 +74,7 @@ export const useSemanticIndex = defineStore('semanticIndex', {
       this.error = null
       try {
         this.provider = await api.saveEmbeddingProvider(input)
+        this.effectiveBatchSize = this.provider.batchSize
         this.status = await api.semanticIndexStatus()
       } catch (error) {
         this.error = (error as Error).message
@@ -84,6 +89,7 @@ export const useSemanticIndex = defineStore('semanticIndex', {
       try {
         await api.removeEmbeddingProvider()
         this.provider = null
+        this.effectiveBatchSize = 0
         this.status = { ...EMPTY_STATUS }
       } catch (error) {
         this.error = (error as Error).message
@@ -96,11 +102,13 @@ export const useSemanticIndex = defineStore('semanticIndex', {
       this.building = true
       this.processed = 0
       this.currentModule = ''
+      this.effectiveBatchSize = this.provider?.batchSize ?? 0
       this.error = null
       try {
-        this.status = await api.rebuildSemanticIndex(({ module, processed }) => {
+        this.status = await api.rebuildSemanticIndex(({ module, processed, batchSize }) => {
           this.currentModule = module
           this.processed = processed
+          this.effectiveBatchSize = batchSize
         })
       } catch (error) {
         this.error = (error as Error).message
@@ -117,6 +125,7 @@ export const useSemanticIndex = defineStore('semanticIndex', {
       this.building = false
       this.processed = 0
       this.currentModule = ''
+      this.effectiveBatchSize = 0
       this.error = null
     }
   }

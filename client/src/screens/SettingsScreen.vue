@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useSettings } from '../stores/settings'
 import { useReadingPlan } from '../stores/readingPlan'
 import { useReader } from '../stores/reader'
@@ -45,8 +45,11 @@ const providerMessage = ref('')
 const embeddingKind = ref<EmbeddingProviderKind>(semanticIndex.provider?.kind ?? 'openai-compatible')
 const embeddingBaseUrl = ref(semanticIndex.provider?.baseUrl ?? 'https://api.openai.com/v1')
 const embeddingModel = ref(semanticIndex.provider?.model ?? '')
+const embeddingBatchSize = ref(semanticIndex.provider?.batchSize ?? 32)
 const embeddingApiKey = ref('')
 const embeddingMessage = ref('')
+const embeddingBatchSizeValid = computed(() => Number.isSafeInteger(embeddingBatchSize.value)
+  && embeddingBatchSize.value >= 1 && embeddingBatchSize.value <= 64)
 
 const PROVIDER_DEFAULTS: Record<AiProviderKind, string> = {
   'openai-compatible': 'https://api.openai.com/v1',
@@ -183,6 +186,7 @@ async function saveEmbeddingProvider(): Promise<void> {
       kind: embeddingKind.value,
       baseUrl: embeddingBaseUrl.value,
       model: embeddingModel.value,
+      batchSize: embeddingBatchSize.value,
       ...(embeddingApiKey.value.trim() ? { apiKey: embeddingApiKey.value.trim() } : {})
     })
     embeddingApiKey.value = ''
@@ -202,6 +206,7 @@ async function removeEmbeddingProvider(): Promise<void> {
     embeddingKind.value = 'openai-compatible'
     embeddingBaseUrl.value = EMBEDDING_DEFAULTS['openai-compatible']
     embeddingModel.value = ''
+    embeddingBatchSize.value = 32
     embeddingApiKey.value = ''
     embeddingMessage.value = 'Embedding provider disconnected'
   } catch (error) {
@@ -217,7 +222,10 @@ async function rebuildSemanticIndex(): Promise<void> {
   embeddingMessage.value = ''
   try {
     await semanticIndex.rebuild()
-    embeddingMessage.value = `Indexed ${semanticIndex.status.chunkCount.toLocaleString()} verses`
+    const batch = semanticIndex.effectiveBatchSize
+      ? ` · batches up to ${semanticIndex.effectiveBatchSize}`
+      : ''
+    embeddingMessage.value = `Indexed ${semanticIndex.status.chunkCount.toLocaleString()} verses${batch}`
   } catch (error) {
     embeddingMessage.value = `Rebuild failed: ${(error as Error).message}`
   }
@@ -544,6 +552,23 @@ async function rebuildSemanticIndex(): Promise<void> {
         </div>
         <div class="row bordered">
           <div class="row-text">
+            <div class="row-title">Rebuild batch size</div>
+            <div class="row-sub">Maximum verses per provider request (1–64); oversized batches retry smaller</div>
+          </div>
+          <div class="spacer"></div>
+          <input
+            v-model.number="embeddingBatchSize"
+            class="provider-input batch-size-input"
+            type="number"
+            min="1"
+            max="64"
+            step="1"
+            inputmode="numeric"
+            aria-label="Embedding rebuild batch size"
+          />
+        </div>
+        <div class="row bordered">
+          <div class="row-text">
             <div class="row-title">Embedding API key</div>
             <div class="row-sub">
               <template v-if="semanticIndex.provider?.hasApiKey">Encrypted key stored — leave blank to keep it</template>
@@ -571,7 +596,7 @@ async function rebuildSemanticIndex(): Promise<void> {
           >Disconnect</button>
           <button
             class="pill action save-provider"
-            :disabled="semanticIndex.loading || semanticIndex.building || !embeddingModel.trim() || !embeddingBaseUrl.trim()"
+            :disabled="semanticIndex.loading || semanticIndex.building || !embeddingModel.trim() || !embeddingBaseUrl.trim() || !embeddingBatchSizeValid"
             @click="saveEmbeddingProvider"
           >{{ semanticIndex.loading ? 'Saving…' : 'Save embedding provider' }}</button>
         </div>
@@ -765,6 +790,7 @@ h1 {
   font-size: 12.5px;
 }
 .provider-url { width: 270px; }
+.batch-size-input { width: 88px; }
 .provider-input:focus { outline: none; border-color: var(--accent); }
 .provider-actions { gap: 8px; }
 .provider-message { font-size: 12px; color: var(--muted); }

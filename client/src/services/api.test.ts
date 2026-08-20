@@ -32,11 +32,11 @@ describe('generic SSE parser', () => {
   it('parses rebuild progress and completion across fragmented frames', async () => {
     const events: Array<{ event: string; data: Record<string, unknown> }> = []
     await consumeSseEvents(fragmentedResponse([
-      'event: progress\ndata: {"module":"WEB",', '"processed":64}\n\n',
+      'event: progress\ndata: {"module":"WEB",', '"processed":64,"batchSize":32}\n\n',
       'event: done\ndata: {"state":"ready","chunkCount":64}\n\n'
     ]), (event, data) => events.push({ event, data }))
     expect(events).toEqual([
-      { event: 'progress', data: { module: 'WEB', processed: 64 } },
+      { event: 'progress', data: { module: 'WEB', processed: 64, batchSize: 32 } },
       { event: 'done', data: { state: 'ready', chunkCount: 64 } }
     ])
   })

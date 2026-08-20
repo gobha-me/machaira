@@ -16,6 +16,7 @@ export interface EmbeddingProviderConfig {
   kind: EmbeddingProviderKind
   baseUrl: string
   model: string
+  batchSize: number
   hasApiKey: boolean
 }
 
@@ -55,6 +56,7 @@ interface StoredEmbeddingConfig {
   kind: EmbeddingProviderKind
   base_url: string
   model: string
+  batch_size: number
 }
 
 interface RunRow {
@@ -88,18 +90,35 @@ const DEFAULT_URLS: Record<EmbeddingProviderKind, string> = {
   local: 'http://127.0.0.1:11434/v1'
 }
 const PROVIDER_KINDS = new Set<EmbeddingProviderKind>(['openai-compatible', 'local'])
-const MAX_BATCH = 64
+const DEFAULT_REBUILD_BATCH_SIZE = 32
+const MAX_EMBEDDING_BATCH_SIZE = 64
 const MAX_DIMENSION = 8192
 
 export class SemanticInputError extends Error {}
 export class SemanticStateError extends Error {}
-export class EmbeddingProviderError extends Error {}
+export class EmbeddingProviderError extends Error {
+  constructor(
+    message: string,
+    readonly status?: number,
+    readonly responseBody?: string
+  ) {
+    super(message)
+    this.name = 'EmbeddingProviderError'
+  }
+}
 
 function stringField(value: unknown, name: string, max: number): string {
   if (typeof value !== 'string' || !value.trim()) throw new SemanticInputError(`${name} is required`)
   const result = value.trim()
   if (result.length > max) throw new SemanticInputError(`${name} is too long`)
   return result
+}
+
+function integerField(value: unknown, name: string, min: number, max: number): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < min || value > max) {
+    throw new SemanticInputError(`${name} must be an integer between ${min} and ${max}`)
+  }
+  return value
 }
 
 function providerUrl(value: unknown, kind: EmbeddingProviderKind): string {
@@ -194,13 +213,14 @@ export class EmbeddingProviderService {
 
   get(userId: string): EmbeddingProviderConfig | null {
     const row = this.db.prepare(`
-      SELECT kind, base_url, model FROM embedding_provider_configs WHERE user_id = ?
+      SELECT kind, base_url, model, batch_size FROM embedding_provider_configs WHERE user_id = ?
     `).get(userId) as StoredEmbeddingConfig | undefined
     if (!row) return null
     return {
       kind: row.kind,
       baseUrl: row.base_url,
       model: row.model,
+      batchSize: row.batch_size,
       hasApiKey: this.secrets.has(userId, API_KEY_SECRET)
     }
   }
@@ -216,6 +236,10 @@ export class EmbeddingProviderService {
     const kind = body.kind as EmbeddingProviderKind
     const baseUrl = providerUrl(body.baseUrl, kind)
     const model = stringField(body.model, 'Embedding model', 200)
+    const existing = this.get(userId)
+    const batchSize = body.batchSize === undefined
+      ? existing?.batchSize ?? DEFAULT_REBUILD_BATCH_SIZE
+      : integerField(body.batchSize, 'Embedding batch size', 1, MAX_EMBEDDING_BATCH_SIZE)
     const apiKey = body.apiKey === undefined ? undefined : stringField(body.apiKey, 'API key', 4096)
     if (body.clearApiKey !== undefined && typeof body.clearApiKey !== 'boolean') {
       throw new SemanticInputError('clearApiKey must be a boolean')
@@ -224,7 +248,6 @@ export class EmbeddingProviderService {
       throw new SemanticInputError('Cannot replace and clear the API key together')
     }
 
-    const existing = this.get(userId)
     const kindChanged = existing !== null && existing.kind !== kind
     const willHaveKey = apiKey !== undefined
       || (!kindChanged && body.clearApiKey !== true && existing?.hasApiKey === true)
@@ -234,14 +257,15 @@ export class EmbeddingProviderService {
 
     this.db.transaction(() => {
       this.db.prepare(`
-        INSERT INTO embedding_provider_configs (user_id, kind, base_url, model, updated_at)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO embedding_provider_configs (user_id, kind, base_url, model, batch_size, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(user_id) DO UPDATE SET
           kind = excluded.kind,
           base_url = excluded.base_url,
           model = excluded.model,
+          batch_size = excluded.batch_size,
           updated_at = excluded.updated_at
-      `).run(userId, kind, baseUrl, model, Date.now())
+      `).run(userId, kind, baseUrl, model, batchSize, Date.now())
       if (apiKey !== undefined) this.secrets.set(userId, API_KEY_SECRET, apiKey)
       else if (body.clearApiKey === true || kindChanged) this.secrets.remove(userId, API_KEY_SECRET)
     })()
@@ -271,8 +295,10 @@ export async function requestEmbeddings(
   inputs: string[],
   signal?: AbortSignal
 ): Promise<number[][]> {
-  if (inputs.length < 1 || inputs.length > MAX_BATCH) {
-    throw new SemanticInputError(`Embedding batches must contain between 1 and ${MAX_BATCH} inputs`)
+  if (inputs.length < 1 || inputs.length > MAX_EMBEDDING_BATCH_SIZE) {
+    throw new SemanticInputError(
+      `Embedding batches must contain between 1 and ${MAX_EMBEDDING_BATCH_SIZE} inputs`
+    )
   }
   if (inputs.some((input) => !input || input.length > 20_000)) {
     throw new SemanticInputError('Embedding inputs must contain between 1 and 20,000 characters')
@@ -298,8 +324,11 @@ export async function requestEmbeddings(
 
   const raw = await limitedBody(response)
   if (!response.ok) {
+    const detail = raw.slice(0, 2000)
     throw new EmbeddingProviderError(
-      `Embedding provider rejected the request (${response.status}): ${raw.slice(0, 2000) || response.statusText}`
+      `Embedding provider rejected the request (${response.status}): ${detail || response.statusText}`,
+      response.status,
+      detail
     )
   }
   let payload: unknown
@@ -335,6 +364,67 @@ export async function requestEmbeddings(
     throw new EmbeddingProviderError('Embedding provider returned inconsistent vector dimensions')
   }
   return ordered.map((entry) => entry.embedding)
+}
+
+interface AdaptiveEmbeddingResult {
+  vectors: number[][]
+  reducedBatchSize: number | null
+}
+
+function isBatchLimitError(error: unknown): error is EmbeddingProviderError {
+  if (!(error instanceof EmbeddingProviderError) || ![400, 413, 422].includes(error.status ?? 0)) {
+    return false
+  }
+  const detail = `${error.responseBody ?? ''}\n${error.message}`
+  return /\bbatch(?:[\s_-]+size)?\b/i.test(detail)
+    && /(?:too[\s_-]+(?:large|many)|max(?:imum)?|limit|exceed|greater[\s_-]+than|>)/i.test(detail)
+}
+
+function reportedBatchLimit(error: EmbeddingProviderError, attempted: number): number | null {
+  const detail = `${error.responseBody ?? ''}\n${error.message}`
+  const patterns = [
+    /max(?:imum)?(?:\s+allowed)?\s+batch(?:\s+size)?\D{0,12}(\d+)/i,
+    /batch(?:\s+size)?\s+(?:limit|max(?:imum)?|must\s+be)\D{0,12}(\d+)/i,
+    /(?:limit|max(?:imum)?)\D{0,12}(\d+)\s+(?:inputs?|items?)/i
+  ]
+  for (const pattern of patterns) {
+    const value = Number(detail.match(pattern)?.[1])
+    if (Number.isSafeInteger(value) && value >= 1 && value < attempted) return value
+  }
+  return null
+}
+
+async function requestEmbeddingsAdaptive(
+  credentials: { config: EmbeddingProviderConfig; apiKey: string | null },
+  inputs: string[],
+  signal?: AbortSignal
+): Promise<AdaptiveEmbeddingResult> {
+  try {
+    return { vectors: await requestEmbeddings(credentials, inputs, signal), reducedBatchSize: null }
+  } catch (error) {
+    if (!isBatchLimitError(error) || inputs.length === 1 || signal?.aborted) throw error
+
+    const chunkSize = reportedBatchLimit(error, inputs.length)
+      ?? Math.max(1, Math.floor(inputs.length / 2))
+    const vectors: number[][] = []
+    let reducedBatchSize = chunkSize
+    for (let start = 0; start < inputs.length; start += chunkSize) {
+      const result = await requestEmbeddingsAdaptive(
+        credentials,
+        inputs.slice(start, start + chunkSize),
+        signal
+      )
+      vectors.push(...result.vectors)
+      if (result.reducedBatchSize !== null) {
+        reducedBatchSize = Math.min(reducedBatchSize, result.reducedBatchSize)
+      }
+    }
+    const dimension = vectors[0]?.length
+    if (!dimension || vectors.some((vector) => vector.length !== dimension)) {
+      throw new EmbeddingProviderError('Embedding dimension changed within a retried batch')
+    }
+    return { vectors, reducedBatchSize }
+  }
 }
 
 export class SemanticIndexService {
@@ -388,7 +478,7 @@ export class SemanticIndexService {
 
   async rebuild(
     userId: string,
-    onProgress: (progress: { module: string; processed: number }) => void,
+    onProgress: (progress: { module: string; processed: number; batchSize: number }) => void,
     signal?: AbortSignal
   ): Promise<SemanticIndexStatus> {
     if (this.building.has(userId)) throw new SemanticStateError('An index rebuild is already running')
@@ -400,6 +490,7 @@ export class SemanticIndexService {
     const runId = randomUUID()
     let dimension: number | null = null
     let processed = 0
+    let effectiveBatchSize = credentials.config.batchSize
     this.db.prepare(`
       INSERT INTO semantic_index_runs
         (id, user_id, provider_signature, module_signature, status, created_at)
@@ -412,9 +503,13 @@ export class SemanticIndexService {
         const flush = async () => {
           if (pending.length === 0) return
           if (signal?.aborted) throw new EmbeddingProviderError('Index rebuild was cancelled')
-          const batch = pending.splice(0, pending.length)
-          const vectors = await requestEmbeddings(credentials, batch.map((verse) =>
+          const batch = pending.splice(0, effectiveBatchSize)
+          const result = await requestEmbeddingsAdaptive(credentials, batch.map((verse) =>
             `${verse.bookName} ${verse.chapter}:${verse.verse}\n${verse.content}`), signal)
+          if (result.reducedBatchSize !== null) {
+            effectiveBatchSize = Math.min(effectiveBatchSize, result.reducedBatchSize)
+          }
+          const vectors = result.vectors
           const batchDimension = vectors[0].length
           if (dimension === null) {
             dimension = batchDimension
@@ -451,18 +546,18 @@ export class SemanticIndexService {
           processed += batch.length
           this.db.prepare('UPDATE semantic_index_runs SET chunk_count = ? WHERE id = ?')
             .run(processed, runId)
-          onProgress({ module: module.name, processed })
+          onProgress({ module: module.name, processed, batchSize: effectiveBatchSize })
         }
 
         for (const book of await this.sources.books(module.name)) {
           for (let chapter = 1; chapter <= book.chapters; chapter += 1) {
             for (const verse of await this.sources.chapter(module.name, book.code, chapter)) {
               pending.push(verse)
-              if (pending.length === MAX_BATCH) await flush()
+              if (pending.length === effectiveBatchSize) await flush()
             }
           }
         }
-        await flush()
+        while (pending.length > 0) await flush()
       }
       if (processed === 0 || dimension === null) throw new SemanticStateError('Installed modules contained no indexable verses')
 

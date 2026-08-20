@@ -3,7 +3,7 @@ import * as sqliteVec from 'sqlite-vec'
 import { chmodSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 
-const SCHEMA_VERSION = 4
+const SCHEMA_VERSION = 5
 
 export type MachairaDatabase = Database.Database
 
@@ -157,6 +157,18 @@ export function openDatabase(filename: string): MachairaDatabase {
       `)
       db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)')
         .run(4, Date.now())
+    })()
+  }
+
+  if (current.version < 5) {
+    db.transaction(() => {
+      db.exec(`
+        ALTER TABLE embedding_provider_configs
+          ADD COLUMN batch_size INTEGER NOT NULL DEFAULT 32
+          CHECK (batch_size BETWEEN 1 AND 64);
+      `)
+      db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)')
+        .run(5, Date.now())
     })()
   }
 
