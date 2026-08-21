@@ -42,6 +42,88 @@ resources:
     cpu: "1"
     memory: 1Gi
 
+inference:
+  embeddings:
+    mode: disabled # disabled | bundled | external
+    engine: ollama
+    model: all-minilm:22m
+    batchSize: 16
+    external:
+      baseUrl: ""
+    image:
+      repository: ollama/ollama
+      tag: 0.32.15
+      pullPolicy: IfNotPresent
+      gpuRepository: ollama/ollama
+      gpuTag: 0.32.15
+    resources:
+      requests:
+        cpu: 500m
+        memory: 512Mi
+      limits:
+        cpu: "2"
+        memory: 2Gi
+    persistence:
+      enabled: true
+      subPath: embedding-model-cache
+    gpu:
+      enabled: false
+      resourceName: nvidia.com/gpu
+      count: 1
+
+  stt:
+    mode: disabled # disabled | bundled | external
+    engine: speaches
+    model: Systran/faster-whisper-small
+    external:
+      baseUrl: ""
+    image:
+      repository: ghcr.io/speaches-ai/speaches
+      tag: 0.8.3-cpu
+      pullPolicy: IfNotPresent
+      gpuRepository: ghcr.io/speaches-ai/speaches
+      gpuTag: 0.8.3-cuda
+    resources:
+      requests:
+        cpu: "1"
+        memory: 2Gi
+      limits:
+        cpu: "2"
+        memory: 4Gi
+    persistence:
+      enabled: true
+      subPath: stt-model-cache
+    gpu:
+      enabled: false
+      resourceName: nvidia.com/gpu
+      count: 1
+
+  tts:
+    mode: disabled # disabled | bundled | external
+    engine: kokoro
+    model: kokoro
+    voice: af_heart
+    external:
+      baseUrl: ""
+    image:
+      repository: ghcr.io/remsky/kokoro-fastapi-cpu
+      tag: v0.8.0
+      pullPolicy: IfNotPresent
+      gpuRepository: ghcr.io/remsky/kokoro-fastapi-gpu
+      gpuTag: v0.8.0
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: "2"
+        memory: 4Gi
+    gpu:
+      enabled: false
+      resourceName: nvidia.com/gpu
+      count: 1
+
+# Deprecated compatibility aliases. Prefer inference.tts and inference.stt.
 tts:
   sidecar:
     enabled: false

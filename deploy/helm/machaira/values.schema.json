@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "inference": {
+      "type": "object",
+      "required": ["embeddings", "stt", "tts"],
+      "properties": {
+        "embeddings": {
+          "$ref": "#/definitions/embeddingsProvider"
+        },
+        "stt": {
+          "$ref": "#/definitions/sttProvider"
+        },
+        "tts": {
+          "$ref": "#/definitions/ttsProvider"
+        }
+      }
+    }
+  },
+  "definitions": {
+    "mode": {
+      "type": "string",
+      "enum": ["disabled", "bundled", "external"]
+    },
+    "image": {
+      "type": "object",
+      "required": ["repository", "tag", "pullPolicy", "gpuRepository", "gpuTag"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "tag": { "type": "string", "minLength": 1 },
+        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] },
+        "gpuRepository": { "type": "string", "minLength": 1 },
+        "gpuTag": { "type": "string", "minLength": 1 }
+      }
+    },
+    "external": {
+      "type": "object",
+      "required": ["baseUrl"],
+      "properties": {
+        "baseUrl": { "type": "string" }
+      }
+    },
+    "gpu": {
+      "type": "object",
+      "required": ["enabled", "resourceName", "count"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "resourceName": { "type": "string", "minLength": 1 },
+        "count": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "persistence": {
+      "type": "object",
+      "required": ["enabled", "subPath"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "subPath": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$" }
+      }
+    },
+    "commonProvider": {
+      "type": "object",
+      "required": ["mode", "engine", "model", "external", "image", "resources", "gpu"],
+      "properties": {
+        "mode": { "$ref": "#/definitions/mode" },
+        "engine": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 },
+        "external": { "$ref": "#/definitions/external" },
+        "image": { "$ref": "#/definitions/image" },
+        "resources": { "type": "object" },
+        "gpu": { "$ref": "#/definitions/gpu" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "mode": { "const": "external" } } },
+          "then": {
+            "properties": {
+              "external": {
+                "properties": { "baseUrl": { "minLength": 1, "pattern": "^https?://" } }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "embeddingsProvider": {
+      "allOf": [
+        { "$ref": "#/definitions/commonProvider" },
+        {
+          "type": "object",
+          "required": ["batchSize", "persistence"],
+          "properties": {
+            "engine": { "const": "ollama" },
+            "batchSize": { "type": "integer", "minimum": 1, "maximum": 64 },
+            "persistence": { "$ref": "#/definitions/persistence" }
+          }
+        }
+      ]
+    },
+    "sttProvider": {
+      "allOf": [
+        { "$ref": "#/definitions/commonProvider" },
+        {
+          "type": "object",
+          "required": ["persistence"],
+          "properties": {
+            "engine": { "const": "speaches" },
+            "persistence": { "$ref": "#/definitions/persistence" }
+          }
+        }
+      ]
+    },
+    "ttsProvider": {
+      "allOf": [
+        { "$ref": "#/definitions/commonProvider" },
+        {
+          "type": "object",
+          "required": ["voice"],
+          "properties": {
+            "engine": { "const": "kokoro" },
+            "voice": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
+    }
+  }
+}

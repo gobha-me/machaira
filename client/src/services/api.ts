@@ -192,6 +192,26 @@ export interface EmbeddingProviderConfig {
   hasApiKey: boolean
 }
 
+export type DeploymentProviderCapability = 'embeddings' | 'stt' | 'tts'
+export type DeploymentProviderSource = 'bundled' | 'external'
+export type DeploymentProviderReadinessState = 'ready' | 'starting' | 'unavailable' | 'unchecked'
+
+export interface DeploymentProviderDescriptor {
+  source: DeploymentProviderSource
+  engine: string
+  baseUrl: string
+  model: string
+  batchSize?: number
+  voice?: string
+  readiness: {
+    state: DeploymentProviderReadinessState
+    checkedAt: number | null
+    message?: string
+  }
+}
+
+export type DeploymentProviderMap = Partial<Record<DeploymentProviderCapability, DeploymentProviderDescriptor>>
+
 export type TtsTier = 'browser' | 'local' | 'cloud'
 export type TtsProviderKind = 'openai-compatible' | 'venice'
 
@@ -516,6 +536,10 @@ export const api = {
 
   async embeddingProvider(): Promise<EmbeddingProviderConfig | null> {
     return (await getJson<{ provider: EmbeddingProviderConfig | null }>('/api/embeddings/provider')).provider
+  },
+
+  async deploymentProviders(): Promise<DeploymentProviderMap> {
+    return (await getJson<{ providers: DeploymentProviderMap }>('/api/providers/deployment')).providers
   },
 
   async saveEmbeddingProvider(input: {

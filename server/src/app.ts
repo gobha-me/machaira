@@ -26,6 +26,11 @@ import { SttService } from './stt.js'
 import { registerStt } from './routes/stt.js'
 import { ProviderDiscoveryService } from './provider-discovery.js'
 import { registerProviderDiscovery } from './routes/provider-discovery.js'
+import {
+  DeploymentProviderService,
+  type DeploymentProviderConfigMap
+} from './deployment-providers.js'
+import { registerDeploymentProviders } from './routes/deployment-providers.js'
 
 export interface AppOptions {
   databasePath: string
@@ -35,6 +40,7 @@ export interface AppOptions {
   logger?: boolean
   registerFeatureRoutes?: boolean
   clientPath?: string
+  deploymentProviders?: DeploymentProviderConfigMap
 }
 
 const PUBLIC_API_PATHS = new Set([
@@ -58,6 +64,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   const tts = new TtsService(db, secrets)
   const stt = new SttService(db, secrets)
   const providerDiscovery = new ProviderDiscoveryService(db, secrets)
+  const deploymentProviders = new DeploymentProviderService(options.deploymentProviders ?? {})
 
   app.addHook('onClose', async () => db.close())
   await app.register(cookie)
@@ -89,6 +96,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   await registerTts(app, tts)
   await registerStt(app, stt)
   await registerProviderDiscovery(app, providerDiscovery)
+  await registerDeploymentProviders(app, deploymentProviders)
 
   if (options.registerFeatureRoutes ?? true) {
     await registerSources(app)

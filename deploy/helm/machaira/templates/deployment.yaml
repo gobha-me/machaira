@@ -1,3 +1,64 @@
+{{- $embeddingsBundled := eq .Values.inference.embeddings.mode "bundled" -}}
+{{- $ttsLegacy := .Values.tts.sidecar.enabled -}}
+{{- $sttLegacy := .Values.stt.sidecar.enabled -}}
+{{- if and $ttsLegacy (eq .Values.inference.tts.mode "external") -}}
+{{- fail "tts.sidecar.enabled cannot be combined with inference.tts.mode=external" -}}
+{{- end -}}
+{{- if and $sttLegacy (eq .Values.inference.stt.mode "external") -}}
+{{- fail "stt.sidecar.enabled cannot be combined with inference.stt.mode=external" -}}
+{{- end -}}
+{{- $ttsBundled := or $ttsLegacy (eq .Values.inference.tts.mode "bundled") -}}
+{{- $sttBundled := or $sttLegacy (eq .Values.inference.stt.mode "bundled") -}}
+{{- $ttsUseLegacy := and $ttsLegacy (ne .Values.inference.tts.mode "bundled") -}}
+{{- $sttUseLegacy := and $sttLegacy (ne .Values.inference.stt.mode "bundled") -}}
+{{- if and $embeddingsBundled .Values.inference.embeddings.persistence.enabled (not .Values.persistence.enabled) -}}
+{{- fail "persistent bundled embeddings require persistence.enabled=true" -}}
+{{- end -}}
+{{- if and (and $sttBundled (not $sttUseLegacy)) .Values.inference.stt.persistence.enabled (not .Values.persistence.enabled) -}}
+{{- fail "persistent bundled STT requires persistence.enabled=true" -}}
+{{- end -}}
+{{- $sttModel := .Values.inference.stt.model -}}
+{{- if $sttUseLegacy -}}
+{{- $sttModel = .Values.stt.sidecar.model -}}
+{{- end -}}
+{{- $providers := dict -}}
+{{- if $embeddingsBundled -}}
+{{- $_ := set $providers "embeddings" (dict "source" "bundled" "engine" "ollama" "baseUrl" "http://127.0.0.1:11434/v1" "model" .Values.inference.embeddings.model "batchSize" .Values.inference.embeddings.batchSize) -}}
+{{- else if eq .Values.inference.embeddings.mode "external" -}}
+{{- $_ := set $providers "embeddings" (dict "source" "external" "engine" "openai-compatible" "baseUrl" .Values.inference.embeddings.external.baseUrl "model" .Values.inference.embeddings.model "batchSize" .Values.inference.embeddings.batchSize) -}}
+{{- end -}}
+{{- if $sttBundled -}}
+{{- $_ := set $providers "stt" (dict "source" "bundled" "engine" "speaches" "baseUrl" "http://127.0.0.1:8000/v1" "model" $sttModel) -}}
+{{- else if eq .Values.inference.stt.mode "external" -}}
+{{- $_ := set $providers "stt" (dict "source" "external" "engine" "openai-compatible" "baseUrl" .Values.inference.stt.external.baseUrl "model" .Values.inference.stt.model) -}}
+{{- end -}}
+{{- if $ttsBundled -}}
+{{- $_ := set $providers "tts" (dict "source" "bundled" "engine" "kokoro" "baseUrl" "http://127.0.0.1:8880/v1" "model" .Values.inference.tts.model "voice" .Values.inference.tts.voice) -}}
+{{- else if eq .Values.inference.tts.mode "external" -}}
+{{- $_ := set $providers "tts" (dict "source" "external" "engine" "openai-compatible" "baseUrl" .Values.inference.tts.external.baseUrl "model" .Values.inference.tts.model "voice" .Values.inference.tts.voice) -}}
+{{- end -}}
+{{- $embeddingResources := deepCopy .Values.inference.embeddings.resources -}}
+{{- if .Values.inference.embeddings.gpu.enabled -}}
+{{- $limits := deepCopy (default (dict) (get $embeddingResources "limits")) -}}
+{{- $_ := set $limits .Values.inference.embeddings.gpu.resourceName .Values.inference.embeddings.gpu.count -}}
+{{- $_ := set $embeddingResources "limits" $limits -}}
+{{- end -}}
+{{- $sttResources := deepCopy .Values.inference.stt.resources -}}
+{{- if $sttUseLegacy -}}
+{{- $sttResources = deepCopy .Values.stt.sidecar.resources -}}
+{{- else if .Values.inference.stt.gpu.enabled -}}
+{{- $limits := deepCopy (default (dict) (get $sttResources "limits")) -}}
+{{- $_ := set $limits .Values.inference.stt.gpu.resourceName .Values.inference.stt.gpu.count -}}
+{{- $_ := set $sttResources "limits" $limits -}}
+{{- end -}}
+{{- $ttsResources := deepCopy .Values.inference.tts.resources -}}
+{{- if $ttsUseLegacy -}}
+{{- $ttsResources = deepCopy .Values.tts.sidecar.resources -}}
+{{- else if .Values.inference.tts.gpu.enabled -}}
+{{- $limits := deepCopy (default (dict) (get $ttsResources "limits")) -}}
+{{- $_ := set $limits .Values.inference.tts.gpu.resourceName .Values.inference.tts.gpu.count -}}
+{{- $_ := set $ttsResources "limits" $limits -}}
+{{- end -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -27,6 +88,31 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- if or (and $embeddingsBundled .Values.inference.embeddings.persistence.enabled) (and $sttBundled (or $sttUseLegacy .Values.inference.stt.persistence.enabled)) }}
+      initContainers:
+        - name: inference-cache-init
+          image: busybox:1.37.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          command:
+            - /bin/sh
+            - -ec
+            - >-
+              mkdir -p
+              {{- if and $embeddingsBundled .Values.inference.embeddings.persistence.enabled }}
+              /data/{{ .Values.inference.embeddings.persistence.subPath }}
+              {{- end }}
+              {{- if and $sttBundled (or $sttUseLegacy .Values.inference.stt.persistence.enabled) }}
+              /data/{{ if $sttUseLegacy }}stt-model-cache{{ else }}{{ .Values.inference.stt.persistence.subPath }}{{ end }}
+              {{- end }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      {{- end }}
       containers:
         - name: machaira
           image: "{{ .Values.image.repository }}:{{ default .Chart.AppVersion .Values.image.tag }}"
@@ -49,6 +135,10 @@ spec:
               value: "5274"
             - name: MACHAIRA_DB_PATH
               value: /app/server/data/machaira.sqlite
+            {{- if gt (len $providers) 0 }}
+            - name: MACHAIRA_DEPLOYMENT_PROVIDERS_JSON
+              value: {{ toJson $providers | quote }}
+            {{- end }}
             - name: MACHAIRA_SECRET_KEY
               valueFrom:
                 secretKeyRef:
@@ -77,14 +167,76 @@ spec:
               mountPath: /app/server/data
             - name: tmp
               mountPath: /tmp
-        {{- if .Values.tts.sidecar.enabled }}
+        {{- if $embeddingsBundled }}
+        - name: embeddings
+          image: "{{ ternary .Values.inference.embeddings.image.gpuRepository .Values.inference.embeddings.image.repository .Values.inference.embeddings.gpu.enabled }}:{{ ternary .Values.inference.embeddings.image.gpuTag .Values.inference.embeddings.image.tag .Values.inference.embeddings.gpu.enabled }}"
+          imagePullPolicy: {{ .Values.inference.embeddings.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              ollama serve &
+              server_pid=$!
+              trap 'kill "$server_pid"; wait "$server_pid"' TERM INT
+              until ollama list >/dev/null 2>&1; do sleep 2; done
+              ollama pull "$EMBEDDING_MODEL"
+              wait "$server_pid"
+          ports:
+            - name: embeddings
+              containerPort: 11434
+              protocol: TCP
+          env:
+            - name: HOME
+              value: /tmp
+            - name: OLLAMA_HOST
+              value: 127.0.0.1:11434
+            - name: OLLAMA_MODELS
+              value: /models
+            - name: EMBEDDING_MODEL
+              value: {{ .Values.inference.embeddings.model | quote }}
+          startupProbe:
+            exec:
+              command: ["/bin/sh", "-ec", "ollama show \"$EMBEDDING_MODEL\" >/dev/null"]
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 120
+          readinessProbe:
+            exec:
+              command: ["/bin/sh", "-ec", "ollama show \"$EMBEDDING_MODEL\" >/dev/null"]
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: ["/bin/sh", "-ec", "ollama list >/dev/null"]
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml $embeddingResources | nindent 12 }}
+          volumeMounts:
+            - name: {{ ternary "data" "embedding-cache" .Values.inference.embeddings.persistence.enabled }}
+              mountPath: /models
+              {{- if .Values.inference.embeddings.persistence.enabled }}
+              subPath: {{ .Values.inference.embeddings.persistence.subPath }}
+              {{- end }}
+            - name: tmp
+              mountPath: /tmp
+        {{- end }}
+        {{- if $ttsBundled }}
         - name: tts
+          {{- if $ttsUseLegacy }}
           image: "{{ .Values.tts.sidecar.image.repository }}:{{ .Values.tts.sidecar.image.tag }}"
           imagePullPolicy: {{ .Values.tts.sidecar.image.pullPolicy }}
+          {{- else }}
+          image: "{{ ternary .Values.inference.tts.image.gpuRepository .Values.inference.tts.image.repository .Values.inference.tts.gpu.enabled }}:{{ ternary .Values.inference.tts.image.gpuTag .Values.inference.tts.image.tag .Values.inference.tts.gpu.enabled }}"
+          imagePullPolicy: {{ .Values.inference.tts.image.pullPolicy }}
+          {{- end }}
           securityContext:
-            runAsNonRoot: true
-            runAsUser: 1000
-            runAsGroup: 1000
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
@@ -105,7 +257,7 @@ spec:
               port: tts
             periodSeconds: 5
             timeoutSeconds: 3
-            failureThreshold: 60
+            failureThreshold: 120
           readinessProbe:
             httpGet:
               path: /health
@@ -113,24 +265,33 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 3
             failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: tts
+            periodSeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 3
           resources:
-            {{- toYaml .Values.tts.sidecar.resources | nindent 12 }}
+            {{- toYaml $ttsResources | nindent 12 }}
           volumeMounts:
             - name: tmp
               mountPath: /tmp
         {{- end }}
-        {{- if .Values.stt.sidecar.enabled }}
+        {{- if $sttBundled }}
         - name: stt
+          {{- if $sttUseLegacy }}
           image: "{{ .Values.stt.sidecar.image.repository }}:{{ .Values.stt.sidecar.image.tag }}"
           imagePullPolicy: {{ .Values.stt.sidecar.image.pullPolicy }}
+          {{- else }}
+          image: "{{ ternary .Values.inference.stt.image.gpuRepository .Values.inference.stt.image.repository .Values.inference.stt.gpu.enabled }}:{{ ternary .Values.inference.stt.image.gpuTag .Values.inference.stt.image.tag .Values.inference.stt.gpu.enabled }}"
+          imagePullPolicy: {{ .Values.inference.stt.image.pullPolicy }}
+          {{- end }}
           securityContext:
-            runAsNonRoot: true
-            runAsUser: 1000
-            runAsGroup: 1000
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
+            readOnlyRootFilesystem: true
           ports:
             - name: stt
               containerPort: 8000
@@ -141,19 +302,19 @@ spec:
             - name: LOG_LEVEL
               value: warning
             - name: WHISPER__INFERENCE_DEVICE
-              value: cpu
+              value: {{ ternary "cuda" "cpu" (and (not $sttUseLegacy) .Values.inference.stt.gpu.enabled) }}
             - name: WHISPER__COMPUTE_TYPE
-              value: int8
+              value: {{ ternary "float16" "int8" (and (not $sttUseLegacy) .Values.inference.stt.gpu.enabled) }}
             - name: WHISPER__TTL
               value: "-1"
             - name: STT_MODEL
-              value: {{ .Values.stt.sidecar.model | quote }}
+              value: {{ $sttModel | quote }}
           lifecycle:
             postStart:
               exec:
                 command:
                   - /bin/sh
-                  - -c
+                  - -ec
                   - >-
                     until curl --fail --silent http://127.0.0.1:8000/health >/dev/null; do sleep 2; done;
                     curl --fail --silent --request POST
@@ -169,19 +330,28 @@ spec:
             exec:
               command:
                 - /bin/sh
-                - -c
+                - -ec
                 - >-
-                    curl --fail --silent http://127.0.0.1:8000/v1/models |
-                    grep --fixed-strings --quiet "${STT_MODEL}"
+                  curl --fail --silent http://127.0.0.1:8000/v1/models |
+                  grep --fixed-strings --quiet "${STT_MODEL}"
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: stt
+            periodSeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 3
           resources:
-            {{- toYaml .Values.stt.sidecar.resources | nindent 12 }}
+            {{- toYaml $sttResources | nindent 12 }}
           volumeMounts:
-            - name: data
+            - name: {{ if or $sttUseLegacy .Values.inference.stt.persistence.enabled }}data{{ else }}stt-cache{{ end }}
               mountPath: /home/ubuntu/.cache/huggingface
-              subPath: stt-model-cache
+              {{- if or $sttUseLegacy .Values.inference.stt.persistence.enabled }}
+              subPath: {{ if $sttUseLegacy }}stt-model-cache{{ else }}{{ .Values.inference.stt.persistence.subPath }}{{ end }}
+              {{- end }}
             - name: tmp
               mountPath: /tmp
         {{- end }}
@@ -195,6 +365,14 @@ spec:
           {{- end }}
         - name: tmp
           emptyDir: {}
+        {{- if and $embeddingsBundled (not .Values.inference.embeddings.persistence.enabled) }}
+        - name: embedding-cache
+          emptyDir: {}
+        {{- end }}
+        {{- if and (and $sttBundled (not $sttUseLegacy)) (not .Values.inference.stt.persistence.enabled) }}
+        - name: stt-cache
+          emptyDir: {}
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

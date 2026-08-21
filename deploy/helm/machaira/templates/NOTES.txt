@@ -7,9 +7,24 @@ Machaira is available at:
 {{- end }}
 
 The application will offer first-administrator setup while its database is empty.
-{{- if .Values.stt.sidecar.enabled }}
+{{- if or (eq .Values.inference.embeddings.mode "bundled") (eq .Values.inference.embeddings.mode "external") }}
 
-Private STT is enabled with {{ .Values.stt.sidecar.model }}. The model is downloaded into the
-persistent stt-model-cache directory before the sidecar becomes ready. In Machaira, select the
-Speaches preset under Settings -> Voice input; the in-Pod base URL is http://127.0.0.1:8000/v1.
+Embeddings are registered as a {{ .Values.inference.embeddings.mode }} deployment provider using
+{{ .Values.inference.embeddings.model }}. Open Settings -> Semantic search, select the deployment
+provider, save it, and explicitly build the index.
+{{- end }}
+{{- if or .Values.stt.sidecar.enabled (eq .Values.inference.stt.mode "bundled") (eq .Values.inference.stt.mode "external") }}
+
+STT is registered as a deployment provider. Open Settings -> Voice input, select it, choose its
+priority, and save. No microphone audio is sent until Local STT is in the saved provider order.
+{{- end }}
+{{- if or .Values.tts.sidecar.enabled (eq .Values.inference.tts.mode "bundled") (eq .Values.inference.tts.mode "external") }}
+
+TTS is registered as a deployment provider. Open Settings -> Listening, select it, choose its
+priority, and save. No verse text is sent until Local TTS is in the saved provider order.
+{{- end }}
+{{- if or .Values.stt.sidecar.enabled .Values.tts.sidecar.enabled }}
+
+The tts.sidecar and stt.sidecar values are deprecated compatibility aliases. Migrate to
+inference.tts.mode=bundled and inference.stt.mode=bundled before a future chart release.
 {{- end }}

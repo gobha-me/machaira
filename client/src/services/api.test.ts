@@ -77,3 +77,25 @@ describe('provider discovery client', () => {
     })
   })
 })
+
+describe('deployment provider client', () => {
+  it('loads system-provided inference choices without sending configuration', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      providers: {
+        embeddings: {
+          source: 'bundled', engine: 'ollama', baseUrl: 'http://127.0.0.1:11434/v1',
+          model: 'all-minilm:22m', batchSize: 16,
+          readiness: { state: 'ready', checkedAt: 1 }
+        }
+      }
+    }), { headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const providers = await api.deploymentProviders()
+
+    expect(providers.embeddings?.model).toBe('all-minilm:22m')
+    expect(fetchMock).toHaveBeenCalledWith('/api/providers/deployment', {
+      credentials: 'same-origin'
+    })
+  })
+})

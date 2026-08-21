@@ -59,17 +59,7 @@ jobs:
         run: npm test
 
       - name: Validate Helm chart
-        run: |
-          helm lint deploy/helm/machaira
-          helm template machaira deploy/helm/machaira > /tmp/machaira-default.yaml
-          helm template machaira deploy/helm/machaira \
-            --set stt.sidecar.enabled=true > /tmp/machaira-stt.yaml
-          grep -q 'name: stt' /tmp/machaira-stt.yaml
-          grep -q 'subPath: stt-model-cache' /tmp/machaira-stt.yaml
-          if grep -q 'targetPort: stt' /tmp/machaira-stt.yaml; then
-            echo 'STT must not be exposed through the Service' >&2
-            exit 1
-          fi
+        run: ./scripts/test-helm.sh
 
       - name: Build
         run: npm run build
