@@ -210,7 +210,69 @@ npm run dev:client     # Vite on :5273, proxies /api -> :5274
 *StrongsGreek* / *StrongsHebrew* to enable lexicon lookups, and a module with embedded tags
 (e.g. *KJVA*) to see Strong's glosses in Study.
 
-## Container
+## Docker Compose
+
+Compose 2.24 or newer is the supported single-host deployment. Copy the safe template, generate a
+stable encryption key, and start the lightweight application-only profile:
+
+```sh
+cp .env.example .env
+sed -i "s|^MACHAIRA_SECRET_KEY=.*|MACHAIRA_SECRET_KEY=$(openssl rand -base64 32)|" .env
+docker compose up -d
+```
+
+Open **http://localhost:5274**. The application binds to loopback by default; set
+`MACHAIRA_BIND_ADDRESS=0.0.0.0` only when a firewall and TLS-terminating reverse proxy protect the
+host. Only the application port is published. Inference containers stay on the private Compose
+network.
+
+Optional profiles use the same pinned CPU-first providers and defaults as Helm:
+
+| Stack | Command |
+| --- | --- |
+| Embeddings only | `COMPOSE_PROFILES=embeddings docker compose up -d` |
+| Speech-to-text only | `COMPOSE_PROFILES=stt docker compose up -d` |
+| Text-to-speech only | `COMPOSE_PROFILES=tts docker compose up -d` |
+| Both voice directions | `COMPOSE_PROFILES=voice docker compose up -d` |
+| Complete easy mode | `COMPOSE_PROFILES=easy docker compose up -d` |
+
+Use `COMPOSE_PROFILES` rather than the `--profile` flag: the value selects both the services and
+the matching non-secret provider descriptors loaded by Machaira. Set it in `.env` to make a
+profile persistent. Bundled providers then appear in Settings with readiness and prefilled private
+URLs; users still explicitly save and enable them.
+
+Compose and Helm share this tested provider matrix:
+
+| Capability | CPU runtime | Tested default | Persistent cache | Default request / limit |
+| --- | --- | --- | --- | --- |
+| Embeddings | Ollama 0.32.15 | `all-minilm:22m`, batch 16 | `embedding-model-cache` | 500m/512 MiB · 2 CPU/2 GiB |
+| STT | Speaches 0.8.3 CPU | `Systran/faster-whisper-small`, CPU int8 | `stt-model-cache` | 1 CPU/2 GiB · 2 CPU/4 GiB |
+| TTS | Kokoro-FastAPI v0.8.0 CPU | `kokoro`, voice `af_heart` | model is image-baked | 500m/1 GiB · 2 CPU/4 GiB |
+
+The final column is Helm's request/limit pair; Compose applies the upper bound as its service
+limit. Model-loader helpers are separately capped and exit after readiness is established.
+
+The complete CPU stack needs roughly four cores and 8 GiB of memory for practical startup
+headroom. The CPU images support linux/amd64 and linux/arm64. Initial Ollama and Speaches model
+downloads can take several minutes; named volumes preserve those caches and application data
+across `docker compose down` and recreation. Never use `docker compose down --volumes` unless all
+application data and cached models may be deleted.
+
+For an NVIDIA-equipped linux/amd64 host with the NVIDIA Container Toolkit installed, select the
+CUDA images and reserve one GPU per inference service with the override:
+
+```sh
+COMPOSE_PROFILES=easy docker compose -f compose.yaml -f deploy/compose/gpu.yaml up -d
+```
+
+Every bundled service can instead be omitted and configured as a Local or cloud provider in each
+user's Settings. To advertise a private externally managed endpoint to every user, leave profiles
+disabled and set the non-secret `MACHAIRA_DEPLOYMENT_PROVIDERS_JSON` descriptor in `.env`; the
+template includes an embeddings example. `host.docker.internal` resolves to the Compose host on
+Linux and Docker Desktop. Provider credentials remain encrypted per-user Settings data and must
+not be placed in `.env` descriptors.
+
+## Container image
 
 The root Dockerfile builds the native SWORD binding, server, and client in a multi-stage Node 22
 image. The runtime image contains the native runtime libraries but not the compiler toolchain.
@@ -251,17 +313,11 @@ provider only fills the editable configuration: users must still save it, explic
 or STT in an ordered voice graph, and explicitly start a semantic-index build. The deployment never
 silently enables cloud processing. Inference ports are not added to the Service or Ingress.
 
-| Capability | CPU runtime | Tested default | Persistent cache | Default request / limit |
-| --- | --- | --- | --- | --- |
-| Embeddings | Ollama 0.32.15 | `all-minilm:22m`, batch 16 | `embedding-model-cache` | 500m/512 MiB · 2 CPU/2 GiB |
-| STT | Speaches 0.8.3 CPU | `Systran/faster-whisper-small`, CPU int8 | `stt-model-cache` | 1 CPU/2 GiB · 2 CPU/4 GiB |
-| TTS | Kokoro-FastAPI v0.8.0 CPU | `kokoro`, voice `af_heart` | model is image-baked | 500m/1 GiB · 2 CPU/4 GiB |
-
-The complete CPU profile needs roughly 2.1 requested CPU and 3.75 GiB requested memory including
-Machaira; a 4-core, 8-GiB node leaves practical startup and filesystem headroom. The pinned CPU
-images support linux/amd64 and linux/arm64. Initial Ollama and Speaches model downloads can take
-several minutes, but their PVC cache subpaths survive routine Pod replacement. Set a capability's
-`persistence.enabled=false` for an intentionally ephemeral cache.
+The shared provider matrix is documented in the Compose section above. The complete Helm CPU
+profile requests roughly 2.1 CPU and 3.75 GiB of memory including Machaira; a 4-core, 8-GiB node
+leaves practical startup and filesystem headroom. Initial Ollama and Speaches downloads persist in
+PVC cache subpaths. Set a capability's `persistence.enabled=false` for an intentionally ephemeral
+cache.
 
 For a private, keyless OpenAI-compatible service managed outside the chart, use `external` mode;
 the chart registers the supplied endpoint but deploys no sidecar:
@@ -278,7 +334,7 @@ Provider credentials and cloud providers remain per-user Settings data encrypted
 not put them in chart values. NVIDIA GPU overrides set `inference.<capability>.gpu.enabled=true`,
 add the configured `nvidia.com/gpu` limit, and select the pinned CUDA image (the documented GPU
 profile is linux/amd64). Adjust resource limits for the installed GPU and model. The legacy
-`tts.sidecar.*` and `stt.sidecar.*` values remain accepted for v0.13 as deprecated aliases.
+`tts.sidecar.*` and `stt.sidecar.*` values remain accepted as deprecated aliases.
 
 ```sh
 kubectl create namespace machaira
@@ -323,7 +379,7 @@ is no longer needed.
 | `MACHAIRA_DB_PATH` | `server/data/machaira.sqlite` | SQLite database path. |
 | `MACHAIRA_SECRET_KEY` | required | Base64-encoded 32-byte encryption key; generate with `openssl rand -base64 32`. |
 | `MACHAIRA_ORIGIN` | same-origin only | Exact browser origin allowed for cross-origin API requests. |
-| `MACHAIRA_DEPLOYMENT_PROVIDERS_JSON` | unset | Non-secret deployment-provider descriptors generated by Helm; invalid values fail server startup. |
+| `MACHAIRA_DEPLOYMENT_PROVIDERS_JSON` | unset | Non-secret deployment-provider descriptors generated by Helm/Compose or supplied for private external endpoints; invalid values fail server startup. |
 | `NODE_ENV` | development | Set to `production` to mark the session cookie `Secure`. |
 
 ## Roadmap
