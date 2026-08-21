@@ -22,6 +22,9 @@ import {
   type DiscoveredModel,
   type DiscoveryProvider,
   type DiscoveryTarget,
+  type DeploymentProviderCapability,
+  type DeploymentProviderDescriptor,
+  type DeploymentProviderMap,
   type EmbeddingProviderKind,
   type Highlight,
   type Note,
@@ -36,6 +39,11 @@ import Toggle from '../components/ui/Toggle.vue'
 import DiscoveryCombobox from '../components/ui/DiscoveryCombobox.vue'
 import type { DiscoveryChoice } from '../components/ui/discoveryChoices'
 import AccountSettings from '../components/AccountSettings.vue'
+import {
+  providerDefaults,
+  providerReadiness,
+  providerTitle
+} from '../utils/deploymentProviders'
 
 const settings = useSettings()
 const readingPlan = useReadingPlan()
@@ -91,6 +99,8 @@ const cloudSttModel = ref(sttProvider.config.cloud?.model ?? 'nvidia/parakeet-td
 const cloudSttApiKey = ref('')
 const cloudSttRemoved = ref(false)
 const sttMessage = ref('')
+const deploymentProviders = ref<DeploymentProviderMap>({})
+const deploymentProviderError = ref('')
 
 interface DiscoveryUiState {
   models: DiscoveredModel[]
@@ -220,11 +230,61 @@ const sttReadyToSave = computed(() => sttOrderValid.value
   && cloudSttKeyReady.value)
 
 onMounted(async () => {
+  try {
+    deploymentProviders.value = await api.deploymentProviders()
+    prefillDeploymentProviders()
+  } catch (error) {
+    deploymentProviderError.value = (error as Error).message
+  }
   const legacy = await legacyPersonalData()
   legacyNotes.value = legacy.notes
   legacyHighlights.value = legacy.highlights
   if (auth.user) importDone.value = legacyImportComplete(auth.user.id)
 })
+
+function applyDeploymentProvider(
+  capability: DeploymentProviderCapability,
+  announce = true
+): void {
+  const provider = deploymentProviders.value[capability]
+  const defaults = providerDefaults(deploymentProviders.value, capability)
+  if (!provider || !defaults) return
+  if (capability === 'embeddings') {
+    embeddingKind.value = 'local'
+    embeddingBaseUrl.value = defaults.baseUrl
+    embeddingModel.value = defaults.model
+    embeddingBatchSize.value = defaults.batchSize ?? 32
+    embeddingApiKey.value = ''
+    clearDiscovery('embedding')
+    if (announce) embeddingMessage.value = `${providerTitle(provider)} selected · save to use it`
+  } else if (capability === 'tts') {
+    localTtsBaseUrl.value = defaults.baseUrl
+    localTtsModel.value = defaults.model
+    localTtsVoice.value = defaults.voice ?? ''
+    localTtsApiKey.value = ''
+    localTtsRemoved.value = false
+    clearDiscovery('tts-local')
+    if (announce) ttsMessage.value = `${providerTitle(provider)} selected · choose its priority and save`
+  } else {
+    localSttBaseUrl.value = defaults.baseUrl
+    localSttModel.value = defaults.model
+    localSttApiKey.value = ''
+    localSttRemoved.value = false
+    clearDiscovery('stt-local')
+    if (announce) sttMessage.value = `${providerTitle(provider)} selected · choose its priority and save`
+  }
+}
+
+function prefillDeploymentProviders(): void {
+  if (!semanticIndex.provider) applyDeploymentProvider('embeddings', false)
+  if (!ttsProvider.config.local) applyDeploymentProvider('tts', false)
+  if (!sttProvider.config.local) applyDeploymentProvider('stt', false)
+}
+
+function deploymentProviderDetail(provider: DeploymentProviderDescriptor): string {
+  const values = [provider.model, provider.voice, providerReadiness(provider)]
+  return values.filter(Boolean).join(' · ')
+}
 
 function resetPlan() {
   if (window.confirm('Reset reading-plan progress? This restarts the plan from today.')) {
@@ -834,6 +894,22 @@ async function rebuildSemanticIndex(): Promise<void> {
         <span class="soon">{{ ttsOrder.length ? ttsOrder.join(' → ') : 'disabled' }}</span>
       </div>
       <div class="card">
+        <div v-if="deploymentProviders.tts" class="row bordered deployment-provider-row">
+          <div class="row-text">
+            <div class="row-title">
+              {{ providerTitle(deploymentProviders.tts) }}
+              <span class="badge" :class="`readiness-${deploymentProviders.tts.readiness.state}`">
+                {{ deploymentProviders.tts.readiness.state }}
+              </span>
+            </div>
+            <div class="row-sub">{{ deploymentProviderDetail(deploymentProviders.tts) }}</div>
+          </div>
+          <div class="spacer"></div>
+          <button class="pill action" type="button" @click="applyDeploymentProvider('tts')">Use provider</button>
+        </div>
+        <div v-else-if="deploymentProviderError" class="row bordered provider-warning" role="alert">
+          Deployment providers unavailable: {{ deploymentProviderError }}
+        </div>
         <div class="row bordered">
           <div class="row-text">
             <div class="row-title">Browser voice</div>
@@ -986,6 +1062,19 @@ async function rebuildSemanticIndex(): Promise<void> {
         <span class="soon">{{ sttOrder.length ? sttOrder.join(' → ') : 'disabled' }}</span>
       </div>
       <div class="card">
+        <div v-if="deploymentProviders.stt" class="row bordered deployment-provider-row">
+          <div class="row-text">
+            <div class="row-title">
+              {{ providerTitle(deploymentProviders.stt) }}
+              <span class="badge" :class="`readiness-${deploymentProviders.stt.readiness.state}`">
+                {{ deploymentProviders.stt.readiness.state }}
+              </span>
+            </div>
+            <div class="row-sub">{{ deploymentProviderDetail(deploymentProviders.stt) }}</div>
+          </div>
+          <div class="spacer"></div>
+          <button class="pill action" type="button" @click="applyDeploymentProvider('stt')">Use provider</button>
+        </div>
         <div class="row bordered">
           <div class="row-text">
             <div class="row-title">Browser recognition</div>
@@ -1233,6 +1322,19 @@ async function rebuildSemanticIndex(): Promise<void> {
         <span class="soon">{{ semanticIndex.status.state }}</span>
       </div>
       <div class="card">
+        <div v-if="deploymentProviders.embeddings" class="row bordered deployment-provider-row">
+          <div class="row-text">
+            <div class="row-title">
+              {{ providerTitle(deploymentProviders.embeddings) }}
+              <span class="badge" :class="`readiness-${deploymentProviders.embeddings.readiness.state}`">
+                {{ deploymentProviders.embeddings.readiness.state }}
+              </span>
+            </div>
+            <div class="row-sub">{{ deploymentProviderDetail(deploymentProviders.embeddings) }}</div>
+          </div>
+          <div class="spacer"></div>
+          <button class="pill action" type="button" @click="applyDeploymentProvider('embeddings')">Use provider</button>
+        </div>
         <div class="row bordered">
           <div class="row-text">
             <div class="row-title">Vector index</div>
@@ -1542,6 +1644,10 @@ h1 {
 .provider-input:focus { outline: none; border-color: var(--accent); }
 .priority-select { min-width: 92px; }
 .provider-heading { background: color-mix(in srgb, var(--soft) 42%, transparent); }
+.deployment-provider-row { background: color-mix(in srgb, var(--soft) 58%, transparent); }
+.readiness-ready { color: #34744a; }
+.readiness-starting,
+.readiness-unavailable { color: var(--accent); }
 .compact-provider-row { align-items: stretch; flex-wrap: wrap; }
 .compact-provider-row .provider-input { flex: 1 1 130px; width: auto; }
 .compact-provider-row .provider-url { flex-basis: 260px; }
