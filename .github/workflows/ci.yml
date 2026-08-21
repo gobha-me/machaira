@@ -61,8 +61,17 @@ jobs:
       - name: Validate Helm chart
         run: ./scripts/test-helm.sh
 
+      - name: Validate Docker Compose profiles
+        run: ./scripts/test-compose.sh
+
       - name: Build
         run: npm run build
 
       - name: Build container image
-        run: docker build --tag machaira:ci .
+        run: docker build --tag machaira:compose-ci .
+
+      - name: Smoke test Docker Compose stack
+        env:
+          MACHAIRA_COMPOSE_SMOKE: "1"
+          MACHAIRA_SMOKE_IMAGE: machaira:compose-ci
+        run: ./scripts/test-compose.sh

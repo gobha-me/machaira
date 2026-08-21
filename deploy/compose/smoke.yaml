@@ -1,0 +1,67 @@
+services:
+  machaira:
+    image: "${MACHAIRA_SMOKE_IMAGE:-machaira:compose-smoke}"
+    pull_policy: never
+    environment:
+      NODE_ENV: development
+
+  embeddings:
+    image: node:22-alpine
+    entrypoint: [node, -e]
+    command:
+      - >-
+        const http=require('http');
+        http.createServer((q,r)=>{
+          r.setHeader('content-type','application/json');
+          r.end(q.url==='/api/tags'
+            ? JSON.stringify({models:[{name:'all-minilm:22m'}]})
+            : '{}');
+        }).listen(11434,'0.0.0.0');
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:11434/api/tags').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 1s
+      timeout: 1s
+      start_period: 1s
+      retries: 20
+
+  embeddings-model:
+    image: node:22-alpine
+    entrypoint: [node, -e]
+    command: [process.exit(0)]
+
+  stt:
+    image: node:22-alpine
+    entrypoint: [node, -e]
+    command:
+      - >-
+        const http=require('http');
+        http.createServer((q,r)=>{
+          r.setHeader('content-type','application/json');
+          r.end(q.url==='/v1/models'
+            ? JSON.stringify({data:[{id:'Systran/faster-whisper-small'}]})
+            : '{}');
+        }).listen(8000,'0.0.0.0');
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 1s
+      timeout: 1s
+      start_period: 1s
+      retries: 20
+
+  stt-model:
+    image: node:22-alpine
+    entrypoint: [node, -e]
+    command: [process.exit(0)]
+
+  tts:
+    image: node:22-alpine
+    entrypoint: [node, -e]
+    command:
+      - >-
+        require('http').createServer((q,r)=>r.end('OK')).listen(8880,'0.0.0.0');
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8880/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 1s
+      timeout: 1s
+      start_period: 1s
+      retries: 20

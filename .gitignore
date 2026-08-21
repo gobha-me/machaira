@@ -2,6 +2,7 @@ node_modules/
 dist/
 *.log
 *.tsbuildinfo
+.env
 
 # SWORD module install path (downloaded content lives here at runtime)
 server/data/
