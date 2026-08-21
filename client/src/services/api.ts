@@ -248,6 +248,58 @@ export interface SttConnectionResult {
   message: string
 }
 
+export type DiscoveryTarget =
+  | 'chat'
+  | 'embedding'
+  | 'tts-local'
+  | 'tts-cloud'
+  | 'stt-local'
+  | 'stt-cloud'
+
+export type DiscoveryProvider = 'openai-compatible' | 'anthropic' | 'local' | 'venice'
+export type ModelCapability = 'chat' | 'embedding' | 'stt' | 'tts'
+
+export interface DiscoveredModel {
+  id: string
+  name: string
+  owner?: string
+  compatibility: 'confirmed' | 'unknown'
+  capabilities: ModelCapability[]
+  description?: string
+  contextTokens?: number
+  maxOutputTokens?: number
+  privacy?: string
+  pricing?: { inputUsd?: number; outputUsd?: number }
+  deprecatedAt?: string
+  sizeBytes?: number
+  parameterSize?: string
+  quantization?: string
+}
+
+export interface DiscoveredVoice {
+  id: string
+  name: string
+}
+
+export interface ProviderDiscoveryResult {
+  supported: true
+  source: 'openai-compatible' | 'anthropic' | 'ollama' | 'venice'
+  cached: boolean
+  fetchedAt: number
+  truncated: boolean
+  models: DiscoveredModel[]
+  voices: DiscoveredVoice[]
+}
+
+export interface ProviderDiscoveryInput {
+  target: DiscoveryTarget
+  provider: DiscoveryProvider
+  baseUrl: string
+  apiKey?: string
+  model?: string
+  refresh?: boolean
+}
+
 export interface SemanticIndexStatus {
   state: 'unconfigured' | 'empty' | 'building' | 'ready' | 'stale' | 'failed'
   chunkCount: number
@@ -350,6 +402,7 @@ async function getJson<T>(url: string): Promise<T> {
 export interface ApiErrorBody {
   error?: string
   message?: string
+  code?: string
 }
 
 export class ApiError extends Error {
@@ -620,6 +673,12 @@ export const api = {
     return requestJson<SttConnectionResult>(
       '/api/stt/check',
       { ...json('POST', { tier, ...(endpoint ? { endpoint } : {}) }), signal }
+    )
+  },
+
+  async discoverProvider(input: ProviderDiscoveryInput, signal?: AbortSignal): Promise<ProviderDiscoveryResult> {
+    return requestJson<ProviderDiscoveryResult>(
+      '/api/providers/discover', { ...json('POST', input), signal }
     )
   },
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useSettings } from '../stores/settings'
 import { useReadingPlan } from '../stores/readingPlan'
 import { useReader } from '../stores/reader'
@@ -19,6 +19,9 @@ import {
 import {
   api,
   type AiProviderKind,
+  type DiscoveredModel,
+  type DiscoveryProvider,
+  type DiscoveryTarget,
   type EmbeddingProviderKind,
   type Highlight,
   type Note,
@@ -30,6 +33,8 @@ import {
   type TtsTier
 } from '../services/api'
 import Toggle from '../components/ui/Toggle.vue'
+import DiscoveryCombobox from '../components/ui/DiscoveryCombobox.vue'
+import type { DiscoveryChoice } from '../components/ui/discoveryChoices'
 import AccountSettings from '../components/AccountSettings.vue'
 
 const settings = useSettings()
@@ -86,7 +91,34 @@ const cloudSttModel = ref(sttProvider.config.cloud?.model ?? 'nvidia/parakeet-td
 const cloudSttApiKey = ref('')
 const cloudSttRemoved = ref(false)
 const sttMessage = ref('')
-const checkingStt = ref<SttTier | null>(null)
+
+interface DiscoveryUiState {
+  models: DiscoveredModel[]
+  voices: { id: string; name: string }[]
+  voiceModel: string
+  loaded: boolean
+  loading: boolean
+  error: string
+  cached: boolean
+  truncated: boolean
+  requestId: number
+}
+
+function emptyDiscovery(): DiscoveryUiState {
+  return {
+    models: [], voices: [], voiceModel: '', loaded: false, loading: false,
+    error: '', cached: false, truncated: false, requestId: 0
+  }
+}
+
+const discovery = reactive<Record<DiscoveryTarget, DiscoveryUiState>>({
+  chat: emptyDiscovery(),
+  embedding: emptyDiscovery(),
+  'tts-local': emptyDiscovery(),
+  'tts-cloud': emptyDiscovery(),
+  'stt-local': emptyDiscovery(),
+  'stt-cloud': emptyDiscovery()
+})
 const embeddingBatchSizeValid = computed(() => Number.isSafeInteger(embeddingBatchSize.value)
   && embeddingBatchSize.value >= 1 && embeddingBatchSize.value <= 64)
 const defaultModuleLabel = computed(() => {
@@ -261,10 +293,149 @@ function download(filename: string, content: string, type: string) {
   URL.revokeObjectURL(url)
 }
 
+function clearDiscovery(target: DiscoveryTarget): void {
+  const requestId = discovery[target].requestId + 1
+  Object.assign(discovery[target], emptyDiscovery(), { requestId })
+}
+
+function formatSize(bytes: number): string {
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GiB`
+  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MiB`
+  return `${bytes.toLocaleString()} bytes`
+}
+
+function modelMeta(model: DiscoveredModel): string | undefined {
+  const values = [
+    model.owner,
+    model.contextTokens ? `${model.contextTokens.toLocaleString()} context` : undefined,
+    model.privacy,
+    model.parameterSize,
+    model.quantization,
+    model.sizeBytes ? formatSize(model.sizeBytes) : undefined,
+    model.deprecatedAt ? `retires ${model.deprecatedAt}` : undefined
+  ].filter((value): value is string => !!value)
+  return values.length ? values.join(' · ') : undefined
+}
+
+function modelChoices(target: DiscoveryTarget): DiscoveryChoice[] {
+  return discovery[target].models.map((model) => ({
+    id: model.id,
+    name: model.name,
+    meta: modelMeta(model),
+    compatibility: model.compatibility
+  }))
+}
+
+function voiceChoices(target: 'tts-local' | 'tts-cloud'): DiscoveryChoice[] {
+  return discovery[target].voices.map((voice) => ({
+    ...voice,
+    compatibility: 'confirmed' as const
+  }))
+}
+
+async function loadDiscovery(
+  target: DiscoveryTarget,
+  provider: DiscoveryProvider,
+  baseUrl: string,
+  apiKey: string,
+  model?: string,
+  refresh = false
+): Promise<string | null> {
+  const state = discovery[target]
+  const requestId = state.requestId + 1
+  state.requestId = requestId
+  state.loading = true
+  state.error = ''
+  try {
+    const result = await api.discoverProvider({
+      target,
+      provider,
+      baseUrl,
+      ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
+      ...(model?.trim() ? { model: model.trim() } : {}),
+      ...(refresh ? { refresh: true } : {})
+    })
+    if (state.requestId !== requestId) return null
+    state.models = result.models
+    state.voices = result.voices
+    state.voiceModel = model?.trim() ?? ''
+    state.loaded = true
+    state.cached = result.cached
+    state.truncated = result.truncated
+    if (!result.models.length) return 'No models returned; enter an ID manually'
+    const suffix = [result.cached ? 'cached' : '', result.truncated ? 'first 500 shown' : '']
+      .filter(Boolean).join(' · ')
+    return `Loaded ${result.models.length} model${result.models.length === 1 ? '' : 's'}${suffix ? ` · ${suffix}` : ''}`
+  } catch (error) {
+    if (state.requestId !== requestId) return null
+    state.error = (error as Error).message
+    return state.error
+  } finally {
+    if (state.requestId === requestId) state.loading = false
+  }
+}
+
+async function loadChatModels(): Promise<void> {
+  const message = await loadDiscovery(
+    'chat', providerKind.value, providerBaseUrl.value, providerApiKey.value,
+    undefined, discovery.chat.loaded
+  )
+  if (message !== null) providerMessage.value = message
+}
+
+async function loadEmbeddingModels(): Promise<void> {
+  const message = await loadDiscovery(
+    'embedding', embeddingKind.value, embeddingBaseUrl.value, embeddingApiKey.value,
+    undefined, discovery.embedding.loaded
+  )
+  if (message !== null) embeddingMessage.value = message
+}
+
+async function loadTtsModels(tier: 'local' | 'cloud', model?: string, refresh?: boolean): Promise<void> {
+  const target = `tts-${tier}` as const
+  const message = await loadDiscovery(
+    target,
+    tier === 'local' ? 'openai-compatible' : cloudTtsProvider.value,
+    tier === 'local' ? localTtsBaseUrl.value : cloudTtsBaseUrl.value,
+    tier === 'local' ? localTtsApiKey.value : cloudTtsApiKey.value,
+    model ?? (tier === 'local' ? localTtsModel.value : cloudTtsModel.value),
+    refresh ?? discovery[target].loaded
+  )
+  if (message !== null) ttsMessage.value = message
+}
+
+async function selectTtsModel(tier: 'local' | 'cloud', model: string): Promise<void> {
+  if (tier === 'local') localTtsModel.value = model
+  else cloudTtsModel.value = model
+  if (tier === 'cloud' && cloudTtsProvider.value === 'venice') await loadTtsModels(tier, model, false)
+}
+
+function updateTtsModel(tier: 'local' | 'cloud', model: string): void {
+  if (tier === 'local') localTtsModel.value = model
+  else cloudTtsModel.value = model
+  const state = discovery[`tts-${tier}`]
+  if (state.voiceModel !== model) {
+    state.voices = []
+    state.voiceModel = ''
+  }
+}
+
+async function loadSttModels(tier: 'local' | 'cloud'): Promise<void> {
+  const message = await loadDiscovery(
+    `stt-${tier}`,
+    tier === 'local' ? 'openai-compatible' : cloudSttProvider.value,
+    tier === 'local' ? localSttBaseUrl.value : cloudSttBaseUrl.value,
+    tier === 'local' ? localSttApiKey.value : cloudSttApiKey.value,
+    undefined, discovery[`stt-${tier}`].loaded
+  )
+  if (message !== null) sttMessage.value = message
+}
+
 function resetProviderEndpoint(): void {
   providerBaseUrl.value = PROVIDER_DEFAULTS[providerKind.value]
   providerApiKey.value = ''
   providerMessage.value = ''
+  clearDiscovery('chat')
 }
 
 async function saveProvider(): Promise<void> {
@@ -292,6 +463,7 @@ async function removeProvider(): Promise<void> {
     providerBaseUrl.value = PROVIDER_DEFAULTS['openai-compatible']
     providerModel.value = ''
     providerApiKey.value = ''
+    clearDiscovery('chat')
     providerMessage.value = 'Provider disconnected'
   } catch (error) {
     providerMessage.value = (error as Error).message
@@ -302,6 +474,7 @@ function resetEmbeddingEndpoint(): void {
   embeddingBaseUrl.value = EMBEDDING_DEFAULTS[embeddingKind.value]
   embeddingApiKey.value = ''
   embeddingMessage.value = ''
+  clearDiscovery('embedding')
 }
 
 async function saveEmbeddingProvider(): Promise<void> {
@@ -333,6 +506,7 @@ async function removeEmbeddingProvider(): Promise<void> {
     embeddingModel.value = ''
     embeddingBatchSize.value = 32
     embeddingApiKey.value = ''
+    clearDiscovery('embedding')
     embeddingMessage.value = 'Embedding provider disconnected'
   } catch (error) {
     embeddingMessage.value = (error as Error).message
@@ -352,6 +526,7 @@ function resetCloudTtsEndpoint(): void {
   cloudTtsApiKey.value = ''
   cloudTtsRemoved.value = false
   ttsMessage.value = ''
+  clearDiscovery('tts-cloud')
 }
 
 function endpointInput(
@@ -403,6 +578,7 @@ function removeLocalTts(): void {
   localTtsPriority.value = 0
   localTtsRemoved.value = true
   localTtsApiKey.value = ''
+  clearDiscovery('tts-local')
   ttsMessage.value = 'Save to remove the local provider and its key'
 }
 
@@ -410,6 +586,7 @@ function removeCloudTts(): void {
   cloudTtsPriority.value = 0
   cloudTtsRemoved.value = true
   cloudTtsApiKey.value = ''
+  clearDiscovery('tts-cloud')
   ttsMessage.value = 'Save to remove the cloud provider and its key'
 }
 
@@ -424,6 +601,7 @@ function resetCloudSttEndpoint(): void {
   cloudSttApiKey.value = ''
   cloudSttRemoved.value = false
   sttMessage.value = ''
+  clearDiscovery('stt-cloud')
 }
 
 function sttEndpointInput(tier: 'local' | 'cloud'): SttEndpointInput | null {
@@ -446,21 +624,6 @@ function sttEndpointInput(tier: 'local' | 'cloud'): SttEndpointInput | null {
     baseUrl: cloudSttBaseUrl.value,
     model: cloudSttModel.value,
     ...(cloudSttApiKey.value.trim() ? { apiKey: cloudSttApiKey.value.trim() } : {})
-  }
-}
-
-async function checkStt(tier: 'local' | 'cloud'): Promise<void> {
-  const endpoint = sttEndpointInput(tier)
-  if (!endpoint) return
-  checkingStt.value = tier
-  sttMessage.value = ''
-  try {
-    const result = await api.checkStt(tier, endpoint)
-    sttMessage.value = result.message
-  } catch (error) {
-    sttMessage.value = (error as Error).message
-  } finally {
-    checkingStt.value = null
   }
 }
 
@@ -493,6 +656,7 @@ function removeLocalStt(): void {
   localSttPriority.value = 0
   localSttRemoved.value = true
   localSttApiKey.value = ''
+  clearDiscovery('stt-local')
   sttMessage.value = 'Save to remove the local provider and its key'
 }
 
@@ -500,6 +664,7 @@ function removeCloudStt(): void {
   cloudSttPriority.value = 0
   cloudSttRemoved.value = true
   cloudSttApiKey.value = ''
+  clearDiscovery('stt-cloud')
   sttMessage.value = 'Save to remove the cloud provider and its key'
 }
 
@@ -696,9 +861,24 @@ async function rebuildSemanticIndex(): Promise<void> {
           </select>
         </div>
         <div class="row bordered compact-provider-row">
-          <input v-model="localTtsBaseUrl" class="provider-input provider-url" type="url" aria-label="Local TTS base URL" />
-          <input v-model="localTtsModel" class="provider-input" placeholder="Model" aria-label="Local TTS model" />
-          <input v-model="localTtsVoice" class="provider-input" placeholder="Voice" aria-label="Local TTS voice" />
+          <input v-model="localTtsBaseUrl" class="provider-input provider-url" type="url" aria-label="Local TTS base URL" @input="clearDiscovery('tts-local')" />
+          <DiscoveryCombobox
+            :model-value="localTtsModel"
+            :options="modelChoices('tts-local')"
+            :loaded="discovery['tts-local'].loaded"
+            :loading="discovery['tts-local'].loading"
+            label="Local TTS model"
+            placeholder="Model ID"
+            @update:model-value="updateTtsModel('local', $event)"
+            @select="selectTtsModel('local', $event)"
+          />
+          <DiscoveryCombobox
+            v-model="localTtsVoice"
+            :options="voiceChoices('tts-local')"
+            :loaded="false"
+            label="Local TTS voice"
+            placeholder="Voice ID"
+          />
         </div>
         <div class="row bordered compact-provider-row">
           <input
@@ -708,7 +888,11 @@ async function rebuildSemanticIndex(): Promise<void> {
             autocomplete="off"
             :placeholder="ttsProvider.config.local?.hasApiKey ? 'Encrypted key stored — blank keeps it' : 'Optional local API key'"
             aria-label="Local TTS API key"
+            @input="clearDiscovery('tts-local')"
           />
+          <button class="pill action" type="button" :disabled="discovery['tts-local'].loading || !localTtsBaseUrl.trim()" @click="loadTtsModels('local')">
+            {{ discovery['tts-local'].loading ? 'Loading…' : discovery['tts-local'].loaded ? 'Refresh models' : 'Test & load models' }}
+          </button>
           <button
             v-if="ttsProvider.config.local && !localTtsRemoved"
             class="pill action danger"
@@ -734,11 +918,27 @@ async function rebuildSemanticIndex(): Promise<void> {
             <option value="venice">Venice</option>
             <option value="openai-compatible">OpenAI-compatible</option>
           </select>
-          <input v-model="cloudTtsBaseUrl" class="provider-input provider-url" type="url" aria-label="Cloud TTS base URL" />
+          <input v-model="cloudTtsBaseUrl" class="provider-input provider-url" type="url" aria-label="Cloud TTS base URL" @input="clearDiscovery('tts-cloud')" />
         </div>
         <div class="row bordered compact-provider-row">
-          <input v-model="cloudTtsModel" class="provider-input" placeholder="Model" aria-label="Cloud TTS model" />
-          <input v-model="cloudTtsVoice" class="provider-input" placeholder="Voice" aria-label="Cloud TTS voice" />
+          <DiscoveryCombobox
+            :model-value="cloudTtsModel"
+            :options="modelChoices('tts-cloud')"
+            :loaded="discovery['tts-cloud'].loaded"
+            :loading="discovery['tts-cloud'].loading"
+            label="Cloud TTS model"
+            placeholder="Model ID"
+            @update:model-value="updateTtsModel('cloud', $event)"
+            @select="selectTtsModel('cloud', $event)"
+          />
+          <DiscoveryCombobox
+            v-model="cloudTtsVoice"
+            :options="voiceChoices('tts-cloud')"
+            :loaded="cloudTtsProvider === 'venice' && discovery['tts-cloud'].voiceModel === cloudTtsModel"
+            :loading="discovery['tts-cloud'].loading"
+            label="Cloud TTS voice"
+            placeholder="Voice ID"
+          />
           <input
             v-model="cloudTtsApiKey"
             class="provider-input provider-key"
@@ -746,7 +946,11 @@ async function rebuildSemanticIndex(): Promise<void> {
             autocomplete="off"
             :placeholder="ttsProvider.config.cloud?.hasApiKey ? 'Encrypted key stored' : 'API key'"
             aria-label="Cloud TTS API key"
+            @input="clearDiscovery('tts-cloud')"
           />
+          <button class="pill action" type="button" :disabled="discovery['tts-cloud'].loading || !cloudTtsBaseUrl.trim()" @click="loadTtsModels('cloud')">
+            {{ discovery['tts-cloud'].loading ? 'Loading…' : discovery['tts-cloud'].loaded ? 'Refresh models' : 'Test & load models' }}
+          </button>
           <button
             v-if="ttsProvider.config.cloud && !cloudTtsRemoved"
             class="pill action danger"
@@ -758,11 +962,11 @@ async function rebuildSemanticIndex(): Promise<void> {
           Enabled providers need unique, consecutive priorities beginning with First.
         </div>
         <div class="row bordered provider-actions">
-          <span class="provider-message" :class="{ failed: ttsProvider.error || !ttsOrderValid }">{{ ttsMessage }}</span>
+          <span class="provider-message" :class="{ failed: ttsProvider.error || discovery['tts-local'].error || discovery['tts-cloud'].error || !ttsOrderValid }">{{ ttsMessage }}</span>
           <div class="spacer"></div>
           <button
             class="pill action save-provider"
-            :disabled="ttsProvider.loading || !ttsReadyToSave"
+            :disabled="ttsProvider.loading || discovery['tts-local'].loading || discovery['tts-cloud'].loading || !ttsReadyToSave"
             @click="saveTtsConfig"
           >{{ ttsProvider.loading ? 'Saving…' : 'Save read-aloud' }}</button>
         </div>
@@ -809,8 +1013,15 @@ async function rebuildSemanticIndex(): Promise<void> {
           </select>
         </div>
         <div class="row bordered compact-provider-row">
-          <input v-model="localSttBaseUrl" class="provider-input provider-url" type="url" aria-label="Local STT base URL" />
-          <input v-model="localSttModel" class="provider-input" placeholder="Model" aria-label="Local STT model" />
+          <input v-model="localSttBaseUrl" class="provider-input provider-url" type="url" aria-label="Local STT base URL" @input="clearDiscovery('stt-local')" />
+          <DiscoveryCombobox
+            v-model="localSttModel"
+            :options="modelChoices('stt-local')"
+            :loaded="discovery['stt-local'].loaded"
+            :loading="discovery['stt-local'].loading"
+            label="Local STT model"
+            placeholder="Model ID"
+          />
         </div>
         <div class="row bordered compact-provider-row">
           <input
@@ -820,9 +1031,10 @@ async function rebuildSemanticIndex(): Promise<void> {
             autocomplete="off"
             :placeholder="sttProvider.config.local?.hasApiKey ? 'Encrypted key stored — blank keeps it' : 'Optional local API key'"
             aria-label="Local STT API key"
+            @input="clearDiscovery('stt-local')"
           />
-          <button class="pill action" type="button" :disabled="checkingStt !== null || !localSttComplete" @click="checkStt('local')">
-            {{ checkingStt === 'local' ? 'Testing…' : 'Test local' }}
+          <button class="pill action" type="button" :disabled="discovery['stt-local'].loading || !localSttBaseUrl.trim()" @click="loadSttModels('local')">
+            {{ discovery['stt-local'].loading ? 'Loading…' : discovery['stt-local'].loaded ? 'Refresh models' : 'Test & load models' }}
           </button>
           <button
             v-if="sttProvider.config.local && !localSttRemoved"
@@ -849,10 +1061,17 @@ async function rebuildSemanticIndex(): Promise<void> {
             <option value="venice">Venice</option>
             <option value="openai-compatible">OpenAI-compatible</option>
           </select>
-          <input v-model="cloudSttBaseUrl" class="provider-input provider-url" type="url" aria-label="Cloud STT base URL" />
+          <input v-model="cloudSttBaseUrl" class="provider-input provider-url" type="url" aria-label="Cloud STT base URL" @input="clearDiscovery('stt-cloud')" />
         </div>
         <div class="row bordered compact-provider-row">
-          <input v-model="cloudSttModel" class="provider-input" placeholder="Model" aria-label="Cloud STT model" />
+          <DiscoveryCombobox
+            v-model="cloudSttModel"
+            :options="modelChoices('stt-cloud')"
+            :loaded="discovery['stt-cloud'].loaded"
+            :loading="discovery['stt-cloud'].loading"
+            label="Cloud STT model"
+            placeholder="Model ID"
+          />
           <input
             v-model="cloudSttApiKey"
             class="provider-input provider-key"
@@ -860,9 +1079,10 @@ async function rebuildSemanticIndex(): Promise<void> {
             autocomplete="off"
             :placeholder="sttProvider.config.cloud?.hasApiKey ? 'Encrypted key stored' : 'API key'"
             aria-label="Cloud STT API key"
+            @input="clearDiscovery('stt-cloud')"
           />
-          <button class="pill action" type="button" :disabled="checkingStt !== null || !cloudSttComplete || !cloudSttKeyReady" @click="checkStt('cloud')">
-            {{ checkingStt === 'cloud' ? 'Testing…' : 'Test cloud' }}
+          <button class="pill action" type="button" :disabled="discovery['stt-cloud'].loading || !cloudSttBaseUrl.trim()" @click="loadSttModels('cloud')">
+            {{ discovery['stt-cloud'].loading ? 'Loading…' : discovery['stt-cloud'].loaded ? 'Refresh models' : 'Test & load models' }}
           </button>
           <button
             v-if="sttProvider.config.cloud && !cloudSttRemoved"
@@ -875,11 +1095,11 @@ async function rebuildSemanticIndex(): Promise<void> {
           Enabled providers need unique, consecutive priorities beginning with First.
         </div>
         <div class="row provider-actions">
-          <span class="provider-message" :class="{ failed: sttProvider.error || !sttOrderValid }">{{ sttMessage }}</span>
+          <span class="provider-message" :class="{ failed: sttProvider.error || discovery['stt-local'].error || discovery['stt-cloud'].error || !sttOrderValid }">{{ sttMessage }}</span>
           <div class="spacer"></div>
           <button
             class="pill action save-provider"
-            :disabled="sttProvider.loading || checkingStt !== null || !sttReadyToSave"
+            :disabled="sttProvider.loading || discovery['stt-local'].loading || discovery['stt-cloud'].loading || !sttReadyToSave"
             @click="saveSttConfig"
           >{{ sttProvider.loading ? 'Saving…' : 'Save voice input' }}</button>
         </div>
@@ -933,7 +1153,7 @@ async function rebuildSemanticIndex(): Promise<void> {
             <div class="row-sub">Resolved by the Sword server, including inside containers</div>
           </div>
           <div class="spacer"></div>
-          <input v-model="providerBaseUrl" class="provider-input provider-url" type="url" />
+          <input v-model="providerBaseUrl" class="provider-input provider-url" type="url" aria-label="Study partner base URL" @input="clearDiscovery('chat')" />
         </div>
         <div class="row bordered">
           <div class="row-text">
@@ -941,7 +1161,19 @@ async function rebuildSemanticIndex(): Promise<void> {
             <div class="row-sub">Exact model identifier expected by this provider</div>
           </div>
           <div class="spacer"></div>
-          <input v-model="providerModel" class="provider-input" placeholder="Model name" />
+          <div class="discovery-controls">
+            <DiscoveryCombobox
+              v-model="providerModel"
+              :options="modelChoices('chat')"
+              :loaded="discovery.chat.loaded"
+              :loading="discovery.chat.loading"
+              label="Study partner model"
+              placeholder="Model ID"
+            />
+            <button class="pill action" type="button" :disabled="discovery.chat.loading || !providerBaseUrl.trim()" @click="loadChatModels">
+              {{ discovery.chat.loading ? 'Loading…' : discovery.chat.loaded ? 'Refresh' : 'Test & load' }}
+            </button>
+          </div>
         </div>
         <div class="row bordered">
           <div class="row-text">
@@ -959,10 +1191,11 @@ async function rebuildSemanticIndex(): Promise<void> {
             type="password"
             autocomplete="off"
             :placeholder="aiProvider.provider?.hasApiKey ? '••••••••' : 'API key'"
+            @input="clearDiscovery('chat')"
           />
         </div>
         <div class="row bordered provider-actions">
-          <span class="provider-message" :class="{ failed: aiProvider.error }">{{ providerMessage }}</span>
+          <span class="provider-message" :class="{ failed: aiProvider.error || discovery.chat.error }">{{ providerMessage }}</span>
           <div class="spacer"></div>
           <button
             v-if="aiProvider.provider"
@@ -972,7 +1205,7 @@ async function rebuildSemanticIndex(): Promise<void> {
           >Disconnect</button>
           <button
             class="pill action save-provider"
-            :disabled="aiProvider.loading || !providerModel.trim() || !providerBaseUrl.trim()"
+            :disabled="aiProvider.loading || discovery.chat.loading || !providerModel.trim() || !providerBaseUrl.trim()"
             @click="saveProvider"
           >{{ aiProvider.loading ? 'Saving…' : 'Save provider' }}</button>
         </div>
@@ -1032,7 +1265,7 @@ async function rebuildSemanticIndex(): Promise<void> {
             <div class="row-sub">The Sword server calls its /embeddings endpoint</div>
           </div>
           <div class="spacer"></div>
-          <input v-model="embeddingBaseUrl" class="provider-input provider-url" type="url" />
+          <input v-model="embeddingBaseUrl" class="provider-input provider-url" type="url" aria-label="Embedding base URL" @input="clearDiscovery('embedding')" />
         </div>
         <div class="row bordered">
           <div class="row-text">
@@ -1040,7 +1273,19 @@ async function rebuildSemanticIndex(): Promise<void> {
             <div class="row-sub">Use a model intended for semantic similarity</div>
           </div>
           <div class="spacer"></div>
-          <input v-model="embeddingModel" class="provider-input" placeholder="Embedding model" />
+          <div class="discovery-controls">
+            <DiscoveryCombobox
+              v-model="embeddingModel"
+              :options="modelChoices('embedding')"
+              :loaded="discovery.embedding.loaded"
+              :loading="discovery.embedding.loading"
+              label="Embedding model"
+              placeholder="Embedding model ID"
+            />
+            <button class="pill action" type="button" :disabled="discovery.embedding.loading || !embeddingBaseUrl.trim()" @click="loadEmbeddingModels">
+              {{ discovery.embedding.loading ? 'Loading…' : discovery.embedding.loaded ? 'Refresh' : 'Test & load' }}
+            </button>
+          </div>
         </div>
         <div class="row bordered">
           <div class="row-text">
@@ -1075,10 +1320,11 @@ async function rebuildSemanticIndex(): Promise<void> {
             type="password"
             autocomplete="off"
             :placeholder="semanticIndex.provider?.hasApiKey ? '••••••••' : 'API key'"
+            @input="clearDiscovery('embedding')"
           />
         </div>
         <div class="row provider-actions">
-          <span class="provider-message" :class="{ failed: semanticIndex.error }">{{ embeddingMessage }}</span>
+          <span class="provider-message" :class="{ failed: semanticIndex.error || discovery.embedding.error }">{{ embeddingMessage }}</span>
           <div class="spacer"></div>
           <button
             v-if="semanticIndex.provider"
@@ -1088,7 +1334,7 @@ async function rebuildSemanticIndex(): Promise<void> {
           >Disconnect</button>
           <button
             class="pill action save-provider"
-            :disabled="semanticIndex.loading || semanticIndex.building || !embeddingModel.trim() || !embeddingBaseUrl.trim() || !embeddingBatchSizeValid"
+            :disabled="semanticIndex.loading || semanticIndex.building || discovery.embedding.loading || !embeddingModel.trim() || !embeddingBaseUrl.trim() || !embeddingBatchSizeValid"
             @click="saveEmbeddingProvider"
           >{{ semanticIndex.loading ? 'Saving…' : 'Save embedding provider' }}</button>
         </div>
@@ -1300,6 +1546,8 @@ h1 {
 .compact-provider-row .provider-input { flex: 1 1 130px; width: auto; }
 .compact-provider-row .provider-url { flex-basis: 260px; }
 .compact-provider-row .provider-key { flex-basis: 220px; }
+.compact-provider-row .discovery-combobox { flex: 1 1 180px; width: auto; }
+.discovery-controls { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
 .provider-warning { color: var(--accent); font-size: 12px; }
 .provider-actions { gap: 8px; }
 .provider-message { font-size: 12px; color: var(--muted); }
@@ -1334,6 +1582,8 @@ h1 {
     width: 100%;
     flex-wrap: wrap;
   }
+  .discovery-controls { width: 100%; flex-wrap: wrap; }
+  .discovery-controls .discovery-combobox { flex: 1 1 100%; width: 100%; }
   .translation-default-row {
     align-items: stretch;
     flex-direction: column;
