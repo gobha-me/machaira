@@ -24,6 +24,8 @@ import { TtsService } from './tts.js'
 import { registerTts } from './routes/tts.js'
 import { SttService } from './stt.js'
 import { registerStt } from './routes/stt.js'
+import { ProviderDiscoveryService } from './provider-discovery.js'
+import { registerProviderDiscovery } from './routes/provider-discovery.js'
 
 export interface AppOptions {
   databasePath: string
@@ -55,6 +57,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   const connections = new ConnectionsService(semanticIndex)
   const tts = new TtsService(db, secrets)
   const stt = new SttService(db, secrets)
+  const providerDiscovery = new ProviderDiscoveryService(db, secrets)
 
   app.addHook('onClose', async () => db.close())
   await app.register(cookie)
@@ -85,6 +88,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   await registerConnections(app, connections)
   await registerTts(app, tts)
   await registerStt(app, stt)
+  await registerProviderDiscovery(app, providerDiscovery)
 
   if (options.registerFeatureRoutes ?? true) {
     await registerSources(app)

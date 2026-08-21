@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest'
-import { consumeSse, consumeSseEvents } from './api'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { api, consumeSse, consumeSseEvents } from './api'
+
+afterEach(() => vi.unstubAllGlobals())
 
 function fragmentedResponse(parts: string[]): Response {
   const encoder = new TextEncoder()
@@ -39,5 +41,39 @@ describe('generic SSE parser', () => {
       { event: 'progress', data: { module: 'WEB', processed: 64, batchSize: 32 } },
       { event: 'done', data: { state: 'ready', chunkCount: 64 } }
     ])
+  })
+})
+
+describe('provider discovery client', () => {
+  it('sends staged connection data only on the explicit discovery request', async () => {
+    const calls: Array<[RequestInfo | URL, RequestInit | undefined]> = []
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push([input, init])
+      return new Response(JSON.stringify({
+        supported: true,
+        source: 'openai-compatible',
+        cached: false,
+        fetchedAt: 1,
+        truncated: false,
+        models: [{ id: 'model-a', name: 'Model A', compatibility: 'unknown', capabilities: [] }],
+        voices: []
+      }), { status: 200, headers: { 'content-type': 'application/json' } })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await api.discoverProvider({
+      target: 'chat', provider: 'openai-compatible', baseUrl: 'https://provider.test/v1',
+      apiKey: 'staged-key', refresh: true
+    })
+
+    expect(result.models[0].id).toBe('model-a')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [url, init] = calls[0]
+    expect(url).toBe('/api/providers/discover')
+    expect(init?.credentials).toBe('same-origin')
+    expect(JSON.parse(String(init?.body))).toEqual({
+      target: 'chat', provider: 'openai-compatible', baseUrl: 'https://provider.test/v1',
+      apiKey: 'staged-key', refresh: true
+    })
   })
 })

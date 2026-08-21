@@ -20,7 +20,7 @@ semantic search, personal journaling, and a bring-your-own-model study partner.
 | **Search** | Real SWORD full-text and embedding-backed “by meaning” search, with typed or hold-to-talk input. |
 | **Library** | Browse CrossWire repositories, install modules with live progress, and uninstall. This is the downloader that feeds every other screen. |
 | **Journal** | Per-account notes with tags, plus an interactive graph of linked, cross-referenced, and thematically related passages. |
-| **Settings** | Account administration, encrypted chat/embedding provider configuration, vector-index controls, themes, scripture text scale, and reading toggles. |
+| **Settings** | Account administration, encrypted provider configuration with in-app model discovery, vector-index controls, themes, scripture text scale, and reading toggles. |
 
 Voice controls use explicit browser, local, and cloud provider orders and degrade to honest
 disabled states when no configured path is available. See
@@ -104,10 +104,12 @@ Two non-browser paths are supported:
 
 - **Local OpenAI-compatible:** use a service exposing `POST /v1/audio/speech`. The tested CPU-first
   runtime is Kokoro-FastAPI v0.8.0 with base URL `http://127.0.0.1:8880/v1`, model `kokoro`, and
-  voice `af_heart`. A local key is optional.
+  voice `af_heart`. A local key is optional. **Test & load models** lists models when the runtime
+  implements the OpenAI-compatible discovery endpoint; model and voice IDs remain manually editable.
 - **Venice or another OpenAI-compatible cloud:** the Venice preset uses
   `https://api.venice.ai/api/v1`, model `tts-kokoro`, and voice `af_sky`. A cloud key is required,
-  encrypted at rest, and used only by the server.
+  encrypted at rest, and used only by the server. Venice discovery filters to TTS models and loads
+  the voice catalog for the selected model.
 
 Remote audio is generated a verse at a time with one-verse prefetch for prompt start and accurate
 follow-along. Stop, pause/resume, replay, navigation cancellation, provider failure, and fallback
@@ -123,7 +125,8 @@ but is never submitted automatically.
   may process microphone audio remotely.
 - **Local OpenAI-compatible STT** sends a recording through Machaira to a private endpoint exposing
   `POST /v1/audio/transcriptions`. The tested CPU-first runtime is Speaches 0.8.3 with
-  `Systran/faster-whisper-small`, base URL `http://127.0.0.1:8000/v1`, and no required key.
+  `Systran/faster-whisper-small`, base URL `http://127.0.0.1:8000/v1`, and no required key. Use
+  **Test & load models** to verify reachability and select a listed model without leaving Settings.
 - **Cloud STT** supports Venice and other OpenAI-compatible transcription APIs. The Venice preset
   uses `https://api.venice.ai/api/v1` and `nvidia/parakeet-tdt-0.6b-v3`. Cloud audio is sent only
   after the user confirms and saves a provider order containing Cloud STT; keys remain encrypted
@@ -144,18 +147,42 @@ Open **Settings → Study partner** after signing in and choose one of:
 - **Anthropic** for the Claude Messages API.
 - **Local** for a keyless or authenticated OpenAI-compatible Llama-class server such as Ollama.
 
-Enter the exact model identifier and the provider's base URL (ending at `/v1`, not the final
-operation path). Local URLs are resolved by the Sword server: `127.0.0.1` means the Sword
+Enter the provider's base URL (ending at `/v1`, not the final operation path), then select
+**Test & load** to search the models visible to the supplied account. A discovered ID can be
+selected without leaving Settings, and the field continues to accept an exact manual ID.
+Local URLs are resolved by the Sword server: `127.0.0.1` means the Sword
 container or pod itself, so containerized deployments generally need a reachable service DNS name
 or host gateway instead. Chat responses stream through Sword; provider keys never return to the
 browser, and conversations are kept only in the current browser tab.
+
+### Provider model discovery
+
+Discovery is always explicit: changing a URL never sends a request. **Test & load** uses a staged
+URL/key without saving an incomplete configuration, while a matching saved provider can reuse its
+encrypted key. **Refresh** bypasses the five-minute in-memory success cache. Keys are sent only by
+the Sword server and are never included in a discovery response.
+
+- OpenAI-compatible endpoints use `GET /models`. The standard response reports identifiers and
+  owners but not task capabilities, so those entries are labeled **Compatibility not reported**
+  rather than guessed from model names.
+- Anthropic uses its paginated Models API and reports display names and token limits.
+- A Local chat or embedding endpoint first checks Ollama's richer `/api/tags` installed-model list,
+  then falls back to OpenAI-compatible discovery for vLLM and other servers.
+- Venice cloud STT/TTS requests are filtered to `asr` or `tts`; selecting a Venice TTS model loads
+  its compatible voices. Other OpenAI-compatible audio services keep manual voice entry available.
+
+An unavailable, unauthorized, unsupported, timed-out, oversized, or malformed discovery response
+is reported inline and never prevents manual configuration. Existing/manual IDs remain in the
+field when a refresh omits them and receive an unavailable warning. Discovery follows no redirects,
+reads at most 2 MiB and 500 models across at most ten pages, and times out after ten seconds.
 
 ### Semantic search
 
 Open **Settings → Semantic search** and configure either an OpenAI-compatible embeddings API or
 a local endpoint such as Ollama. The embedding provider is separate from the study-partner chat
 provider, so Anthropic chat can be paired with any embeddings service. Enter the provider base URL
-ending at `/v1` and an embedding model identifier, save it, then select **Build index**.
+ending at `/v1`, use **Test & load** or enter an embedding model ID manually, save it, then select
+**Build index**.
 
 Building sends each verse from every installed, unlocked Bible module to the provider in bounded
 batches; external services may charge for that usage. The UI reports real indexed verse and module
