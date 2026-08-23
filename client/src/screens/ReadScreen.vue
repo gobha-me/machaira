@@ -106,6 +106,7 @@ const {
   supported: hasTTS,
   active: listening,
   playing,
+  preparing: preparingAudio,
   currentVerse: spokenVerse,
   completed: listeningComplete,
   error: listeningError,
@@ -640,8 +641,9 @@ async function menuNote() {
     <div v-if="listening" class="listenbar">
       <button
         class="play"
-        :title="playing ? 'Pause read-aloud' : listeningComplete ? 'Replay chapter' : 'Resume read-aloud'"
-        :aria-label="playing ? 'Pause read-aloud' : listeningComplete ? 'Replay chapter' : 'Resume read-aloud'"
+        :disabled="preparingAudio"
+        :title="preparingAudio ? 'Generating audio' : playing ? 'Pause read-aloud' : listeningComplete ? 'Replay chapter' : 'Resume read-aloud'"
+        :aria-label="preparingAudio ? 'Generating audio' : playing ? 'Pause read-aloud' : listeningComplete ? 'Replay chapter' : 'Resume read-aloud'"
         @click="togglePlay"
       >{{ playing ? '❚❚' : '▶' }}</button>
       <div class="listen-meta">
@@ -649,23 +651,26 @@ async function menuNote() {
         <div class="listen-sub" :class="{ error: listeningError }" aria-live="polite">
           {{ listeningError
             ? listeningError
-            : listeningNotice
-              ? listeningNotice
             : listeningComplete
               ? 'Chapter complete'
-              : spokenVerse
-                ? `Following along — verse ${spokenVerse} · ${listeningProvider === 'browser' ? 'browser' : listeningProvider}`
-                : 'Ready' }}
+              : preparingAudio
+                ? `Generating audio — verse ${spokenVerse} · ${listeningProvider}`
+                : listeningNotice
+                  ? listeningNotice
+                  : spokenVerse
+                    ? `Following along — verse ${spokenVerse} · ${listeningProvider === 'browser' ? 'browser' : listeningProvider}`
+                    : 'Ready' }}
         </div>
       </div>
       <div
         class="listen-track"
+        :class="{ preparing: preparingAudio }"
         role="progressbar"
         aria-label="Read-aloud progress"
-        :aria-valuenow="progressPct"
+        :aria-valuenow="preparingAudio ? undefined : progressPct"
         aria-valuemin="0"
         aria-valuemax="100"
-      ><div class="listen-fill" :style="{ width: progressPct + '%' }"></div></div>
+      ><div class="listen-fill" :style="{ width: preparingAudio ? '100%' : progressPct + '%' }"></div></div>
       <button class="listen-close hover-ink" aria-label="Close read-aloud" @click="stopListening">Close</button>
     </div>
   </div>
@@ -1302,6 +1307,19 @@ h1 {
   height: 100%;
   background: var(--accent);
   transition: width 0.3s;
+}
+.listen-track.preparing .listen-fill {
+  animation: listen-preparing 1.1s ease-in-out infinite alternate;
+}
+@keyframes listen-preparing {
+  from { opacity: 0.2; }
+  to { opacity: 0.85; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .listen-track.preparing .listen-fill {
+    animation: none;
+    opacity: 0.5;
+  }
 }
 .listen-close {
   background: none;

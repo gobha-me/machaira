@@ -27,6 +27,13 @@ interface AudioLike {
   pause(): void
 }
 
+class ReadAloudCancelledError extends Error {
+  constructor() {
+    super('Read-aloud was cancelled')
+    this.name = 'ReadAloudCancelledError'
+  }
+}
+
 export interface ReadAloudEnvironment {
   synthesis: SpeechSynthesisLike | null
   createUtterance: ((text: string) => SpeechSynthesisUtteranceLike) | null
@@ -84,6 +91,7 @@ export function createReadAloudController(
 ) {
   const active = ref(false)
   const playing = ref(false)
+  const preparing = ref(false)
   const currentVerse = ref<number | null>(null)
   const currentProvider = ref<TtsTier | null>(null)
   const completed = ref(false)
@@ -92,8 +100,8 @@ export function createReadAloudController(
   let generation = 0
   let abort: AbortController | null = null
   let currentAudio: AudioLike | null = null
-  let releaseAudio: (() => void) | null = null
-  let settleAudio: ((failure?: Error) => void) | null = null
+  let cancelAudio: (() => void) | null = null
+  let failAudio: ((failure: Error) => void) | null = null
   let settleBrowser: ((failure?: Error) => void) | null = null
   let armBrowserWatchdog: (() => void) | null = null
   let browserWatchdog: ReturnType<typeof setTimeout> | null = null
@@ -116,13 +124,10 @@ export function createReadAloudController(
   })
 
   function cleanupAudio(): void {
-    const settle = settleAudio
-    settleAudio = null
-    currentAudio?.pause()
+    cancelAudio?.()
+    cancelAudio = null
+    failAudio = null
     currentAudio = null
-    releaseAudio?.()
-    releaseAudio = null
-    settle?.()
   }
 
   function cancelPlayback(): void {
@@ -139,6 +144,7 @@ export function createReadAloudController(
       // The browser speech queue is already empty.
     }
     cleanupAudio()
+    preparing.value = false
     audioCache.clear()
   }
 
@@ -196,33 +202,80 @@ export function createReadAloudController(
     token: number
   ): Promise<void> {
     if (!environment.createAudio) throw new Error('Audio playback is unavailable in this browser')
-    const blob = await fetchVerse(tier, verse, index)
+    preparing.value = true
+    let blob: Blob
+    try {
+      blob = await fetchVerse(tier, verse, index)
+    } finally {
+      if (token === generation) preparing.value = false
+    }
     if (token !== generation) throw new Error('Read-aloud was cancelled')
     cleanupAudio()
     const created = environment.createAudio(blob)
     currentAudio = created.audio
-    releaseAudio = created.release
     if (index + 1 < verses.length) {
       void fetchVerse(tier, verses[index + 1], index + 1).catch(() => undefined)
     }
-    try {
-      await new Promise<void>((resolve, reject) => {
-        const finish = (failure?: Error) => {
-          if (settleAudio !== finish) return
-          settleAudio = null
-          if (failure) reject(failure)
-          else resolve()
+    await new Promise<void>((resolve, reject) => {
+      let settled = false
+      let released = false
+      let playSettled = false
+      let releaseAfterPlaySettles = false
+
+      const release = () => {
+        if (released) return
+        released = true
+        created.release()
+      }
+      const clearOwnership = () => {
+        created.audio.onended = null
+        created.audio.onerror = null
+        if (currentAudio !== created.audio) return
+        currentAudio = null
+        cancelAudio = null
+        failAudio = null
+      }
+      const finish = (failure?: Error, releaseNow = true) => {
+        if (settled) return
+        settled = true
+        clearOwnership()
+        if (releaseNow) release()
+        if (failure) reject(failure)
+        else resolve()
+      }
+
+      cancelAudio = () => {
+        if (settled) return
+        const releaseAfterPause = playSettled
+        if (!releaseAfterPause) releaseAfterPlaySettles = true
+        finish(new ReadAloudCancelledError(), false)
+        created.audio.pause()
+        if (releaseAfterPause) release()
+      }
+      failAudio = (failure) => finish(failure)
+      created.audio.onended = () => finish()
+      created.audio.onerror = () => finish(new Error('Generated audio could not be played'))
+
+      let playPromise: Promise<void>
+      try {
+        playPromise = created.audio.play()
+      } catch (failure) {
+        playSettled = true
+        finish(failure instanceof Error ? failure : new Error('Generated audio could not be played'))
+        return
+      }
+      void playPromise.then(
+        () => {
+          playSettled = true
+          if (releaseAfterPlaySettles) release()
+        },
+        (failure) => {
+          playSettled = true
+          if (releaseAfterPlaySettles) release()
+          finish(failure instanceof Error ? failure : new Error('Generated audio could not be played'))
         }
-        settleAudio = finish
-        created.audio.onended = () => finish()
-        created.audio.onerror = () => finish(new Error('Generated audio could not be played'))
-        created.audio.play().catch((failure) => finish(
-          failure instanceof Error ? failure : new Error('Generated audio could not be played')
-        ))
-      })
-    } finally {
-      cleanupAudio()
-    }
+      )
+    })
   }
 
   async function playVerse(verse: SpokenVerse, index: number, token: number): Promise<void> {
@@ -278,15 +331,16 @@ export function createReadAloudController(
   function start(): void {
     const verses = options.verses()
     if (!supported.value || !verses.length) return
+    const token = ++generation
     cancelPlayback()
     unavailable.clear()
-    const token = ++generation
     abort = new AbortController()
     active.value = true
     playing.value = true
     completed.value = false
     error.value = null
     notice.value = null
+    preparing.value = false
     currentVerse.value = null
     const requestedVerse = options.startVerse()
     const found = verses.findIndex((verse) => verse.n === requestedVerse)
@@ -307,6 +361,7 @@ export function createReadAloudController(
       start()
       return
     }
+    if (preparing.value) return
     if (playing.value) {
       if (currentProvider.value === 'browser') {
         if (browserWatchdog) clearTimeout(browserWatchdog)
@@ -322,7 +377,7 @@ export function createReadAloudController(
       armBrowserWatchdog?.()
     } else if (currentAudio) {
       void currentAudio.play().catch((failure) => {
-        settleAudio?.(failure instanceof Error
+        failAudio?.(failure instanceof Error
           ? failure
           : new Error('Generated audio could not be resumed'))
       })
@@ -336,6 +391,7 @@ export function createReadAloudController(
     unavailable.clear()
     active.value = false
     playing.value = false
+    preparing.value = false
     currentVerse.value = null
     currentProvider.value = null
     completed.value = false
@@ -347,6 +403,7 @@ export function createReadAloudController(
     supported: supported as ComputedRef<boolean>,
     active,
     playing,
+    preparing,
     currentVerse,
     currentProvider,
     completed,
