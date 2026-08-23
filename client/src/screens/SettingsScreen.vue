@@ -37,6 +37,7 @@ import {
 } from '../services/api'
 import Toggle from '../components/ui/Toggle.vue'
 import DiscoveryCombobox from '../components/ui/DiscoveryCombobox.vue'
+import ProviderSecretInput from '../components/ui/ProviderSecretInput.vue'
 import type { DiscoveryChoice } from '../components/ui/discoveryChoices'
 import AccountSettings from '../components/AccountSettings.vue'
 import {
@@ -916,12 +917,15 @@ async function rebuildSemanticIndex(): Promise<void> {
             <div class="row-sub">Uses the browser or operating system speech service when available</div>
           </div>
           <div class="spacer"></div>
-          <select v-model.number="browserTtsPriority" class="setting-select priority-select" aria-label="Browser voice priority">
-            <option :value="0">Disabled</option>
-            <option :value="1">First</option>
-            <option :value="2">Second</option>
-            <option :value="3">Third</option>
-          </select>
+          <div class="priority-control">
+            <label for="tts-browser-priority">Priority</label>
+            <select id="tts-browser-priority" v-model.number="browserTtsPriority" name="tts-browser-priority" class="setting-select priority-select" autocomplete="off">
+              <option :value="0">Disabled</option>
+              <option :value="1">First</option>
+              <option :value="2">Second</option>
+              <option :value="3">Third</option>
+            </select>
+          </div>
         </div>
         <div class="row bordered provider-heading">
           <div class="row-text">
@@ -929,43 +933,59 @@ async function rebuildSemanticIndex(): Promise<void> {
             <div class="row-sub">Text stays on the configured local network or Kubernetes sidecar</div>
           </div>
           <div class="spacer"></div>
-          <select v-model.number="localTtsPriority" class="setting-select priority-select" aria-label="Local TTS priority" @change="localTtsRemoved = false">
-            <option :value="0">Disabled</option>
-            <option :value="1">First</option>
-            <option :value="2">Second</option>
-            <option :value="3">Third</option>
-          </select>
+          <div class="priority-control">
+            <label for="tts-local-priority">Priority</label>
+            <select id="tts-local-priority" v-model.number="localTtsPriority" name="tts-local-priority" class="setting-select priority-select" autocomplete="off" @change="localTtsRemoved = false">
+              <option :value="0">Disabled</option>
+              <option :value="1">First</option>
+              <option :value="2">Second</option>
+              <option :value="3">Third</option>
+            </select>
+          </div>
         </div>
         <div class="row bordered compact-provider-row">
-          <input v-model="localTtsBaseUrl" class="provider-input provider-url" type="url" aria-label="Local TTS base URL" @input="clearDiscovery('tts-local')" />
-          <DiscoveryCombobox
-            :model-value="localTtsModel"
-            :options="modelChoices('tts-local')"
-            :loaded="discovery['tts-local'].loaded"
-            :loading="discovery['tts-local'].loading"
-            label="Local TTS model"
-            placeholder="Model ID"
-            @update:model-value="updateTtsModel('local', $event)"
-            @select="selectTtsModel('local', $event)"
-          />
-          <DiscoveryCombobox
-            v-model="localTtsVoice"
-            :options="voiceChoices('tts-local')"
-            :loaded="false"
-            label="Local TTS voice"
-            placeholder="Voice ID"
-          />
+          <div class="provider-field provider-url-field">
+            <label for="tts-local-base-url">Base URL</label>
+            <input id="tts-local-base-url" v-model="localTtsBaseUrl" name="tts-local-base-url" class="provider-input provider-url" type="url" autocomplete="off" data-1p-ignore="true" data-bwignore="true" data-lpignore="true" @input="clearDiscovery('tts-local')" />
+          </div>
+          <div class="provider-field">
+            <label for="tts-local-model">Model</label>
+            <DiscoveryCombobox
+              id="tts-local-model"
+              :model-value="localTtsModel"
+              :options="modelChoices('tts-local')"
+              :loaded="discovery['tts-local'].loaded"
+              :loading="discovery['tts-local'].loading"
+              label="Local TTS model"
+              placeholder="Model ID"
+              @update:model-value="updateTtsModel('local', $event)"
+              @select="selectTtsModel('local', $event)"
+            />
+          </div>
+          <div class="provider-field">
+            <label for="tts-local-voice">Voice</label>
+            <DiscoveryCombobox
+              id="tts-local-voice"
+              v-model="localTtsVoice"
+              :options="voiceChoices('tts-local')"
+              :loaded="false"
+              label="Local TTS voice"
+              placeholder="Voice ID"
+            />
+          </div>
         </div>
         <div class="row bordered compact-provider-row">
-          <input
-            v-model="localTtsApiKey"
-            class="provider-input provider-key"
-            type="password"
-            autocomplete="off"
-            :placeholder="ttsProvider.config.local?.hasApiKey ? 'Encrypted key stored — blank keeps it' : 'Optional local API key'"
-            aria-label="Local TTS API key"
-            @input="clearDiscovery('tts-local')"
-          />
+          <div class="provider-field provider-key-field">
+            <label for="tts-local-api-key">API key</label>
+            <ProviderSecretInput
+              id="tts-local-api-key"
+              v-model="localTtsApiKey"
+              class="provider-key"
+              label="Local TTS API key"
+              :placeholder="ttsProvider.config.local?.hasApiKey ? 'Encrypted key stored — blank keeps it' : 'Optional local API key'"
+              @update:model-value="clearDiscovery('tts-local')"
+            />
+          </div>
           <button class="pill action" type="button" :disabled="discovery['tts-local'].loading || !localTtsBaseUrl.trim()" @click="loadTtsModels('local')">
             {{ discovery['tts-local'].loading ? 'Loading…' : discovery['tts-local'].loaded ? 'Refresh models' : 'Test & load models' }}
           </button>
@@ -982,48 +1002,67 @@ async function rebuildSemanticIndex(): Promise<void> {
             <div class="row-sub">Enabled only through this explicit priority list; verse text is sent to the selected provider</div>
           </div>
           <div class="spacer"></div>
-          <select v-model.number="cloudTtsPriority" class="setting-select priority-select" aria-label="Cloud TTS priority" @change="cloudTtsRemoved = false">
-            <option :value="0">Disabled</option>
-            <option :value="1">First</option>
-            <option :value="2">Second</option>
-            <option :value="3">Third</option>
-          </select>
+          <div class="priority-control">
+            <label for="tts-cloud-priority">Priority</label>
+            <select id="tts-cloud-priority" v-model.number="cloudTtsPriority" name="tts-cloud-priority" class="setting-select priority-select" autocomplete="off" @change="cloudTtsRemoved = false">
+              <option :value="0">Disabled</option>
+              <option :value="1">First</option>
+              <option :value="2">Second</option>
+              <option :value="3">Third</option>
+            </select>
+          </div>
         </div>
         <div class="row bordered compact-provider-row">
-          <select v-model="cloudTtsProvider" class="setting-select" @change="resetCloudTtsEndpoint">
-            <option value="venice">Venice</option>
-            <option value="openai-compatible">OpenAI-compatible</option>
-          </select>
-          <input v-model="cloudTtsBaseUrl" class="provider-input provider-url" type="url" aria-label="Cloud TTS base URL" @input="clearDiscovery('tts-cloud')" />
+          <div class="provider-field">
+            <label for="tts-cloud-provider">Provider</label>
+            <select id="tts-cloud-provider" v-model="cloudTtsProvider" name="tts-cloud-provider" class="setting-select" autocomplete="off" @change="resetCloudTtsEndpoint">
+              <option value="venice">Venice</option>
+              <option value="openai-compatible">OpenAI-compatible</option>
+            </select>
+          </div>
+          <div class="provider-field provider-url-field">
+            <label for="tts-cloud-base-url">Base URL</label>
+            <input id="tts-cloud-base-url" v-model="cloudTtsBaseUrl" name="tts-cloud-base-url" class="provider-input provider-url" type="url" autocomplete="off" data-1p-ignore="true" data-bwignore="true" data-lpignore="true" @input="clearDiscovery('tts-cloud')" />
+          </div>
         </div>
         <div class="row bordered compact-provider-row">
-          <DiscoveryCombobox
-            :model-value="cloudTtsModel"
-            :options="modelChoices('tts-cloud')"
-            :loaded="discovery['tts-cloud'].loaded"
-            :loading="discovery['tts-cloud'].loading"
-            label="Cloud TTS model"
-            placeholder="Model ID"
-            @update:model-value="updateTtsModel('cloud', $event)"
-            @select="selectTtsModel('cloud', $event)"
-          />
-          <DiscoveryCombobox
-            v-model="cloudTtsVoice"
-            :options="voiceChoices('tts-cloud')"
-            :loaded="cloudTtsProvider === 'venice' && discovery['tts-cloud'].voiceModel === cloudTtsModel"
-            :loading="discovery['tts-cloud'].loading"
-            label="Cloud TTS voice"
-            placeholder="Voice ID"
-          />
-          <input
-            v-model="cloudTtsApiKey"
-            class="provider-input provider-key"
-            type="password"
-            autocomplete="off"
-            :placeholder="ttsProvider.config.cloud?.hasApiKey ? 'Encrypted key stored' : 'API key'"
-            aria-label="Cloud TTS API key"
-            @input="clearDiscovery('tts-cloud')"
-          />
+          <div class="provider-field">
+            <label for="tts-cloud-model">Model</label>
+            <DiscoveryCombobox
+              id="tts-cloud-model"
+              :model-value="cloudTtsModel"
+              :options="modelChoices('tts-cloud')"
+              :loaded="discovery['tts-cloud'].loaded"
+              :loading="discovery['tts-cloud'].loading"
+              label="Cloud TTS model"
+              placeholder="Model ID"
+              @update:model-value="updateTtsModel('cloud', $event)"
+              @select="selectTtsModel('cloud', $event)"
+            />
+          </div>
+          <div class="provider-field">
+            <label for="tts-cloud-voice">Voice</label>
+            <DiscoveryCombobox
+              id="tts-cloud-voice"
+              v-model="cloudTtsVoice"
+              :options="voiceChoices('tts-cloud')"
+              :loaded="cloudTtsProvider === 'venice' && discovery['tts-cloud'].voiceModel === cloudTtsModel"
+              :loading="discovery['tts-cloud'].loading"
+              label="Cloud TTS voice"
+              placeholder="Voice ID"
+            />
+          </div>
+          <div class="provider-field provider-key-field">
+            <label for="tts-cloud-api-key">API key</label>
+            <ProviderSecretInput
+              id="tts-cloud-api-key"
+              v-model="cloudTtsApiKey"
+              class="provider-key"
+              label="Cloud TTS API key"
+              :placeholder="ttsProvider.config.cloud?.hasApiKey ? 'Encrypted key stored' : 'API key'"
+              @update:model-value="clearDiscovery('tts-cloud')"
+            />
+          </div>
           <button class="pill action" type="button" :disabled="discovery['tts-cloud'].loading || !cloudTtsBaseUrl.trim()" @click="loadTtsModels('cloud')">
             {{ discovery['tts-cloud'].loading ? 'Loading…' : discovery['tts-cloud'].loaded ? 'Refresh models' : 'Test & load models' }}
           </button>
@@ -1081,12 +1120,15 @@ async function rebuildSemanticIndex(): Promise<void> {
             <div class="row-sub">Uses the browser’s recognition service when genuinely available; the browser vendor may process audio remotely</div>
           </div>
           <div class="spacer"></div>
-          <select v-model.number="browserSttPriority" class="setting-select priority-select" aria-label="Browser STT priority">
-            <option :value="0">Disabled</option>
-            <option :value="1">First</option>
-            <option :value="2">Second</option>
-            <option :value="3">Third</option>
-          </select>
+          <div class="priority-control">
+            <label for="stt-browser-priority">Priority</label>
+            <select id="stt-browser-priority" v-model.number="browserSttPriority" name="stt-browser-priority" class="setting-select priority-select" autocomplete="off">
+              <option :value="0">Disabled</option>
+              <option :value="1">First</option>
+              <option :value="2">Second</option>
+              <option :value="3">Third</option>
+            </select>
+          </div>
         </div>
         <div class="row bordered provider-heading">
           <div class="row-text">
@@ -1094,34 +1136,46 @@ async function rebuildSemanticIndex(): Promise<void> {
             <div class="row-sub">Records in this browser, then sends audio only to the configured local network or private sidecar</div>
           </div>
           <div class="spacer"></div>
-          <select v-model.number="localSttPriority" class="setting-select priority-select" aria-label="Local STT priority" @change="localSttRemoved = false">
-            <option :value="0">Disabled</option>
-            <option :value="1">First</option>
-            <option :value="2">Second</option>
-            <option :value="3">Third</option>
-          </select>
+          <div class="priority-control">
+            <label for="stt-local-priority">Priority</label>
+            <select id="stt-local-priority" v-model.number="localSttPriority" name="stt-local-priority" class="setting-select priority-select" autocomplete="off" @change="localSttRemoved = false">
+              <option :value="0">Disabled</option>
+              <option :value="1">First</option>
+              <option :value="2">Second</option>
+              <option :value="3">Third</option>
+            </select>
+          </div>
         </div>
         <div class="row bordered compact-provider-row">
-          <input v-model="localSttBaseUrl" class="provider-input provider-url" type="url" aria-label="Local STT base URL" @input="clearDiscovery('stt-local')" />
-          <DiscoveryCombobox
-            v-model="localSttModel"
-            :options="modelChoices('stt-local')"
-            :loaded="discovery['stt-local'].loaded"
-            :loading="discovery['stt-local'].loading"
-            label="Local STT model"
-            placeholder="Model ID"
-          />
+          <div class="provider-field provider-url-field">
+            <label for="stt-local-base-url">Base URL</label>
+            <input id="stt-local-base-url" v-model="localSttBaseUrl" name="stt-local-base-url" class="provider-input provider-url" type="url" autocomplete="off" data-1p-ignore="true" data-bwignore="true" data-lpignore="true" @input="clearDiscovery('stt-local')" />
+          </div>
+          <div class="provider-field">
+            <label for="stt-local-model">Model</label>
+            <DiscoveryCombobox
+              id="stt-local-model"
+              v-model="localSttModel"
+              :options="modelChoices('stt-local')"
+              :loaded="discovery['stt-local'].loaded"
+              :loading="discovery['stt-local'].loading"
+              label="Local STT model"
+              placeholder="Model ID"
+            />
+          </div>
         </div>
         <div class="row bordered compact-provider-row">
-          <input
-            v-model="localSttApiKey"
-            class="provider-input provider-key"
-            type="password"
-            autocomplete="off"
-            :placeholder="sttProvider.config.local?.hasApiKey ? 'Encrypted key stored — blank keeps it' : 'Optional local API key'"
-            aria-label="Local STT API key"
-            @input="clearDiscovery('stt-local')"
-          />
+          <div class="provider-field provider-key-field">
+            <label for="stt-local-api-key">API key</label>
+            <ProviderSecretInput
+              id="stt-local-api-key"
+              v-model="localSttApiKey"
+              class="provider-key"
+              label="Local STT API key"
+              :placeholder="sttProvider.config.local?.hasApiKey ? 'Encrypted key stored — blank keeps it' : 'Optional local API key'"
+              @update:model-value="clearDiscovery('stt-local')"
+            />
+          </div>
           <button class="pill action" type="button" :disabled="discovery['stt-local'].loading || !localSttBaseUrl.trim()" @click="loadSttModels('local')">
             {{ discovery['stt-local'].loading ? 'Loading…' : discovery['stt-local'].loaded ? 'Refresh models' : 'Test & load models' }}
           </button>
@@ -1138,38 +1192,53 @@ async function rebuildSemanticIndex(): Promise<void> {
             <div class="row-sub">Microphone audio leaves this deployment only when this tier is explicitly present in the saved order</div>
           </div>
           <div class="spacer"></div>
-          <select v-model.number="cloudSttPriority" class="setting-select priority-select" aria-label="Cloud STT priority" @change="cloudSttRemoved = false">
-            <option :value="0">Disabled</option>
-            <option :value="1">First</option>
-            <option :value="2">Second</option>
-            <option :value="3">Third</option>
-          </select>
+          <div class="priority-control">
+            <label for="stt-cloud-priority">Priority</label>
+            <select id="stt-cloud-priority" v-model.number="cloudSttPriority" name="stt-cloud-priority" class="setting-select priority-select" autocomplete="off" @change="cloudSttRemoved = false">
+              <option :value="0">Disabled</option>
+              <option :value="1">First</option>
+              <option :value="2">Second</option>
+              <option :value="3">Third</option>
+            </select>
+          </div>
         </div>
         <div class="row bordered compact-provider-row">
-          <select v-model="cloudSttProvider" class="setting-select" aria-label="Cloud STT provider" @change="resetCloudSttEndpoint">
-            <option value="venice">Venice</option>
-            <option value="openai-compatible">OpenAI-compatible</option>
-          </select>
-          <input v-model="cloudSttBaseUrl" class="provider-input provider-url" type="url" aria-label="Cloud STT base URL" @input="clearDiscovery('stt-cloud')" />
+          <div class="provider-field">
+            <label for="stt-cloud-provider">Provider</label>
+            <select id="stt-cloud-provider" v-model="cloudSttProvider" name="stt-cloud-provider" class="setting-select" autocomplete="off" @change="resetCloudSttEndpoint">
+              <option value="venice">Venice</option>
+              <option value="openai-compatible">OpenAI-compatible</option>
+            </select>
+          </div>
+          <div class="provider-field provider-url-field">
+            <label for="stt-cloud-base-url">Base URL</label>
+            <input id="stt-cloud-base-url" v-model="cloudSttBaseUrl" name="stt-cloud-base-url" class="provider-input provider-url" type="url" autocomplete="off" data-1p-ignore="true" data-bwignore="true" data-lpignore="true" @input="clearDiscovery('stt-cloud')" />
+          </div>
         </div>
         <div class="row bordered compact-provider-row">
-          <DiscoveryCombobox
-            v-model="cloudSttModel"
-            :options="modelChoices('stt-cloud')"
-            :loaded="discovery['stt-cloud'].loaded"
-            :loading="discovery['stt-cloud'].loading"
-            label="Cloud STT model"
-            placeholder="Model ID"
-          />
-          <input
-            v-model="cloudSttApiKey"
-            class="provider-input provider-key"
-            type="password"
-            autocomplete="off"
-            :placeholder="sttProvider.config.cloud?.hasApiKey ? 'Encrypted key stored' : 'API key'"
-            aria-label="Cloud STT API key"
-            @input="clearDiscovery('stt-cloud')"
-          />
+          <div class="provider-field">
+            <label for="stt-cloud-model">Model</label>
+            <DiscoveryCombobox
+              id="stt-cloud-model"
+              v-model="cloudSttModel"
+              :options="modelChoices('stt-cloud')"
+              :loaded="discovery['stt-cloud'].loaded"
+              :loading="discovery['stt-cloud'].loading"
+              label="Cloud STT model"
+              placeholder="Model ID"
+            />
+          </div>
+          <div class="provider-field provider-key-field">
+            <label for="stt-cloud-api-key">API key</label>
+            <ProviderSecretInput
+              id="stt-cloud-api-key"
+              v-model="cloudSttApiKey"
+              class="provider-key"
+              label="Cloud STT API key"
+              :placeholder="sttProvider.config.cloud?.hasApiKey ? 'Encrypted key stored' : 'API key'"
+              @update:model-value="clearDiscovery('stt-cloud')"
+            />
+          </div>
           <button class="pill action" type="button" :disabled="discovery['stt-cloud'].loading || !cloudSttBaseUrl.trim()" @click="loadSttModels('cloud')">
             {{ discovery['stt-cloud'].loading ? 'Loading…' : discovery['stt-cloud'].loaded ? 'Refresh models' : 'Test & load models' }}
           </button>
@@ -1226,11 +1295,11 @@ async function rebuildSemanticIndex(): Promise<void> {
       <div class="card">
         <div class="row bordered">
           <div class="row-text">
-            <div class="row-title">Provider</div>
+            <label class="row-title" for="study-provider-kind">Provider</label>
             <div class="row-sub">Any OpenAI-compatible endpoint, Claude, or local Llama</div>
           </div>
           <div class="spacer"></div>
-          <select v-model="providerKind" class="setting-select" @change="resetProviderEndpoint">
+          <select id="study-provider-kind" v-model="providerKind" name="study-provider-kind" class="setting-select" autocomplete="off" @change="resetProviderEndpoint">
             <option value="openai-compatible">OpenAI-compatible</option>
             <option value="anthropic">Anthropic</option>
             <option value="local">Local</option>
@@ -1238,20 +1307,21 @@ async function rebuildSemanticIndex(): Promise<void> {
         </div>
         <div class="row bordered">
           <div class="row-text">
-            <div class="row-title">Base URL</div>
+            <label class="row-title" for="study-provider-base-url">Base URL</label>
             <div class="row-sub">Resolved by the Sword server, including inside containers</div>
           </div>
           <div class="spacer"></div>
-          <input v-model="providerBaseUrl" class="provider-input provider-url" type="url" aria-label="Study partner base URL" @input="clearDiscovery('chat')" />
+          <input id="study-provider-base-url" v-model="providerBaseUrl" name="study-provider-base-url" class="provider-input provider-url" type="url" autocomplete="off" data-1p-ignore="true" data-bwignore="true" data-lpignore="true" @input="clearDiscovery('chat')" />
         </div>
         <div class="row bordered">
           <div class="row-text">
-            <div class="row-title">Model</div>
+            <label class="row-title" for="study-provider-model">Model</label>
             <div class="row-sub">Exact model identifier expected by this provider</div>
           </div>
           <div class="spacer"></div>
           <div class="discovery-controls">
             <DiscoveryCombobox
+              id="study-provider-model"
               v-model="providerModel"
               :options="modelChoices('chat')"
               :loaded="discovery.chat.loaded"
@@ -1266,7 +1336,7 @@ async function rebuildSemanticIndex(): Promise<void> {
         </div>
         <div class="row bordered">
           <div class="row-text">
-            <div class="row-title">API key</div>
+            <label class="row-title" for="study-provider-api-key">API key</label>
             <div class="row-sub">
               <template v-if="aiProvider.provider?.hasApiKey">Encrypted key stored — leave blank to keep it</template>
               <template v-else-if="providerKind === 'local'">Optional for a local endpoint</template>
@@ -1274,13 +1344,12 @@ async function rebuildSemanticIndex(): Promise<void> {
             </div>
           </div>
           <div class="spacer"></div>
-          <input
+          <ProviderSecretInput
+            id="study-provider-api-key"
             v-model="providerApiKey"
-            class="provider-input"
-            type="password"
-            autocomplete="off"
+            label="Study partner API key"
             :placeholder="aiProvider.provider?.hasApiKey ? '••••••••' : 'API key'"
-            @input="clearDiscovery('chat')"
+            @update:model-value="clearDiscovery('chat')"
           />
         </div>
         <div class="row bordered provider-actions">
@@ -1352,31 +1421,32 @@ async function rebuildSemanticIndex(): Promise<void> {
         </div>
         <div class="row bordered">
           <div class="row-text">
-            <div class="row-title">Embedding provider</div>
+            <label class="row-title" for="embedding-provider-kind">Embedding provider</label>
             <div class="row-sub">OpenAI-compatible API or a local embeddings server</div>
           </div>
           <div class="spacer"></div>
-          <select v-model="embeddingKind" class="setting-select" @change="resetEmbeddingEndpoint">
+          <select id="embedding-provider-kind" v-model="embeddingKind" name="embedding-provider-kind" class="setting-select" autocomplete="off" @change="resetEmbeddingEndpoint">
             <option value="openai-compatible">OpenAI-compatible</option>
             <option value="local">Local</option>
           </select>
         </div>
         <div class="row bordered">
           <div class="row-text">
-            <div class="row-title">Embedding base URL</div>
+            <label class="row-title" for="embedding-provider-base-url">Embedding base URL</label>
             <div class="row-sub">The Sword server calls its /embeddings endpoint</div>
           </div>
           <div class="spacer"></div>
-          <input v-model="embeddingBaseUrl" class="provider-input provider-url" type="url" aria-label="Embedding base URL" @input="clearDiscovery('embedding')" />
+          <input id="embedding-provider-base-url" v-model="embeddingBaseUrl" name="embedding-provider-base-url" class="provider-input provider-url" type="url" autocomplete="off" data-1p-ignore="true" data-bwignore="true" data-lpignore="true" @input="clearDiscovery('embedding')" />
         </div>
         <div class="row bordered">
           <div class="row-text">
-            <div class="row-title">Embedding model</div>
+            <label class="row-title" for="embedding-provider-model">Embedding model</label>
             <div class="row-sub">Use a model intended for semantic similarity</div>
           </div>
           <div class="spacer"></div>
           <div class="discovery-controls">
             <DiscoveryCombobox
+              id="embedding-provider-model"
               v-model="embeddingModel"
               :options="modelChoices('embedding')"
               :loaded="discovery.embedding.loaded"
@@ -1391,11 +1461,13 @@ async function rebuildSemanticIndex(): Promise<void> {
         </div>
         <div class="row bordered">
           <div class="row-text">
-            <div class="row-title">Rebuild batch size</div>
+            <label class="row-title" for="embedding-provider-batch-size">Rebuild batch size</label>
             <div class="row-sub">Maximum verses per provider request (1–64); oversized batches retry smaller</div>
           </div>
           <div class="spacer"></div>
           <input
+            id="embedding-provider-batch-size"
+            name="embedding-provider-batch-size"
             v-model.number="embeddingBatchSize"
             class="provider-input batch-size-input"
             type="number"
@@ -1403,12 +1475,13 @@ async function rebuildSemanticIndex(): Promise<void> {
             max="64"
             step="1"
             inputmode="numeric"
+            autocomplete="off"
             aria-label="Embedding rebuild batch size"
           />
         </div>
         <div class="row bordered">
           <div class="row-text">
-            <div class="row-title">Embedding API key</div>
+            <label class="row-title" for="embedding-provider-api-key">Embedding API key</label>
             <div class="row-sub">
               <template v-if="semanticIndex.provider?.hasApiKey">Encrypted key stored — leave blank to keep it</template>
               <template v-else-if="embeddingKind === 'local'">Optional for a local endpoint</template>
@@ -1416,13 +1489,12 @@ async function rebuildSemanticIndex(): Promise<void> {
             </div>
           </div>
           <div class="spacer"></div>
-          <input
+          <ProviderSecretInput
+            id="embedding-provider-api-key"
             v-model="embeddingApiKey"
-            class="provider-input"
-            type="password"
-            autocomplete="off"
+            label="Embedding API key"
             :placeholder="semanticIndex.provider?.hasApiKey ? '••••••••' : 'API key'"
-            @input="clearDiscovery('embedding')"
+            @update:model-value="clearDiscovery('embedding')"
           />
         </div>
         <div class="row provider-actions">
@@ -1643,16 +1715,42 @@ h1 {
 .batch-size-input { width: 88px; }
 .provider-input:focus { outline: none; border-color: var(--accent); }
 .priority-select { min-width: 92px; }
+.priority-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.priority-control label,
+.provider-field > label {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
 .provider-heading { background: color-mix(in srgb, var(--soft) 42%, transparent); }
 .deployment-provider-row { background: color-mix(in srgb, var(--soft) 58%, transparent); }
 .readiness-ready { color: #34744a; }
 .readiness-starting,
 .readiness-unavailable { color: var(--accent); }
 .compact-provider-row { align-items: stretch; flex-wrap: wrap; }
-.compact-provider-row .provider-input { flex: 1 1 130px; width: auto; }
-.compact-provider-row .provider-url { flex-basis: 260px; }
-.compact-provider-row .provider-key { flex-basis: 220px; }
-.compact-provider-row .discovery-combobox { flex: 1 1 180px; width: auto; }
+.provider-field {
+  display: flex;
+  flex: 1 1 180px;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+.provider-url-field { flex-basis: 260px; }
+.provider-key-field { flex-basis: 220px; }
+.compact-provider-row .provider-input,
+.compact-provider-row .provider-key,
+.compact-provider-row .setting-select,
+.compact-provider-row .discovery-combobox {
+  width: 100%;
+  max-width: none;
+}
+.compact-provider-row > .pill { align-self: flex-end; }
 .discovery-controls { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
 .provider-warning { color: var(--accent); font-size: 12px; }
 .provider-actions { gap: 8px; }
@@ -1690,6 +1788,8 @@ h1 {
   }
   .discovery-controls { width: 100%; flex-wrap: wrap; }
   .discovery-controls .discovery-combobox { flex: 1 1 100%; width: 100%; }
+  .priority-control { width: 100%; justify-content: flex-end; }
+  .provider-field { flex-basis: 100%; }
   .translation-default-row {
     align-items: stretch;
     flex-direction: column;

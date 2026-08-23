@@ -9,6 +9,7 @@ import {
 export type { DiscoveryChoice } from './discoveryChoices'
 
 const props = withDefaults(defineProps<{
+  id: string
   modelValue: string
   options: DiscoveryChoice[]
   loaded: boolean
@@ -105,11 +106,18 @@ function closeSoon(): void {
     <div class="input-wrap">
       <input
         ref="input"
+        :id="id"
+        :name="id"
         :value="modelValue"
         class="discovery-input"
         :placeholder="placeholder"
         role="combobox"
         autocomplete="off"
+        autocapitalize="off"
+        data-1p-ignore="true"
+        data-bwignore="true"
+        data-lpignore="true"
+        spellcheck="false"
         :aria-label="label"
         :aria-expanded="open"
         :aria-controls="listboxId"
