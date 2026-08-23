@@ -24,11 +24,15 @@ describe('discovery choices', () => {
     expect(isStaleDiscoveryChoice(choices, 'manual-new-model', true)).toBe(true)
     const app = createSSRApp({
       render: () => h(DiscoveryCombobox, {
-        modelValue: 'manual-new-model', options: choices, loaded: true, label: 'Model'
+        id: 'provider-model', modelValue: 'manual-new-model', options: choices, loaded: true, label: 'Model'
       })
     })
     const html = await renderToString(app)
     expect(html).toContain('value="manual-new-model"')
+    expect(html).toContain('id="provider-model"')
+    expect(html).toContain('name="provider-model"')
+    expect(html).toContain('autocomplete="off"')
+    expect(html).toContain('data-1p-ignore="true"')
     expect(html).toContain('will be preserved')
   })
 })
