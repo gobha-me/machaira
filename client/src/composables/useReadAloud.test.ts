@@ -15,7 +15,7 @@ class FakeUtterance {
 class FakeAudio {
   onended: (() => void) | null = null
   onerror: (() => void) | null = null
-  play = vi.fn(async () => undefined)
+  play = vi.fn<() => Promise<void>>(async () => undefined)
   pause = vi.fn()
 }
 
@@ -133,6 +133,73 @@ describe('read-aloud controller', () => {
     expect(releases[1]).toHaveBeenCalledOnce()
   })
 
+  it('shows remote preparation and ignores pause until audio is ready', async () => {
+    let resolveFetch!: (blob: Blob) => void
+    const { result, audios } = environment()
+    result.fetchAudio = vi.fn(() => new Promise<Blob>((resolve) => {
+      resolveFetch = resolve
+    }))
+    const controller = createReadAloudController({
+      verses: () => [{ n: 1, text: 'one' }],
+      startVerse: () => null,
+      config: () => config(['local'])
+    }, result)
+
+    controller.start()
+    expect(controller.preparing.value).toBe(true)
+    expect(controller.playing.value).toBe(true)
+    controller.togglePlayback()
+    expect(controller.playing.value).toBe(true)
+
+    resolveFetch(new Blob(['audio'], { type: 'audio/mpeg' }))
+    await vi.waitFor(() => expect(audios).toHaveLength(1))
+    expect(controller.preparing.value).toBe(false)
+    audios[0].onended?.()
+    await vi.waitFor(() => expect(controller.completed.value).toBe(true))
+  })
+
+  it('defers URL release when restarting during a pending play attempt', async () => {
+    let resolveFirstPlay!: () => void
+    const complete = vi.fn()
+    const { result, audios, releases } = environment()
+    const createAudio = result.createAudio!
+    let audioCount = 0
+    result.createAudio = (blob) => {
+      const created = createAudio(blob)
+      if (audioCount === 0) {
+        const audio = created.audio as FakeAudio
+        audio.play.mockImplementationOnce(
+          () => new Promise<void>((resolve) => { resolveFirstPlay = resolve })
+        )
+      }
+      audioCount += 1
+      return created
+    }
+    const controller = createReadAloudController({
+      verses: () => [{ n: 1, text: 'one' }],
+      startVerse: () => null,
+      config: () => config(['local']),
+      onComplete: complete
+    }, result)
+
+    controller.start()
+    await vi.waitFor(() => expect(audios).toHaveLength(1))
+    controller.start()
+    await vi.waitFor(() => expect(audios).toHaveLength(2))
+
+    expect(audios[0].pause).toHaveBeenCalledOnce()
+    expect(releases[0]).not.toHaveBeenCalled()
+    expect(controller.error.value).toBeNull()
+    expect(complete).not.toHaveBeenCalled()
+
+    resolveFirstPlay()
+    await vi.waitFor(() => expect(releases[0]).toHaveBeenCalledOnce())
+    audios[1].onended?.()
+    await vi.waitFor(() => expect(controller.completed.value).toBe(true))
+    expect(releases[1]).toHaveBeenCalledOnce()
+    expect(complete).toHaveBeenCalledOnce()
+  })
+
   it('visibly falls back in the configured order without reaching cloud', async () => {
     const { result, utterances, fetchAudio, audios } = environment()
     const controller = createReadAloudController({
@@ -148,6 +215,34 @@ describe('read-aloud controller', () => {
     expect(fetchAudio).toHaveBeenCalledWith('local', 'one', expect.any(AbortSignal))
     expect(fetchAudio.mock.calls.some((call) => call[0] === 'cloud')).toBe(false)
     audios[0].onended?.()
+    await vi.waitFor(() => expect(controller.completed.value).toBe(true))
+  })
+
+  it('surfaces an initial remote playback failure through provider fallback', async () => {
+    const { result, audios, releases, fetchAudio } = environment()
+    const createAudio = result.createAudio!
+    let audioCount = 0
+    result.createAudio = (blob) => {
+      const created = createAudio(blob)
+      if (audioCount === 0) {
+        const audio = created.audio as FakeAudio
+        audio.play.mockRejectedValueOnce(new Error('playback blocked'))
+      }
+      audioCount += 1
+      return created
+    }
+    const controller = createReadAloudController({
+      verses: () => [{ n: 1, text: 'one' }],
+      startVerse: () => null,
+      config: () => config(['local', 'cloud'])
+    }, result)
+
+    controller.start()
+    await vi.waitFor(() => expect(audios).toHaveLength(2))
+    expect(releases[0]).toHaveBeenCalledOnce()
+    expect(controller.notice.value).toBe('Local TTS failed; continuing with Cloud TTS')
+    expect(fetchAudio.mock.calls.map((call) => call[0])).toEqual(['local', 'cloud'])
+    audios[1].onended?.()
     await vi.waitFor(() => expect(controller.completed.value).toBe(true))
   })
 
