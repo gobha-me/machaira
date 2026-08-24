@@ -40,7 +40,10 @@ const BOOKS: BookInfo[] = [
   ['Sus', 'Susanna', 'apocrypha'], ['Bel', 'Bel and the Dragon', 'apocrypha'],
   ['1Macc', '1 Maccabees', 'apocrypha'], ['2Macc', '2 Maccabees', 'apocrypha'],
   ['1Esd', '1 Esdras', 'apocrypha'], ['2Esd', '2 Esdras', 'apocrypha'],
-  ['PrMan', 'Prayer of Manasseh', 'apocrypha']
+  ['PrMan', 'Prayer of Manasseh', 'apocrypha'],
+  ['AddPs', 'Additional Psalm', 'apocrypha'], ['Ps151', 'Psalm 151', 'apocrypha'],
+  ['3Macc', '3 Maccabees', 'apocrypha'], ['4Macc', '4 Maccabees', 'apocrypha'],
+  ['EpLao', 'Epistle to the Laodiceans', 'apocrypha']
 ].map(([code, name, section]) => ({ code, name, section }) as BookInfo)
 
 const BY_CODE = new Map(BOOKS.map((b) => [b.code, b]))
@@ -72,7 +75,11 @@ export function bookName(code: string): string {
 }
 
 export function bookInfo(code: string): BookInfo {
-  return BY_CODE.get(code) ?? { code, name: code, section: 'ot' }
+  return BY_CODE.get(code) ?? { code, name: code, section: 'apocrypha' }
+}
+
+export function isDeuterocanonicalBook(code: string): boolean {
+  return bookInfo(code).section === 'apocrypha'
 }
 
 /** Resolve an OSIS code or an unambiguous English display name to the canonical OSIS code. */

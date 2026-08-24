@@ -1,6 +1,7 @@
 import type { ModuleInfo } from '../../services/api'
 
 export const pathologicalModule: ModuleInfo = {
+  id: 'Regression fixture:eng_Unbroken_Translation_Module_Identifier_With_An_Excessively_Long_Name_2026',
   name: 'eng_Unbroken_Translation_Module_Identifier_With_An_Excessively_Long_Name_2026',
   type: 'BIBLE',
   description:
@@ -21,5 +22,13 @@ export const pathologicalModule: ModuleInfo = {
   hasRedLetterWords: false,
   hasCrossReferences: true,
   locked: false,
-  installed: false
+  installed: false,
+  kind: 'scripture',
+  collection: 'deuterocanon',
+  tradition: 'Regression tradition',
+  coverage: ['Tob', 'Jdt'],
+  coverageSource: 'audit',
+  format: 'bundled',
+  coverageSummary: 'Regression coverage summary',
+  aiEligibility: 'review-required'
 }

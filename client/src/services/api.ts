@@ -1,6 +1,7 @@
 // Typed client for the local SWORD backend (proxied at /api in dev).
 
 export interface ModuleInfo {
+  id: string
   name: string
   type: string
   description: string
@@ -9,6 +10,7 @@ export interface ModuleInfo {
   distributionLicense?: string
   repository?: string
   version?: string
+  versification?: string
   size?: number
   about?: string
   hasStrongs: boolean
@@ -20,6 +22,30 @@ export interface ModuleInfo {
   hasCrossReferences: boolean
   locked: boolean
   installed: boolean
+  kind: 'scripture' | 'general-book' | 'lexicon' | 'commentary'
+  collection: 'bible' | 'deuterocanon' | 'ancient-writings' | 'reference'
+  tradition?: string
+  coverage: string[]
+  coverageSource: 'live' | 'audit' | 'unknown'
+  format: 'bundled' | 'standalone' | 'reference'
+  coverageSummary: string
+  aiEligibility: 'public-domain' | 'review-required'
+}
+
+export interface RepositoryDiagnostic {
+  name: string
+  status: 'healthy' | 'failed' | 'cached' | 'unknown'
+  moduleCount: number
+  message?: string
+}
+
+export interface CatalogPayload {
+  modules: ModuleInfo[]
+  diagnostics: {
+    refreshedAt: number
+    usedCachedCatalog: boolean
+    repositories: RepositoryDiagnostic[]
+  }
 }
 
 export interface BookEntry {
@@ -87,7 +113,8 @@ export interface CommentaryPayload {
   entries: CommentaryEntry[]
 }
 
-export interface SearchHit {
+export interface ScriptureSearchHit {
+  kind: 'scripture'
   module: string
   book: string
   bookName: string
@@ -96,8 +123,23 @@ export interface SearchHit {
   content: string
 }
 
-export interface SemanticSearchHit extends SearchHit {
-  distance: number
+export interface GeneralBookSearchHit {
+  kind: 'general-book'
+  module: string
+  key: string
+  title: string
+  content: string
+}
+
+export type SearchHit = ScriptureSearchHit | GeneralBookSearchHit
+
+export type SemanticSearchHit = SearchHit & { distance: number }
+
+export interface GeneralBookEntry {
+  key: string
+  title: string
+  content: string
+  depth: number
 }
 
 export interface ScriptureTarget {
@@ -440,8 +482,14 @@ export const api = {
     return (await getJson<{ repositories: string[] }>('/api/repositories')).repositories
   },
 
-  async sources(type: 'BIBLE' | 'DICT' | 'COMMENTARY' = 'BIBLE'): Promise<ModuleInfo[]> {
+  async sources(type: 'BIBLE' | 'GENBOOK' | 'DICT' | 'COMMENTARY' = 'BIBLE'): Promise<ModuleInfo[]> {
     return (await getJson<{ modules: ModuleInfo[] }>(`/api/sources?type=${type}`)).modules
+  },
+
+  async catalog(refresh = false): Promise<CatalogPayload> {
+    return refresh
+      ? requestJson<CatalogPayload>('/api/catalog/refresh', { method: 'POST' })
+      : getJson<CatalogPayload>('/api/catalog')
   },
 
   async installed(): Promise<ModuleInfo[]> {
@@ -454,9 +502,9 @@ export const api = {
   },
 
   /** Install a module, streaming progress via SSE. Resolves when done. */
-  install(module: string, onProgress: (pct: number) => void): Promise<void> {
+  install(repository: string, module: string, onProgress: (pct: number) => void): Promise<void> {
     return new Promise((resolve, reject) => {
-      request(`/api/sources/${encodeURIComponent(module)}/install`, { method: 'POST' })
+      request('/api/sources/install', json('POST', { repository, module }))
         .then((res) => {
           if (!res.ok) throw new ApiError(res.status, {})
           if (!res.body) return reject(new Error('no stream'))
@@ -486,6 +534,24 @@ export const api = {
         })
         .catch(reject)
     })
+  },
+
+  async importSword(file: File): Promise<string[]> {
+    const body = new FormData()
+    body.append('module', file)
+    return (await requestJson<{ modules: string[] }>('/api/sources/import', { method: 'POST', body })).modules
+  },
+
+  async generalBookEntries(module: string): Promise<GeneralBookEntry[]> {
+    return (await getJson<{ entries: GeneralBookEntry[] }>(`/api/general-books/${encodeURIComponent(module)}/entries`)).entries
+  },
+
+  async corpusPreferences(): Promise<Record<string, boolean>> {
+    return (await getJson<{ preferences: Record<string, boolean> }>('/api/corpus/preferences')).preferences
+  },
+
+  async setCorpusPreference(module: string, enabled: boolean): Promise<void> {
+    await requestJson('/api/corpus/preferences', json('PUT', { module, enabled, licenseAcknowledged: enabled }))
   },
 
   async books(module: string): Promise<BookEntry[]> {

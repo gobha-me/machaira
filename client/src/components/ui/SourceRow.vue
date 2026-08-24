@@ -1,160 +1,69 @@
 <script setup lang="ts">
 import type { ModuleInfo } from '../../services/api'
 
-const props = defineProps<{
-  module: ModuleInfo
-  installed: boolean
-  installing: boolean
-  progress: number
-  last?: boolean
-}>()
-
+defineProps<{ module: ModuleInfo; installing: boolean; progress: number }>()
 const emit = defineEmits<{
-  (e: 'install', name: string): void
-  (e: 'uninstall', name: string): void
+  (event: 'install', module: ModuleInfo): void
+  (event: 'uninstall', name: string): void
+  (event: 'details', module: ModuleInfo): void
 }>()
 
-function title(m: ModuleInfo): string {
-  return m.name
-}
-
-function subtitle(m: ModuleInfo): string {
-  const bits: string[] = []
-  if (m.description?.trim() && m.description.trim() !== m.name) bits.push(m.description.trim())
-  if (m.language) bits.push(m.language.toUpperCase())
-  if (m.distributionLicense) bits.push(m.distributionLicense)
-  if (m.abbreviation && m.abbreviation !== m.name) bits.push(m.abbreviation)
-  return bits.join(' · ')
-}
-
-function fullLabel(m: ModuleInfo): string {
-  return `${title(m)} · ${subtitle(m)}`
+function kindLabel(module: ModuleInfo): string {
+  if (module.collection === 'deuterocanon') return 'Deuterocanon'
+  if (module.kind === 'general-book') return module.collection === 'ancient-writings' ? 'Ancient writing' : 'General book'
+  if (module.kind === 'scripture') return 'Bible'
+  if (module.kind === 'lexicon') return 'Lexicon'
+  return 'Commentary'
 }
 </script>
 
 <template>
-  <div class="row" :class="{ last }">
-    <div class="row-main" :title="fullLabel(module)">
-      <div class="row-title">{{ title(module) }}</div>
-      <div class="row-sub">{{ subtitle(module) }}</div>
+  <article class="source-card" @click="emit('details', module)">
+    <div class="card-top">
+      <div class="identity">
+        <h3>{{ module.description || module.name }}</h3>
+        <div class="code">{{ module.name }} · {{ module.language.toUpperCase() || 'UND' }}</div>
+      </div>
+      <span v-if="module.installed" class="installed">Installed</span>
     </div>
-    <div class="row-actions">
+    <p v-if="module.about" class="about">{{ module.about }}</p>
+    <div class="badges">
+      <span>{{ kindLabel(module) }}</span>
+      <span v-if="module.coverage.length">{{ module.coverage.length }} additional books</span>
+      <span>{{ module.repository || 'Local import' }}</span>
+      <span :class="{ caution: module.aiEligibility === 'review-required' }" :title="module.distributionLicense">
+        {{ module.aiEligibility === 'public-domain' ? 'Public domain' : 'License review' }}
+      </span>
+    </div>
+    <div class="actions" @click.stop>
       <template v-if="installing">
-        <div class="bar"><div class="bar-fill" :style="{ width: progress + '%' }"></div></div>
-        <span class="state installing">Installing {{ progress }}%</span>
+        <div class="bar" role="progressbar" :aria-valuenow="progress"><i :style="{ width: `${progress}%` }"></i></div>
+        <span>Installing {{ progress }}%</span>
       </template>
-
-      <template v-else-if="installed">
-        <span class="state done">Installed ✓</span>
-        <button
-          class="remove hover-accent-text"
-          :aria-label="`Remove ${title(module)}`"
-          @click="emit('uninstall', module.name)"
-        >Remove</button>
-      </template>
-
-      <template v-else>
-        <button
-          class="get hover-soft-accent"
-          :aria-label="`Install ${title(module)}`"
-          @click="emit('install', module.name)"
-        >Get</button>
-      </template>
+      <button v-else-if="module.installed" class="secondary" @click="emit('uninstall', module.name)">Remove</button>
+      <button v-else class="primary" :disabled="!module.repository" @click="emit('install', module)">Install</button>
+      <button class="details" @click="emit('details', module)">Details</button>
     </div>
-  </div>
+  </article>
 </template>
 
 <style scoped>
-.row {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 14px 18px;
-  border-bottom: 1px solid var(--line);
-}
-.row.last {
-  border-bottom: none;
-}
-.row-main {
-  flex: 1;
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.row-title {
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.35;
-}
-.row-sub {
-  font-size: 12px;
-  color: var(--muted);
-  margin-top: 2px;
-  line-height: 1.4;
-}
-.row-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 14px;
-  flex: 0 0 auto;
-}
-.state {
-  font-size: 11.5px;
-  font-weight: 600;
-}
-.state.done {
-  color: var(--muted);
-}
-.state.installing {
-  color: var(--gold);
-}
-.bar {
-  width: 90px;
-  flex: 0 0 90px;
-  height: 4px;
-  background: var(--soft);
-  border-radius: 2px;
-  overflow: hidden;
-}
-.bar-fill {
-  height: 100%;
-  background: var(--gold);
-  transition: width 0.2s;
-}
-.remove {
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--muted);
-  padding: 0;
-}
-.get {
-  background: none;
-  border: 1px solid var(--accent);
-  color: var(--accent);
-  border-radius: 7px;
-  padding: 6px 12px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.hover-soft-accent:hover {
-  background: color-mix(in oklab, var(--accent) 8%, transparent);
-}
-
-@media (max-width: 480px) {
-  .row {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-  .row-actions {
-    align-self: stretch;
-    flex-wrap: wrap;
-  }
-  .bar {
-    flex: 1 1 90px;
-  }
-}
+.source-card { display:flex; flex-direction:column; min-height:170px; padding:18px; border:1px solid var(--line); border-radius:14px; background:var(--card); cursor:pointer; transition:border-color .15s, transform .15s; }
+.source-card:hover { border-color:color-mix(in oklab,var(--accent) 45%,var(--line)); transform:translateY(-1px); }
+.card-top { display:flex; gap:12px; align-items:flex-start; }
+.identity { min-width:0; flex:1; }
+h3 { margin:0; font:600 15px/1.35 inherit; }
+.code { margin-top:4px; color:var(--muted); font-size:11px; }
+.installed { padding:4px 7px; border-radius:999px; color:var(--accent); background:color-mix(in oklab,var(--accent) 10%,transparent); font-size:10px; font-weight:700; }
+.about { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; margin:10px 0 0; color:var(--muted); font-size:12px; line-height:1.45; }
+.badges { display:flex; flex-wrap:wrap; gap:6px; margin:12px 0; }
+.badges span { padding:4px 7px; border-radius:6px; background:var(--soft); color:var(--muted); font-size:10px; }
+.badges .caution { color:var(--gold); }
+.actions { display:flex; align-items:center; gap:8px; margin-top:auto; }
+button { border-radius:7px; padding:7px 11px; cursor:pointer; font:600 11px inherit; }
+.primary { border:1px solid var(--accent); background:var(--accent); color:var(--on-accent); }
+.secondary,.details { border:1px solid var(--line); background:transparent; color:var(--muted); }
+.details { margin-left:auto; }
+.bar { height:4px; flex:1; overflow:hidden; border-radius:4px; background:var(--soft); }
+.bar i { display:block; height:100%; background:var(--accent); }
 </style>

@@ -14,14 +14,14 @@ const ui = useUi()
 const notes = useNotes()
 const semantic = useSemanticIndex()
 
-const SCOPES = ['Everything', 'Scripture', 'Apocrypha', 'Notes & journal'] as const
+const SCOPES = ['Everything', 'Scripture', 'Apocrypha', 'Ancient writings', 'Notes & journal'] as const
 type Scope = (typeof SCOPES)[number]
 type SearchMode = 'exact' | 'meaning'
 
 // Deuterocanon/apocrypha OSIS codes (mirrors the server's book table) for scope filtering.
 const APOCRYPHA = new Set([
   'Tob', 'Jdt', 'AddEsth', 'Wis', 'Sir', 'Bar', 'EpJer', 'PrAzar', 'Sus', 'Bel',
-  '1Macc', '2Macc', '1Esd', '2Esd', 'PrMan', 'Ps151', '3Macc', '4Macc'
+  '1Macc', '2Macc', '1Esd', '2Esd', 'PrMan', 'Ps151', 'AddPs', '3Macc', '4Macc', 'EpLao'
 ])
 
 const q = ref('')
@@ -32,15 +32,18 @@ const loading = ref(false)
 const hits = ref<SearchHit[]>([])
 const noteHits = ref<Note[]>([])
 const error = ref<string | null>(null)
+const selectedGeneral = ref<SearchHit | null>(null)
 
 onMounted(() => {
   void Promise.all([lib.load(), semantic.load()]).catch(() => undefined)
 })
 
-const installedNames = computed(() => lib.installedBibles.map((m) => m.name))
+const installedNames = computed(() => [...lib.installedBibles, ...lib.installedGeneralBooks].map((m) => m.name))
 
 const scriptureHits = computed(() => {
-  if (scope.value === 'Apocrypha') return hits.value.filter((h) => APOCRYPHA.has(h.book))
+  if (scope.value === 'Scripture') return hits.value.filter((h) => h.kind === 'scripture')
+  if (scope.value === 'Apocrypha') return hits.value.filter((h) => h.kind === 'scripture' && APOCRYPHA.has(h.book))
+  if (scope.value === 'Ancient writings') return hits.value.filter((h) => h.kind === 'general-book')
   return hits.value
 })
 
@@ -94,6 +97,10 @@ function openNote(id: string) {
 }
 
 function openHit(h: SearchHit) {
+  if (h.kind === 'general-book') {
+    selectedGeneral.value = h
+    return
+  }
   reader.openRef(h.module, h.book, h.chapter, h.verse)
   ui.go('read')
 }
@@ -126,7 +133,7 @@ const resultCount = computed(() => scriptureHits.value.length + (showNotes.value
     <div class="wrap">
       <h1 class="serif">Search your library</h1>
       <div class="subtitle">
-        Search installed scripture by exact text or meaning. Notes and journal entries use exact text.
+        Search installed scripture and ancient writings by exact text or meaning. Notes and journal entries use exact text.
       </div>
 
       <div class="query-row">
@@ -191,7 +198,7 @@ const resultCount = computed(() => scriptureHits.value.length + (showNotes.value
             @click="openHit(h)"
           >
             <div class="result-head">
-              <span class="rref">{{ h.bookName }} {{ h.chapter }}:{{ h.verse }}</span>
+              <span class="rref">{{ h.kind === 'scripture' ? `${h.bookName} ${h.chapter}:${h.verse}` : h.title }}</span>
               <span class="badge">{{ h.module }}</span>
             </div>
             <div
@@ -218,6 +225,16 @@ const resultCount = computed(() => scriptureHits.value.length + (showNotes.value
           </div>
         </div>
       </template>
+
+      <div v-if="selectedGeneral?.kind === 'general-book'" class="entry-scrim" @click.self="selectedGeneral = null">
+        <article class="entry-dialog">
+          <button aria-label="Close" @click="selectedGeneral = null">×</button>
+          <div class="badge">{{ selectedGeneral.module }}</div>
+          <h2 class="serif">{{ selectedGeneral.title }}</h2>
+          <p class="entry-key">{{ selectedGeneral.key }}</p>
+          <div class="entry-text serif">{{ selectedGeneral.content }}</div>
+        </article>
+      </div>
 
       <template v-else>
         <div class="status hint">Type a word or phrase and press Enter.</div>
@@ -334,6 +351,7 @@ h1 {
   padding: 16px 18px;
   cursor: pointer;
 }
+.entry-scrim{position:fixed;z-index:30;inset:0;display:grid;place-items:center;padding:20px;background:#0007}.entry-dialog{position:relative;width:min(700px,92vw);max-height:82vh;box-sizing:border-box;overflow:auto;padding:28px;border-radius:14px;background:var(--paper);box-shadow:0 20px 60px #0004}.entry-dialog>button{position:absolute;right:16px;top:12px;border:0;background:none;color:var(--muted);font-size:26px;cursor:pointer}.entry-dialog h2{margin:14px 0 3px}.entry-key{color:var(--muted);font-size:11px}.entry-text{white-space:pre-wrap;font-size:16px;line-height:1.7}
 .note-result {
   border-left: 3px solid var(--gold);
 }

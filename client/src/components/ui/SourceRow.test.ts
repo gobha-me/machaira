@@ -6,12 +6,12 @@ import SourceRow from './SourceRow.vue'
 
 describe('SourceRow', () => {
   it.each([
-    { installed: false, installing: false, progress: 0, action: 'Get' },
+    { installed: false, installing: false, progress: 0, action: 'Install' },
     { installed: true, installing: false, progress: 0, action: 'Remove' },
     { installed: false, installing: true, progress: 73, action: 'Installing 73%' }
   ])('keeps complete pathological metadata beside $action state', async (state) => {
     const app = createSSRApp({
-      render: () => h(SourceRow, { module: pathologicalModule, last: true, ...state })
+      render: () => h(SourceRow, { module: { ...pathologicalModule, installed: state.installed }, installing: state.installing, progress: state.progress })
     })
 
     const html = await renderToString(app)

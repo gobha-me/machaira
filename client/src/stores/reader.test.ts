@@ -41,6 +41,7 @@ const standardBooks: BookEntry[] = [
 
 function bible(name: string): ModuleInfo {
   return {
+    id: `CrossWire:${name}`,
     name,
     type: 'BIBLE',
     description: `${name} Bible`,
@@ -53,7 +54,14 @@ function bible(name: string): ModuleInfo {
     hasRedLetterWords: false,
     hasCrossReferences: false,
     locked: false,
-    installed: true
+    installed: true,
+    kind: 'scripture',
+    collection: 'bible',
+    coverage: [],
+    coverageSource: 'unknown',
+    format: 'bundled',
+    coverageSummary: 'Exact book coverage has not been audited',
+    aiEligibility: 'public-domain'
   }
 }
 
@@ -70,8 +78,7 @@ function chapter(moduleName: string, book: string, chapterNumber: number): Chapt
 
 function prepareLibrary(...names: string[]): void {
   const library = useLibrary()
-  library.bibles = names.map(bible)
-  library.installedNames = new Set(names)
+  library.modules = names.map(bible)
   library.loaded = true
 }
 

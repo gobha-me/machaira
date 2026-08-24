@@ -43,10 +43,13 @@ function seedUser(db: ReturnType<typeof openDatabase>, id = 'user-1'): void {
 const sources: SemanticSources = {
   async installed() {
     return [{
-      name: 'WEB', type: 'BIBLE', description: 'World English Bible', language: 'en',
+      id: 'CrossWire:WEB', name: 'WEB', type: 'BIBLE', description: 'World English Bible', language: 'en',
       version: '1', hasStrongs: false, hasGreekStrongsKeys: false,
       hasHebrewStrongsKeys: false, hasFootnotes: false, hasHeadings: false,
-      hasRedLetterWords: false, hasCrossReferences: false, locked: false, installed: true
+      hasRedLetterWords: false, hasCrossReferences: false, locked: false, installed: true,
+      kind: 'scripture', collection: 'bible', coverage: [], coverageSource: 'live',
+      format: 'bundled', coverageSummary: 'No additional books',
+      aiEligibility: 'public-domain'
     }]
   },
   async books() {
@@ -190,6 +193,63 @@ describe('semantic index', () => {
       assert.equal(preserved.state, 'ready')
       assert.equal(preserved.chunkCount, 3)
       assert.match(preserved.lastError ?? '', /503/)
+    } finally {
+      db.close()
+      await upstream.close()
+    }
+  })
+
+  it('indexes Generic Book entries only after a non-public-domain license opt-in', async () => {
+    const upstream = await listen(async (request, response) => {
+      const body = await requestBody(request)
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ data: body.input.map((input, index) => ({
+        index, embedding: /watchers/i.test(input) ? [1, 0] : [0, 1]
+      })) }))
+    })
+    const generalSources: SemanticSources = {
+      async installed() {
+        return [{
+          id: 'Local import:Ancient', name: 'Ancient', type: 'GENBOOK',
+          description: 'Ancient writing', language: 'en', distributionLicense: 'CC BY-SA',
+          hasStrongs: false, hasGreekStrongsKeys: false, hasHebrewStrongsKeys: false,
+          hasFootnotes: false, hasHeadings: false, hasRedLetterWords: false,
+          hasCrossReferences: false, locked: false, installed: true, kind: 'general-book',
+          collection: 'ancient-writings', coverage: [], coverageSource: 'live',
+          format: 'standalone', coverageSummary: 'Standalone ancient writing',
+          aiEligibility: 'review-required'
+        }]
+      },
+      async books() { return [] },
+      async chapter() { return [] },
+      async generalBookEntries() {
+        return [
+          { key: '/Ancient/Watchers', title: 'Watchers', content: 'The watchers gathered.', depth: 1 },
+          { key: '/Ancient/Journey', title: 'Journey', content: 'A distant journey.', depth: 1 }
+        ]
+      }
+    }
+    const db = openDatabase(':memory:')
+    seedUser(db)
+    const providers = new EmbeddingProviderService(db, new SecretStore(db, randomBytes(32)))
+    const index = new SemanticIndexService(db, providers, generalSources)
+    try {
+      providers.save('user-1', { kind: 'local', baseUrl: upstream.baseUrl, model: 'tiny' })
+      await assert.rejects(index.rebuild('user-1', () => undefined), /enable an installed module/)
+      assert.throws(() => index.setCorpusPreference('user-1', {
+        module: 'Ancient', enabled: true, licenseAcknowledged: false
+      }), /Acknowledge the module license/)
+      index.setCorpusPreference('user-1', {
+        module: 'Ancient', enabled: true, licenseAcknowledged: true
+      })
+      const built = await index.rebuild('user-1', () => undefined)
+      assert.equal(built.chunkCount, 2)
+      const [hit] = await index.search('user-1', { query: 'watchers', modules: ['Ancient'] })
+      assert.equal(hit.kind, 'general-book')
+      if (hit.kind === 'general-book') {
+        assert.equal(hit.key, '/Ancient/Watchers')
+        assert.equal(hit.title, 'Watchers')
+      }
     } finally {
       db.close()
       await upstream.close()
@@ -420,7 +480,7 @@ describe('semantic provider migration', () => {
       const provider = db.prepare(`
         SELECT batch_size FROM embedding_provider_configs WHERE user_id = 'user-1'
       `).get() as { batch_size: number }
-      assert.equal(version.version, 7)
+      assert.equal(version.version, 8)
       assert.equal(provider.batch_size, 32)
     } finally {
       db.close()

@@ -3,11 +3,13 @@ import type { MachairaDatabase } from './database.js'
 import type { SecretStore } from './secrets.js'
 import {
   getModuleBooks,
+  getGeneralBookEntries,
   listInstalledModules,
   readPlainChapter,
   type ModuleBook,
   type PlainVerse,
-  type RepoModuleInfo
+  type RepoModuleInfo,
+  type GeneralBookEntry
 } from './sword.js'
 
 export type EmbeddingProviderKind = 'openai-compatible' | 'local'
@@ -29,7 +31,8 @@ export interface SemanticIndexStatus {
   lastError: string | null
 }
 
-export interface SemanticSearchHit {
+export interface SemanticScriptureHit {
+  kind: 'scripture'
   module: string
   book: string
   bookName: string
@@ -38,6 +41,17 @@ export interface SemanticSearchHit {
   content: string
   distance: number
 }
+
+export interface SemanticGeneralBookHit {
+  kind: 'general-book'
+  module: string
+  key: string
+  title: string
+  content: string
+  distance: number
+}
+
+export type SemanticSearchHit = SemanticScriptureHit | SemanticGeneralBookHit
 
 export interface SemanticPassageSeed {
   module: string
@@ -76,12 +90,14 @@ export interface SemanticSources {
   installed(): Promise<RepoModuleInfo[]>
   books(module: string): Promise<ModuleBook[]>
   chapter(module: string, book: string, chapter: number): Promise<PlainVerse[]>
+  generalBookEntries?(module: string): Promise<GeneralBookEntry[]>
 }
 
 const DEFAULT_SOURCES: SemanticSources = {
   installed: listInstalledModules,
   books: getModuleBooks,
-  chapter: readPlainChapter
+  chapter: readPlainChapter,
+  generalBookEntries: getGeneralBookEntries
 }
 
 const API_KEY_SECRET = 'embedding-provider-api-key'
@@ -153,17 +169,23 @@ function providerSignature(config: EmbeddingProviderConfig): string {
   return signature({ kind: config.kind, baseUrl: config.baseUrl, model: config.model })
 }
 
-function bibleModules(modules: RepoModuleInfo[]): RepoModuleInfo[] {
-  return modules
-    .filter((module) => module.type === 'BIBLE' && !module.locked)
-    .sort((left, right) => left.name.localeCompare(right.name))
+function moduleSignature(modules: RepoModuleInfo[]): string {
+  return signature([...modules].sort((left, right) => left.name.localeCompare(right.name)).map((module) => ({
+    name: module.name,
+    version: module.version ?? null,
+    kind: module.kind
+  })))
 }
 
-function moduleSignature(modules: RepoModuleInfo[]): string {
-  return signature(bibleModules(modules).map((module) => ({
-    name: module.name,
-    version: module.version ?? null
-  })))
+interface CorpusChunk {
+  kind: 'scripture' | 'general-book'
+  module: string
+  book: string
+  bookName: string
+  chapter: number
+  verse: number
+  content: string
+  locator: string | null
 }
 
 function vectorTable(dimension: number): string {
@@ -449,12 +471,50 @@ export class SemanticIndexService {
     }
   }
 
+  corpusPreferences(userId: string): Record<string, boolean> {
+    const rows = this.db.prepare(`
+      SELECT module, ai_enabled FROM corpus_module_preferences WHERE user_id = ?
+    `).all(userId) as Array<{ module: string; ai_enabled: number }>
+    return Object.fromEntries(rows.map((row) => [row.module, row.ai_enabled === 1]))
+  }
+
+  setCorpusPreference(userId: string, input: unknown): { module: string; enabled: boolean } {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) throw new SemanticInputError('Corpus preference is required')
+    const body = input as Record<string, unknown>
+    const module = stringField(body.module, 'Module', 200)
+    if (typeof body.enabled !== 'boolean') throw new SemanticInputError('enabled must be a boolean')
+    if (body.enabled && body.licenseAcknowledged !== true) {
+      throw new SemanticInputError('Acknowledge the module license before enabling AI processing')
+    }
+    this.db.prepare(`
+      INSERT INTO corpus_module_preferences
+        (user_id, module, ai_enabled, license_acknowledged_at, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(user_id, module) DO UPDATE SET
+        ai_enabled = excluded.ai_enabled,
+        license_acknowledged_at = CASE
+          WHEN excluded.ai_enabled = 1 THEN excluded.license_acknowledged_at
+          ELSE corpus_module_preferences.license_acknowledged_at
+        END,
+        updated_at = excluded.updated_at
+    `).run(userId, module, body.enabled ? 1 : 0, body.enabled ? Date.now() : null, Date.now())
+    return { module, enabled: body.enabled }
+  }
+
+  private async eligibleModules(userId: string): Promise<RepoModuleInfo[]> {
+    const preferences = this.corpusPreferences(userId)
+    return (await this.sources.installed())
+      .filter((module) => !module.locked && (module.kind === 'scripture' || module.kind === 'general-book'))
+      .filter((module) => module.aiEligibility === 'public-domain' || preferences[module.name] === true)
+      .sort((left, right) => left.name.localeCompare(right.name))
+  }
+
   async status(userId: string): Promise<SemanticIndexStatus> {
     const provider = this.providers.get(userId)
     if (!provider) return {
       state: 'unconfigured', chunkCount: 0, modules: [], model: null, updatedAt: null, lastError: null
     }
-    const modules = bibleModules(await this.sources.installed())
+    const modules = await this.eligibleModules(userId)
     const active = this.activeRun(userId)
     const latest = this.latestRun(userId)
     const stale = active !== null && (
@@ -483,8 +543,8 @@ export class SemanticIndexService {
   ): Promise<SemanticIndexStatus> {
     if (this.building.has(userId)) throw new SemanticStateError('An index rebuild is already running')
     const credentials = this.providers.credentials(userId)
-    const modules = bibleModules(await this.sources.installed())
-    if (modules.length === 0) throw new SemanticStateError('Install at least one unlocked Bible module first')
+    const modules = await this.eligibleModules(userId)
+    if (modules.length === 0) throw new SemanticStateError('Install a public-domain corpus or enable an installed module for AI processing first')
 
     this.building.add(userId)
     const runId = randomUUID()
@@ -499,13 +559,15 @@ export class SemanticIndexService {
 
     try {
       for (const module of modules) {
-        const pending: PlainVerse[] = []
+        const pending: CorpusChunk[] = []
         const flush = async () => {
           if (pending.length === 0) return
           if (signal?.aborted) throw new EmbeddingProviderError('Index rebuild was cancelled')
           const batch = pending.splice(0, effectiveBatchSize)
-          const result = await requestEmbeddingsAdaptive(credentials, batch.map((verse) =>
-            `${verse.bookName} ${verse.chapter}:${verse.verse}\n${verse.content}`), signal)
+          const result = await requestEmbeddingsAdaptive(credentials, batch.map((chunk) =>
+            chunk.kind === 'scripture'
+              ? `${chunk.bookName} ${chunk.chapter}:${chunk.verse}\n${chunk.content}`
+              : `${chunk.bookName}\n${chunk.content}`), signal)
           if (result.reducedBatchSize !== null) {
             effectiveBatchSize = Math.min(effectiveBatchSize, result.reducedBatchSize)
           }
@@ -522,8 +584,8 @@ export class SemanticIndexService {
           const table = ensureVectorTable(this.db, dimension)
           const insertChunk = this.db.prepare(`
             INSERT INTO semantic_chunks
-              (run_id, module, book, book_name, chapter, verse, content)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+              (run_id, module, book, book_name, chapter, verse, content, kind, locator)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
           `)
           const insertVector = this.db.prepare(`
             INSERT INTO ${table} (chunk_id, embedding, run_id, module) VALUES (?, ?, ?, ?)
@@ -533,7 +595,7 @@ export class SemanticIndexService {
               const verse = batch[index]
               const result = insertChunk.run(
                 runId, verse.module, verse.book, verse.bookName,
-                verse.chapter, verse.verse, verse.content
+                verse.chapter, verse.verse, verse.content, verse.kind, verse.locator
               )
               insertVector.run(
                 BigInt(result.lastInsertRowid),
@@ -549,17 +611,28 @@ export class SemanticIndexService {
           onProgress({ module: module.name, processed, batchSize: effectiveBatchSize })
         }
 
-        for (const book of await this.sources.books(module.name)) {
-          for (let chapter = 1; chapter <= book.chapters; chapter += 1) {
-            for (const verse of await this.sources.chapter(module.name, book.code, chapter)) {
-              pending.push(verse)
-              if (pending.length === effectiveBatchSize) await flush()
+        if (module.kind === 'general-book') {
+          const entries = await this.sources.generalBookEntries?.(module.name) ?? []
+          let ordinal = 0
+          for (const entry of entries) {
+            if (!entry.content) continue
+            ordinal += 1
+            pending.push({ kind: 'general-book', module: module.name, book: entry.key, bookName: entry.title, chapter: 0, verse: ordinal, content: entry.content, locator: entry.key })
+            if (pending.length === effectiveBatchSize) await flush()
+          }
+        } else {
+          for (const book of await this.sources.books(module.name)) {
+            for (let chapter = 1; chapter <= book.chapters; chapter += 1) {
+              for (const verse of await this.sources.chapter(module.name, book.code, chapter)) {
+                pending.push({ ...verse, kind: 'scripture', locator: `${verse.book}.${verse.chapter}.${verse.verse}` })
+                if (pending.length === effectiveBatchSize) await flush()
+              }
             }
           }
         }
         while (pending.length > 0) await flush()
       }
-      if (processed === 0 || dimension === null) throw new SemanticStateError('Installed modules contained no indexable verses')
+      if (processed === 0 || dimension === null) throw new SemanticStateError('Installed modules contained no indexable text')
 
       const previous = this.activeRun(userId)
       this.db.transaction(() => {
@@ -606,7 +679,7 @@ export class SemanticIndexService {
     }
 
     const credentials = this.providers.credentials(userId)
-    const installed = bibleModules(await this.sources.installed())
+    const installed = await this.eligibleModules(userId)
     const active = this.activeRun(userId)
     if (!active || active.dimension === null) throw new SemanticStateError('Build the semantic index in Settings first')
     if (
@@ -639,10 +712,10 @@ export class SemanticIndexService {
     ranked.sort((left, right) => left.distance - right.distance)
 
     const getChunk = this.db.prepare(`
-      SELECT module, book, book_name, chapter, verse, content
+      SELECT module, book, book_name, chapter, verse, content, kind, locator
       FROM semantic_chunks WHERE id = ? AND run_id = ?
     `)
-    return ranked.slice(0, limit).flatMap((match) => {
+    return ranked.slice(0, limit).flatMap<SemanticSearchHit>((match) => {
       const chunk = getChunk.get(match.chunkId, active.id) as {
         module: string
         book: string
@@ -650,8 +723,19 @@ export class SemanticIndexService {
         chapter: number
         verse: number
         content: string
+        kind: 'scripture' | 'general-book'
+        locator: string | null
       } | undefined
-      return chunk ? [{
+      if (!chunk) return []
+      return chunk.kind === 'general-book' ? [{
+        kind: 'general-book' as const,
+        module: chunk.module,
+        key: chunk.locator ?? chunk.book,
+        title: chunk.book_name,
+        content: chunk.content,
+        distance: match.distance
+      }] : [{
+        kind: 'scripture' as const,
         module: chunk.module,
         book: chunk.book,
         bookName: chunk.book_name,
@@ -659,7 +743,7 @@ export class SemanticIndexService {
         verse: chunk.verse,
         content: chunk.content,
         distance: match.distance
-      }] : []
+      }]
     })
   }
 
@@ -725,7 +809,7 @@ export class SemanticIndexService {
     ) as Array<{ chunk_id: number | bigint; distance: number }>
     const sourceIds = new Set(sourceChunks.map((chunk) => String(chunk.id)))
     const getChunk = this.db.prepare(`
-      SELECT module, book, book_name, chapter, verse, content
+      SELECT module, book, book_name, chapter, verse, content, kind
       FROM semantic_chunks WHERE id = ? AND run_id = ?
     `)
     return {
@@ -739,8 +823,10 @@ export class SemanticIndexService {
           chapter: number
           verse: number
           content: string
+          kind: 'scripture' | 'general-book'
         } | undefined
-        return chunk ? [{
+        return chunk && chunk.kind === 'scripture' ? [{
+          kind: 'scripture' as const,
           module: chunk.module,
           book: chunk.book,
           bookName: chunk.book_name,

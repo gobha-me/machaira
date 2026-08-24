@@ -1,6 +1,6 @@
 {
   "name": "@machaira/server",
-  "version": "0.14.2",
+  "version": "0.15.0",
   "private": true,
   "license": "GPL-2.0-or-later",
   "type": "module",
@@ -20,11 +20,13 @@
     "better-sqlite3": "^12.2.0",
     "fastify": "^5.1.0",
     "node-sword-interface": "^1.0.124",
-    "sqlite-vec": "0.1.9"
+    "sqlite-vec": "0.1.9",
+    "yauzl": "^3.4.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.20.1",
+    "@types/yauzl": "^3.4.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   }
