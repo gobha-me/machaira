@@ -1,0 +1,141 @@
+diff --git a/node_modules/node-sword-interface/index.js b/node_modules/node-sword-interface/index.js
+index cd7f66c..3a9cfac 100644
+--- a/node_modules/node-sword-interface/index.js
++++ b/node_modules/node-sword-interface/index.js
+@@ -416,6 +416,11 @@ class NodeSwordInterface {
+     return this.nativeInterface.getRawModuleEntry(moduleCode, key, processImageUrls);
+   }
+ 
++  /** Returns ordered key/content entries from an installed Generic Book module. */
++  getGenBookEntries(moduleCode, limit = 100000) {
++    return this.nativeInterface.getGenBookEntries(moduleCode, limit);
++  }
++
+   /**
+    * Returns the text of an entry for the given module and key.
+    * If no entry exists for the given key the return value is a verse with empty content.
+@@ -830,4 +835,3 @@ class NodeSwordInterface {
+ }
+ 
+ module.exports = NodeSwordInterface;
+-
+diff --git a/node_modules/node-sword-interface/src/napi_module/napi_sword_helper.cpp b/node_modules/node-sword-interface/src/napi_module/napi_sword_helper.cpp
+index dd80faf..a849d22 100644
+--- a/node_modules/node-sword-interface/src/napi_module/napi_sword_helper.cpp
++++ b/node_modules/node-sword-interface/src/napi_module/napi_sword_helper.cpp
+@@ -77,6 +77,7 @@ void NapiSwordHelper::swordModuleToNapiObject(const Napi::Env& env, SWModule* sw
+     object["distributionLicense"] = this->getConfigEntry(swModule, "DistributionLicense", env);
+     object["shortCopyright"] = this->getConfigEntry(swModule, "ShortCopyright", env);
+     object["version"] = this->getConfigEntry(swModule, "Version", env);
++    object["versification"] = this->getConfigEntry(swModule, "Versification", env);
+ 
+     if (swModule->getConfigEntry("SwordVersionDate")) {
+         object["lastUpdate"] = this->getConfigEntry(swModule, "SwordVersionDate", env);
+diff --git a/node_modules/node-sword-interface/src/napi_module/node_sword_interface.cpp b/node_modules/node-sword-interface/src/napi_module/node_sword_interface.cpp
+index b9ea1b1..bca2db4 100644
+--- a/node_modules/node-sword-interface/src/napi_module/node_sword_interface.cpp
++++ b/node_modules/node-sword-interface/src/napi_module/node_sword_interface.cpp
+@@ -94,6 +94,7 @@ Napi::Object NodeSwordInterface::Init(Napi::Env env, Napi::Object exports)
+         InstanceMethod("disableMarkup", &NodeSwordInterface::disableMarkup),
+         InstanceMethod("enableStrongsWithNbsp", &NodeSwordInterface::enableStrongsWithNbsp),
+         InstanceMethod("getRawModuleEntry", &NodeSwordInterface::getRawModuleEntry),
++        InstanceMethod("getGenBookEntries", &NodeSwordInterface::getGenBookEntries),
+         InstanceMethod("getReferenceText", &NodeSwordInterface::getReferenceText),
+         InstanceMethod("getChapterText", &NodeSwordInterface::getChapterText),
+         InstanceMethod("getBookText", &NodeSwordInterface::getBookText),
+@@ -390,6 +391,8 @@ ModuleType NodeSwordInterface::getModuleTypeFromString(std::string moduleTypeStr
+         return ModuleType::dict;
+     } else if (moduleTypeString == "COMMENTARY") {
+         return ModuleType::commentary;
++    } else if (moduleTypeString == "GENBOOK") {
++        return ModuleType::genbook;
+     } else if (moduleTypeString == "IMAGES") {
+         return ModuleType::images;
+     } else if (moduleTypeString == "MAPS") {
+@@ -646,6 +649,43 @@ Napi::Value NodeSwordInterface::getRawModuleEntry(const Napi::CallbackInfo& info
+     }
+ }
+ 
++Napi::Value NodeSwordInterface::getGenBookEntries(const Napi::CallbackInfo& info)
++{
++    lockApi();
++    INIT_SCOPE_AND_VALIDATE(ParamType::string, ParamType::number);
++    Napi::Env env = info.Env();
++    Napi::String moduleName = info[0].As<Napi::String>();
++    unsigned int limit = info[1].As<Napi::Number>().Uint32Value();
++    if (limit == 0 || limit > 100000) {
++        THROW_JS_EXCEPTION("Generic Book entry limit must be between 1 and 100000");
++    }
++
++    ASSERT_SW_MODULE_EXISTS(moduleName);
++    SWModule* swordModule = this->_moduleStore->getLocalModule(moduleName);
++    if (string(swordModule->getType()) != "Generic Books") {
++        THROW_JS_EXCEPTION("Module is not a Generic Book");
++    }
++
++    Napi::Array entries = Napi::Array::New(env);
++    swordModule->setPosition(TOP);
++    unsigned int index = 0;
++    string previousKey = "";
++    while (!swordModule->popError() && index < limit) {
++        string key = swordModule->getKeyText();
++        if (key == previousKey && index > 0) break;
++        string content = swordModule->getRawEntry();
++        Napi::Object entry = Napi::Object::New(env);
++        entry["key"] = key;
++        entry["content"] = content;
++        entries.Set(index++, entry);
++        previousKey = key;
++        swordModule->increment();
++    }
++
++    unlockApi();
++    return entries;
++}
++
+ Napi::Value NodeSwordInterface::getReferenceText(const Napi::CallbackInfo& info)
+ {
+     lockApi();
+diff --git a/node_modules/node-sword-interface/src/napi_module/node_sword_interface.hpp b/node_modules/node-sword-interface/src/napi_module/node_sword_interface.hpp
+index 24a9b55..d182559 100644
+--- a/node_modules/node-sword-interface/src/napi_module/node_sword_interface.hpp
++++ b/node_modules/node-sword-interface/src/napi_module/node_sword_interface.hpp
+@@ -75,6 +75,7 @@ private:
+     Napi::Value enableStrongsWithNbsp(const Napi::CallbackInfo& info);
+     
+     Napi::Value getRawModuleEntry(const Napi::CallbackInfo& info);
++    Napi::Value getGenBookEntries(const Napi::CallbackInfo& info);
+     Napi::Value getReferenceText(const Napi::CallbackInfo& info);
+     Napi::Value getChapterText(const Napi::CallbackInfo& info);
+     Napi::Value getBookText(const Napi::CallbackInfo& info);
+@@ -128,4 +129,3 @@ private:
+ };
+ 
+ #endif // _NODE_SWORD_INTERFACE
+-
+diff --git a/node_modules/node-sword-interface/src/sword_backend/common_defs.hpp b/node_modules/node-sword-interface/src/sword_backend/common_defs.hpp
+index ac15d59..b0323ec 100644
+--- a/node_modules/node-sword-interface/src/sword_backend/common_defs.hpp
++++ b/node_modules/node-sword-interface/src/sword_backend/common_defs.hpp
+@@ -31,6 +31,7 @@ enum class ModuleType {
+     bible,
+     dict,
+     commentary,
++    genbook,
+     images,
+     maps,
+     any
+diff --git a/node_modules/node-sword-interface/src/sword_backend/repository_interface.hpp b/node_modules/node-sword-interface/src/sword_backend/repository_interface.hpp
+index 76fde1f..f5f7ab9 100644
+--- a/node_modules/node-sword-interface/src/sword_backend/repository_interface.hpp
++++ b/node_modules/node-sword-interface/src/sword_backend/repository_interface.hpp
+@@ -92,6 +92,9 @@ public:
+             case ModuleType::commentary:
+                 moduleTypeFilter = "Commentaries";
+                 break;
++            case ModuleType::genbook:
++                moduleTypeFilter = "Generic Books";
++                break;
+             case ModuleType::images:
+                 moduleTypeFilter = "Images";
+                 break;

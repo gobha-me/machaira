@@ -3,7 +3,7 @@ import * as sqliteVec from 'sqlite-vec'
 import { chmodSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 
-const SCHEMA_VERSION = 7
+const SCHEMA_VERSION = 8
 
 export type MachairaDatabase = Database.Database
 
@@ -211,6 +211,29 @@ export function openDatabase(filename: string): MachairaDatabase {
       `)
       db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)')
         .run(7, Date.now())
+    })()
+  }
+
+  if (current.version < 8) {
+    db.transaction(() => {
+      const semanticTable = db.prepare(`
+        SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'semantic_chunks'
+      `).get()
+      if (semanticTable) {
+        const columns = new Set((db.prepare('PRAGMA table_info(semantic_chunks)').all() as Array<{ name: string }>).map((column) => column.name))
+        if (!columns.has('kind')) db.exec(`ALTER TABLE semantic_chunks ADD COLUMN kind TEXT NOT NULL DEFAULT 'scripture' CHECK (kind IN ('scripture', 'general-book'))`)
+        if (!columns.has('locator')) db.exec('ALTER TABLE semantic_chunks ADD COLUMN locator TEXT')
+      }
+      db.exec(`CREATE TABLE corpus_module_preferences (
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          module TEXT NOT NULL,
+          ai_enabled INTEGER NOT NULL CHECK (ai_enabled IN (0, 1)),
+          license_acknowledged_at INTEGER,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY (user_id, module)
+        )`)
+      db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)')
+        .run(8, Date.now())
     })()
   }
 

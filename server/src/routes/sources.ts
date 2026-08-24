@@ -1,4 +1,9 @@
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyReply } from 'fastify'
+import { createWriteStream } from 'node:fs'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { pipeline } from 'node:stream/promises'
 import {
   ensureRepoConfig,
   refreshRepoConfig,
@@ -7,10 +12,14 @@ import {
   listInstalledModules,
   installModule,
   uninstallModule,
+  listCatalog,
+  repositoryDiagnostics,
+  getGeneralBookEntries,
   type ModuleType
 } from '../sword.js'
+import { importSwordZip, SwordImportError } from '../sword-import.js'
 
-const VALID_TYPES: ModuleType[] = ['BIBLE', 'DICT', 'COMMENTARY']
+const VALID_TYPES: ModuleType[] = ['BIBLE', 'GENBOOK', 'DICT', 'COMMENTARY']
 
 export async function registerSources(app: FastifyInstance): Promise<void> {
   app.get('/api/repositories', async () => {
@@ -19,8 +28,18 @@ export async function registerSources(app: FastifyInstance): Promise<void> {
   })
 
   app.post('/api/repositories/refresh', async () => {
-    await refreshRepoConfig()
-    return { repositories: await listRepositories() }
+    const refresh = await refreshRepoConfig()
+    return { repositories: await listRepositories(), refresh }
+  })
+
+  app.get('/api/catalog', async () => {
+    await ensureRepoConfig()
+    return { modules: await listCatalog(), diagnostics: await repositoryDiagnostics() }
+  })
+
+  app.post('/api/catalog/refresh', async () => {
+    const diagnostics = await refreshRepoConfig()
+    return { modules: await listCatalog(), diagnostics }
   })
 
   app.get<{ Querystring: { type?: string } }>('/api/sources', async (req) => {
@@ -41,11 +60,8 @@ export async function registerSources(app: FastifyInstance): Promise<void> {
     return { ok: true }
   })
 
-  // Install streams progress as Server-Sent Events so the Library % bar is live.
-  app.post<{ Params: { module: string } }>('/api/sources/:module/install', async (req, reply) => {
+  const streamInstall = async (repository: string, moduleName: string, reply: FastifyReply) => {
     await ensureRepoConfig()
-    const moduleName = req.params.module
-
     reply.raw.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
@@ -57,7 +73,7 @@ export async function registerSources(app: FastifyInstance): Promise<void> {
 
     try {
       let last = -1
-      await installModule(moduleName, (pct) => {
+      await installModule(repository, moduleName, (pct) => {
         if (pct !== last) {
           last = pct
           send('progress', { module: moduleName, pct })
@@ -68,6 +84,43 @@ export async function registerSources(app: FastifyInstance): Promise<void> {
       send('error', { module: moduleName, message: (err as Error).message })
     } finally {
       reply.raw.end()
+    }
+  }
+
+  // Repository is part of the identity: duplicate module names never install
+  // from an arbitrary first match.
+  app.post<{ Body: { repository?: string; module?: string } }>('/api/sources/install', async (req, reply) => {
+    const repository = req.body?.repository?.trim()
+    const moduleName = req.body?.module?.trim()
+    if (!repository || !moduleName) return reply.code(400).send({ error: 'repository and module are required' })
+    return streamInstall(repository, moduleName, reply)
+  })
+
+  app.get<{ Params: { module: string }; Querystring: { limit?: string } }>('/api/general-books/:module/entries', async (req, reply) => {
+    const limit = req.query.limit === undefined ? 100000 : Number(req.query.limit)
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100000) return reply.code(400).send({ error: 'limit must be between 1 and 100000' })
+    return { entries: await getGeneralBookEntries(req.params.module, limit) }
+  })
+
+  app.post('/api/sources/import', async (req, reply) => {
+    if (req.authUser?.role !== 'admin') return reply.code(403).send({ error: 'Administrator access required' })
+    if (!req.isMultipart()) return reply.code(400).send({ error: 'A multipart SWORD ZIP is required' })
+    const part = await req.file()
+    if (!part || !/\.zip$/i.test(part.filename)) return reply.code(400).send({ error: 'Choose a .zip SWORD module archive' })
+    const scratch = await mkdtemp(join(tmpdir(), 'machaira-upload-'))
+    const zipPath = join(scratch, 'module.zip')
+    try {
+      await pipeline(part.file, createWriteStream(zipPath, { flags: 'wx' }))
+      if (part.file.truncated) return reply.code(413).send({ error: 'SWORD ZIP exceeds the 8 MiB upload limit' })
+      return await importSwordZip(zipPath)
+    } catch (error) {
+      if (error instanceof app.multipartErrors.RequestFileTooLargeError) {
+        return reply.code(413).send({ error: 'SWORD ZIP exceeds the 8 MiB upload limit' })
+      }
+      if (error instanceof SwordImportError) return reply.code(400).send({ error: error.message })
+      throw error
+    } finally {
+      await rm(scratch, { recursive: true, force: true })
     }
   })
 }

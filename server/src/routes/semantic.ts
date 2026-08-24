@@ -40,6 +40,18 @@ export async function registerSemantic(
     index: await index.status(request.authUser!.id)
   }))
 
+  app.get('/api/corpus/preferences', async (request) => ({
+    preferences: index.corpusPreferences(request.authUser!.id)
+  }))
+
+  app.put<{ Body: unknown }>('/api/corpus/preferences', async (request, reply) => {
+    try {
+      return { preference: index.setCorpusPreference(request.authUser!.id, request.body) }
+    } catch (error) {
+      return inputError(reply, error) ?? Promise.reject(error)
+    }
+  })
+
   app.post('/api/semantic-index/rebuild', {
     config: {
       rateLimit: {

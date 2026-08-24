@@ -6,6 +6,7 @@ declare module 'node-sword-interface' {
     distributionLicense?: string
     repository?: string
     version?: string
+    versification?: string
     size?: number
     hasStrongs?: boolean
     hasGreekStrongsKeys?: boolean
@@ -65,6 +66,7 @@ declare module 'node-sword-interface' {
     getChapterVerseCount(moduleCode: string, bookCode: string, chapter: number): number
     getChapterText(moduleCode: string, bookCode: string, chapter: number): Verse[]
     getBookText(moduleCode: string, bookCode: string): Verse[]
+    getGenBookEntries(moduleCode: string, limit?: number): Array<{ key: string; content: string }>
     getStrongsEntry(strongsKey: string): StrongsEntry | undefined
     greekStrongsAvailable(): boolean
     hebrewStrongsAvailable(): boolean

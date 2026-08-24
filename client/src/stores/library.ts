@@ -1,248 +1,135 @@
 import { defineStore } from 'pinia'
-import { api, type ModuleInfo } from '../services/api'
+import { api, type ModuleInfo, type RepositoryDiagnostic } from '../services/api'
 
-// Preferred modules surfaced first in the Library (matches the prototype's set).
-// Names are resolved case-insensitively against what the repos actually offer;
-// anything missing simply doesn't render — no fabricated rows.
-const FEATURED_BIBLES = ['WEB', 'KJVA', 'KJV', 'ASV', 'YLT', 'Brenton', 'LXX']
-const FEATURED_DICTS = ['StrongsGreek', 'StrongsHebrew']
-const FEATURED_COMMENTARIES = ['Geneva']
+export type LibraryCategory = 'all' | 'installed' | 'scripture' | 'deuterocanon' | 'ancient-writings' | 'commentary' | 'lexicon'
 
-// SWORD tags modules with ISO language codes ('en', 'grc', 'hbo'). Humanize them for
-// the filter and to make free-text search on a language name ("greek") work.
-const displayNames =
-  typeof Intl !== 'undefined' && 'DisplayNames' in Intl
-    ? new Intl.DisplayNames(['en'], { type: 'language' })
-    : null
+const displayNames = typeof Intl !== 'undefined' && 'DisplayNames' in Intl
+  ? new Intl.DisplayNames(['en'], { type: 'language' })
+  : null
 
-function langLabel(code: string): string {
+function languageLabel(code: string): string {
   if (!code) return 'Unknown'
-  try {
-    return displayNames?.of(code) ?? code
-  } catch {
-    return code
-  }
+  try { return displayNames?.of(code) ?? code } catch { return code }
 }
 
-interface LibraryState {
-  bibles: ModuleInfo[]
-  dicts: ModuleInfo[]
-  commentaries: ModuleInfo[]
-  installedNames: Set<string>
-  progress: Record<string, number>
-  installing: Set<string>
-  loaded: boolean
-  loading: boolean
-  error: string | null
-  query: string
-  language: string
-}
-
-export interface LanguageOption {
-  code: string
-  label: string
-  count: number
-}
-
-function matchesQuery(m: ModuleInfo, q: string): boolean {
-  const terms = q.toLowerCase().split(/\s+/).filter(Boolean)
-  if (terms.length === 0) return true
-  const hay = `${m.name} ${m.abbreviation ?? ''} ${m.description} ${m.language} ${langLabel(m.language)}`.toLowerCase()
-  return terms.every((t) => hay.includes(t))
-}
-
-// The catalog lists a module once per repo that offers it, so an installed module
-// (unique on disk) can appear multiple times. Keep the first of each name.
-function dedupeByName(mods: ModuleInfo[]): ModuleInfo[] {
+function uniqueInstalled(modules: ModuleInfo[]): ModuleInfo[] {
   const seen = new Set<string>()
-  return mods.filter((m) => (seen.has(m.name) ? false : (seen.add(m.name), true)))
+  return modules.filter((module) => module.installed && !seen.has(module.name) && Boolean(seen.add(module.name)))
 }
 
-function order(mods: ModuleInfo[], featured: string[], installed?: Set<string>): ModuleInfo[] {
-  const rank = new Map(featured.map((n, i) => [n.toLowerCase(), i]))
-  return [...mods].sort((a, b) => {
-    if (installed) {
-      const ia = installed.has(a.name) ? 0 : 1
-      const ib = installed.has(b.name) ? 0 : 1
-      if (ia !== ib) return ia - ib
-    }
-    const ra = rank.has(a.name.toLowerCase()) ? rank.get(a.name.toLowerCase())! : Infinity
-    const rb = rank.has(b.name.toLowerCase()) ? rank.get(b.name.toLowerCase())! : Infinity
-    if (ra !== rb) return ra - rb
-    return a.name.localeCompare(b.name)
-  })
+function categoryMatches(module: ModuleInfo, category: LibraryCategory): boolean {
+  if (category === 'all') return true
+  if (category === 'installed') return module.installed
+  if (category === 'scripture') return module.kind === 'scripture'
+  if (category === 'deuterocanon') return module.collection === 'deuterocanon'
+  if (category === 'ancient-writings') return module.collection === 'ancient-writings'
+  return module.kind === category
+}
+
+export function catalogSearchText(module: ModuleInfo): string {
+  return [module.name, module.description, module.abbreviation, module.language,
+    languageLabel(module.language), module.repository, module.distributionLicense, module.tradition,
+    module.collection, module.coverageSummary,
+    module.collection === 'deuterocanon' ? 'apocrypha deuterocanon' : '',
+    ...module.coverage].filter(Boolean).join(' ').toLocaleLowerCase()
 }
 
 export const useLibrary = defineStore('library', {
-  state: (): LibraryState => ({
-    bibles: [],
-    dicts: [],
-    commentaries: [],
-    installedNames: new Set(),
-    progress: {},
-    installing: new Set(),
+  state: () => ({
+    modules: [] as ModuleInfo[],
+    diagnostics: [] as RepositoryDiagnostic[],
+    usedCachedCatalog: false,
+    refreshedAt: null as number | null,
+    preferences: {} as Record<string, boolean>,
+    progress: {} as Record<string, number>,
+    installing: new Set<string>(),
     loaded: false,
     loading: false,
-    error: null,
+    importing: false,
+    error: null as string | null,
     query: '',
-    language: ''
+    language: '',
+    category: 'all' as LibraryCategory
   }),
   getters: {
-    filterActive(state): boolean {
-      return state.query.trim() !== '' || state.language !== ''
-    },
-    // Languages present across all catalog modules, most-common first, for the filter.
-    languages(state): LanguageOption[] {
+    installedModules(state): ModuleInfo[] { return uniqueInstalled(state.modules) },
+    installedBibles(): ModuleInfo[] { return this.installedModules.filter((module) => module.kind === 'scripture') },
+    installedGeneralBooks(): ModuleInfo[] { return this.installedModules.filter((module) => module.kind === 'general-book') },
+    installedDicts(): ModuleInfo[] { return this.installedModules.filter((module) => module.kind === 'lexicon') },
+    installedCommentaries(): ModuleInfo[] { return this.installedModules.filter((module) => module.kind === 'commentary') },
+    installedCount(): number { return this.installedModules.length },
+    languages(state): Array<{ code: string; label: string; count: number }> {
       const counts = new Map<string, number>()
-      for (const m of [...state.bibles, ...state.dicts, ...state.commentaries]) {
-        counts.set(m.language, (counts.get(m.language) ?? 0) + 1)
-      }
-      return [...counts.entries()]
-        .map(([code, count]) => ({ code, label: langLabel(code), count }))
-        .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+      for (const module of state.modules) counts.set(module.language, (counts.get(module.language) ?? 0) + 1)
+      return [...counts].map(([code, count]) => ({ code, label: languageLabel(code), count }))
+        .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label))
     },
-    filteredBibles(state): ModuleInfo[] {
-      return order(
-        state.bibles.filter(
-          (m) => (!state.language || m.language === state.language) && matchesQuery(m, state.query)
-        ),
-        FEATURED_BIBLES,
-        state.installedNames
-      )
+    filteredModules(state): ModuleInfo[] {
+      const terms = state.query.toLocaleLowerCase().split(/\s+/).filter(Boolean)
+      return state.modules.filter((module) => {
+        if (!categoryMatches(module, state.category) || (state.language && module.language !== state.language)) return false
+        const haystack = catalogSearchText(module)
+        return terms.every((term) => haystack.includes(term))
+      }).sort((left, right) => Number(right.installed) - Number(left.installed)
+        || Number(right.collection === 'deuterocanon') - Number(left.collection === 'deuterocanon')
+        || left.description.localeCompare(right.description))
     },
-    filteredDicts(state): ModuleInfo[] {
-      return order(
-        state.dicts.filter(
-          (m) => (!state.language || m.language === state.language) && matchesQuery(m, state.query)
-        ),
-        FEATURED_DICTS,
-        state.installedNames
-      )
-    },
-    // Featured/other/lexicon sections list only what's NOT installed — installed sources
-    // are surfaced separately in the pinned "On your machine" section, so nothing repeats.
-    featuredBibles(state): ModuleInfo[] {
-      const set = new Set(FEATURED_BIBLES.map((n) => n.toLowerCase()))
-      return order(
-        state.bibles.filter((m) => set.has(m.name.toLowerCase()) && !state.installedNames.has(m.name)),
-        FEATURED_BIBLES
-      )
-    },
-    otherBibles(state): ModuleInfo[] {
-      const set = new Set(FEATURED_BIBLES.map((n) => n.toLowerCase()))
-      return order(
-        state.bibles.filter((m) => !set.has(m.name.toLowerCase()) && !state.installedNames.has(m.name)),
-        []
-      )
-    },
-    lexicons(state): ModuleInfo[] {
-      return order(
-        state.dicts.filter((m) => !state.installedNames.has(m.name)),
-        FEATURED_DICTS
-      )
-    },
-    filteredCommentaries(state): ModuleInfo[] {
-      return order(
-        state.commentaries.filter(
-          (m) => (!state.language || m.language === state.language) && matchesQuery(m, state.query)
-        ),
-        FEATURED_COMMENTARIES,
-        state.installedNames
-      )
-    },
-    availableCommentaries(state): ModuleInfo[] {
-      return order(
-        state.commentaries.filter((m) => !state.installedNames.has(m.name)),
-        FEATURED_COMMENTARIES
-      )
-    },
-    installedBibles(state): ModuleInfo[] {
-      return dedupeByName(
-        order(
-          state.bibles.filter((m) => state.installedNames.has(m.name)),
-          FEATURED_BIBLES
-        )
-      )
-    },
-    installedDicts(state): ModuleInfo[] {
-      return dedupeByName(
-        order(
-          state.dicts.filter((m) => state.installedNames.has(m.name)),
-          FEATURED_DICTS
-        )
-      )
-    },
-    installedCommentaries(state): ModuleInfo[] {
-      return dedupeByName(
-        order(
-          state.commentaries.filter((m) => state.installedNames.has(m.name)),
-          FEATURED_COMMENTARIES
-        )
-      )
-    },
-    installedCount(state): number {
-      return state.installedNames.size
-    },
-    resultCount(): number {
-      return this.filteredBibles.length + this.filteredDicts.length + this.filteredCommentaries.length
+    repositoryProblems(state): RepositoryDiagnostic[] {
+      return state.diagnostics.filter((repo) => repo.status === 'failed')
     }
   },
   actions: {
-    isInstalled(name: string): boolean {
-      return this.installedNames.has(name)
-    },
-    clearFilter(): void {
-      this.query = ''
-      this.language = ''
-    },
-    async load(force = false): Promise<void> {
+    isInstalled(name: string): boolean { return this.modules.some((module) => module.name === name && module.installed) },
+    async load(force = false, refreshRepositories = force): Promise<void> {
       if (this.loaded && !force) return
       this.loading = true
       this.error = null
       try {
-        const [bibles, dicts, commentaries, installed] = await Promise.all([
-          api.sources('BIBLE'),
-          api.sources('DICT'),
-          api.sources('COMMENTARY'),
-          api.installed()
-        ])
-        this.bibles = bibles
-        this.dicts = dicts
-        this.commentaries = commentaries
-        this.installedNames = new Set(installed.map((m) => m.name))
+        const [catalog, preferences] = await Promise.all([api.catalog(refreshRepositories), api.corpusPreferences()])
+        this.modules = catalog.modules
+        this.diagnostics = catalog.diagnostics.repositories
+        this.usedCachedCatalog = catalog.diagnostics.usedCachedCatalog
+        this.refreshedAt = catalog.diagnostics.refreshedAt
+        this.preferences = preferences
         this.loaded = true
-      } catch (e) {
-        this.error = (e as Error).message
+      } catch (error) {
+        this.error = (error as Error).message
       } finally {
         this.loading = false
       }
     },
-    async refreshInstalled(): Promise<void> {
-      const installed = await api.installed()
-      this.installedNames = new Set(installed.map((m) => m.name))
-    },
-    async install(name: string): Promise<void> {
-      if (this.installing.has(name)) return
-      this.installing.add(name)
-      this.progress = { ...this.progress, [name]: 0 }
+    async refreshInstalled(): Promise<void> { await this.load(true, false) },
+    async install(module: ModuleInfo): Promise<void> {
+      if (!module.repository || this.installing.has(module.id)) return
+      this.installing.add(module.id)
+      this.progress = { ...this.progress, [module.id]: 0 }
       try {
-        await api.install(name, (pct) => {
-          this.progress = { ...this.progress, [name]: pct }
-        })
-        this.installedNames = new Set([...this.installedNames, name])
-      } catch (e) {
-        this.error = `Install failed for ${name}: ${(e as Error).message}`
+        await api.install(module.repository, module.name, (pct) => { this.progress = { ...this.progress, [module.id]: pct } })
+        await this.load(true, false)
+      } catch (error) {
+        this.error = `Install failed for ${module.name}: ${(error as Error).message}`
       } finally {
-        this.installing.delete(name)
-        const { [name]: _drop, ...rest } = this.progress
+        this.installing.delete(module.id)
+        const { [module.id]: _removed, ...rest } = this.progress
         this.progress = rest
       }
     },
-    async uninstall(name: string): Promise<void> {
-      await api.uninstall(name)
-      const next = new Set(this.installedNames)
-      next.delete(name)
-      this.installedNames = next
+    async uninstall(name: string): Promise<void> { await api.uninstall(name); await this.load(true, false) },
+    async importSword(file: File): Promise<string[]> {
+      this.importing = true
+      this.error = null
+      try {
+        const modules = await api.importSword(file)
+        await this.load(true, false)
+        return modules
+      } catch (error) {
+        this.error = (error as Error).message
+        throw error
+      } finally { this.importing = false }
+    },
+    async setAiEnabled(module: ModuleInfo, enabled: boolean): Promise<void> {
+      await api.setCorpusPreference(module.name, enabled)
+      this.preferences = { ...this.preferences, [module.name]: enabled }
     }
   }
 })

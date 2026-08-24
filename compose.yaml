@@ -2,7 +2,7 @@ name: machaira
 
 services:
   machaira:
-    image: "${MACHAIRA_IMAGE:-ghcr.io/gobha-me/machaira}:${MACHAIRA_VERSION:-0.14.2}"
+    image: "${MACHAIRA_IMAGE:-ghcr.io/gobha-me/machaira}:${MACHAIRA_VERSION:-0.15.0}"
     pull_policy: missing
     init: true
     restart: unless-stopped

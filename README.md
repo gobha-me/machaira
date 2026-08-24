@@ -7,7 +7,7 @@ same open ecosystem behind [BibleTime](https://bibletime.info/) and
 tooling: a downloadable module library, verse comparison, Strong's lexicon lookup, exact and
 semantic search, personal journaling, and a bring-your-own-model study partner.
 
-> Content is **real, never mocked**. Modules are downloaded from CrossWire's repositories on
+> Content is **real, never mocked**. Modules are downloaded from official SWORD repositories on
 > demand; features that don't yet have a backend show honest empty/disabled states rather than
 > fabricated data.
 
@@ -17,8 +17,8 @@ semantic search, personal journaling, and a bring-your-own-model study partner.
 | --- | --- |
 | **Read** | Renders a chapter from any installed translation in a responsive phone, tablet, or desktop layout; translation picker, book/chapter navigation, touch-friendly passage tools and range selection, persisted highlights, and browser read-aloud follow-along. |
 | **Study** | Side-by-side verse comparison, Strong's glosses, and streamed passage-aware chat—with pluggable hold-to-talk input—through user-configured providers. |
-| **Search** | Real SWORD full-text and embedding-backed “by meaning” search, with typed or hold-to-talk input. |
-| **Library** | Browse CrossWire repositories, install modules with live progress, and uninstall. This is the downloader that feeds every other screen. |
+| **Search** | Real SWORD full-text and embedding-backed “by meaning” search across Scripture and installed Generic Books, with typed or hold-to-talk input. |
+| **Library** | Browse a unified official-repository catalog, inspect canon and license coverage, install from an exact repository, or import a local SWORD ZIP. |
 | **Journal** | Per-account notes with tags, plus an interactive graph of linked, cross-referenced, and thematically related passages. |
 | **Settings** | Account administration, encrypted provider configuration with in-app model discovery, vector-index controls, themes, scripture text scale, and reading toggles. |
 
@@ -44,7 +44,7 @@ machaira/
   hashed with Argon2id, and provider credentials have an AES-256-GCM encrypted per-user store
   whose key remains outside the database. API keys are decrypted only for server-side provider
   calls.
-- Per-user semantic indexes store verse metadata and provider-generated vectors in SQLite. A
+- Per-user semantic indexes store Scripture or Generic Book locator metadata and provider-generated vectors in SQLite. A
   staged rebuild preserves the previous usable index if an embedding request fails.
 - Journal connection graphs are derived on demand from module-authored cross-references and the
   existing stored verse vectors. Opening a graph never makes a new embedding-provider request.
@@ -184,9 +184,11 @@ provider, so Anthropic chat can be paired with any embeddings service. Enter the
 ending at `/v1`, use **Test & load** or enter an embedding model ID manually, save it, then select
 **Build index**.
 
-Building sends each verse from every installed, unlocked Bible module to the provider in bounded
-batches; external services may charge for that usage. The UI reports real indexed verse and module
-counts. Installing or removing a Bible, or changing the endpoint/model, marks the index stale until
+Building sends text from eligible installed Scripture and Generic Book modules to the provider in bounded
+batches; external services may charge for that usage. Modules identified by their repository as public
+domain are eligible automatically. Every other license stays off until that user reviews it and explicitly
+opts in from Library details. The UI reports real indexed chunk and module counts. Installing or removing
+a corpus, changing its opt-in, or changing the endpoint/model marks the index stale until
 the next successful rebuild. Exact note and journal search remains local and does not send personal
 writing to the embeddings provider.
 
@@ -197,6 +199,30 @@ limits and available memory. If a provider explicitly rejects a batch as too lar
 that batch at the reported limit (or progressively halves it) and uses the smaller size for the
 rest of the rebuild. Other 400/413/422 responses are reported without retrying so configuration or
 model errors cannot loop indefinitely. Semantic-search queries remain single-input requests.
+
+### Catalog coverage and local imports
+
+The Library combines Biblical Texts, Generic Books, lexicons, and commentaries from every
+repository in the official SWORD master repository list. Repository health is visible after each
+forced refresh; when one source is unavailable, its cached catalog remains usable and is labelled.
+Module IDs include the repository, so duplicate names never install from an arbitrary source.
+
+Canon coverage is evidence-based. Installed Bibles are inspected live. Selected English
+Deuterocanon/Apocrypha editions have a checked-in audit keyed to the exact repository, module name,
+and version; a different version is shown as “not yet audited.” The collection includes official
+public-domain Enoch and Jubilees Generic Book modules when offered, but does not claim to provide a
+complete English Ethiopian Orthodox 81-book canon. Kindle, EPUB, and PDF files are not imported.
+The 2026-08-24 audit found no standalone, complete modern-English Apocrypha in the official catalog.
+The broadest current public-domain English options—including WEB British Edition 2025 and the
+2012 LXX editions—bundle their additional books with a Bible and expose their exact keyed coverage
+in Library details.
+
+Administrators can import a standard SWORD ZIP from Library. Imports are limited to one 8 MiB ZIP
+and 64 MiB expanded data, reject traversal paths, absolute paths, backslashes, symlinks,
+unsupported drivers, missing data, and collisions, and publish module configuration only after
+validation. Run `npm run audit:catalog` to reproduce the live candidate audit in an isolated
+temporary SWORD home; it writes `catalog-audit-output.json` for maintainer review and leaves the
+active library untouched.
 
 To run the halves separately:
 
