@@ -15,6 +15,7 @@ import { SecretStore } from './secrets.js'
 import { PersonalDataService } from './personal-data.js'
 import { registerPersonalData } from './routes/personal-data.js'
 import { AiProviderService } from './ai.js'
+import { ChatConversationService } from './chat.js'
 import { registerAi } from './routes/ai.js'
 import { EmbeddingProviderService, SemanticIndexService } from './semantic.js'
 import { registerSemantic } from './routes/semantic.js'
@@ -58,6 +59,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
 
   const secrets = new SecretStore(db, options.secretKey)
   const ai = new AiProviderService(db, secrets)
+  const chats = new ChatConversationService(db)
   const embeddingProviders = new EmbeddingProviderService(db, secrets)
   const semanticIndex = new SemanticIndexService(db, embeddingProviders)
   const connections = new ConnectionsService(semanticIndex)
@@ -90,7 +92,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   app.get('/api/health', async () => ({ ok: true }))
   await registerAuth(app, auth, options.production ?? false)
   await registerPersonalData(app, personalData)
-  await registerAi(app, ai)
+  await registerAi(app, ai, chats)
   await registerSemantic(app, embeddingProviders, semanticIndex)
   await registerConnections(app, connections)
   await registerTts(app, tts)

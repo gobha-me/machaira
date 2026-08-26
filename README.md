@@ -153,7 +153,8 @@ selected without leaving Settings, and the field continues to accept an exact ma
 Local URLs are resolved by the Sword server: `127.0.0.1` means the Sword
 container or pod itself, so containerized deployments generally need a reachable service DNS name
 or host gateway instead. Chat responses stream through Sword; provider keys never return to the
-browser, and conversations are kept only in the current browser tab.
+browser. Conversations and passage context are stored per account, remain selected while moving
+between screens, and can be reopened, renamed, or deleted from the Study partner history menu.
 
 Assistant replies render safe Markdown while user questions remain plain text. Raw HTML and remote
 images are disabled, unsafe link protocols are rejected, and external web links open in a separate

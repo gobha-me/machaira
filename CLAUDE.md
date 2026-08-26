@@ -80,7 +80,7 @@ npm workspaces: `client/` (Vue 3 + Vite + TS) and `server/` (Fastify + TS, ESM).
   never fabricated content. This is a hard product rule.
 - **License: GPL-2.0-or-later** (matches libsword / the SWORD family). Keep new files
   compatible.
-- User accounts, sessions, notes, and highlights live in server-side SQLite. Reading-plan progress
+- User accounts, sessions, notes, highlights, and study-partner conversations live in server-side SQLite. Reading-plan progress
   and settings remain browser-local; legacy IndexedDB notes/highlights are retained as a
   non-destructive import source. Journal data remains exportable as Markdown + JSON.
 - TypeScript throughout; server is ESM (note the `.js` import specifiers).

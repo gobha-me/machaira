@@ -3,7 +3,7 @@ import * as sqliteVec from 'sqlite-vec'
 import { chmodSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 
-const SCHEMA_VERSION = 8
+const SCHEMA_VERSION = 9
 
 export type MachairaDatabase = Database.Database
 
@@ -234,6 +234,47 @@ export function openDatabase(filename: string): MachairaDatabase {
         )`)
       db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)')
         .run(8, Date.now())
+    })()
+  }
+
+  if (current.version < 9) {
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE chat_conversations (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          title TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
+
+        CREATE INDEX chat_conversations_by_user_updated
+          ON chat_conversations(user_id, updated_at DESC, id);
+
+        CREATE TABLE chat_messages (
+          id TEXT PRIMARY KEY,
+          conversation_id TEXT NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+          sequence INTEGER NOT NULL,
+          role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+          content TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('streaming', 'completed', 'interrupted', 'failed')),
+          reply_to_message_id TEXT REFERENCES chat_messages(id),
+          passage_reference TEXT,
+          passage_module TEXT,
+          passage_content TEXT,
+          error TEXT,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          UNIQUE (conversation_id, sequence)
+        );
+
+        CREATE INDEX chat_messages_by_conversation_sequence
+          ON chat_messages(conversation_id, sequence);
+        CREATE INDEX chat_messages_by_reply
+          ON chat_messages(reply_to_message_id);
+      `)
+      db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)')
+        .run(9, Date.now())
     })()
   }
 

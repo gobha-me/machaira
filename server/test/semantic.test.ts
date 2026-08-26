@@ -480,7 +480,7 @@ describe('semantic provider migration', () => {
       const provider = db.prepare(`
         SELECT batch_size FROM embedding_provider_configs WHERE user_id = 'user-1'
       `).get() as { batch_size: number }
-      assert.equal(version.version, 8)
+      assert.equal(version.version, 9)
       assert.equal(provider.batch_size, 32)
     } finally {
       db.close()

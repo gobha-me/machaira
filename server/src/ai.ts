@@ -143,50 +143,6 @@ export class AiProviderService {
   }
 }
 
-export function parseChatInput(input: unknown): ChatInput {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) {
-    throw new AiInputError('Chat request is required')
-  }
-  const body = input as Record<string, unknown>
-  if (!body.passage || typeof body.passage !== 'object' || Array.isArray(body.passage)) {
-    throw new AiInputError('Passage context is required')
-  }
-  const passage = body.passage as Record<string, unknown>
-  if (!Array.isArray(body.messages) || body.messages.length < 1 || body.messages.length > 20) {
-    throw new AiInputError('Chat must contain between 1 and 20 messages')
-  }
-  const messages = body.messages.map((entry, index) => {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-      throw new AiInputError(`Message ${index + 1} is invalid`)
-    }
-    const message = entry as Record<string, unknown>
-    if (message.role !== 'user' && message.role !== 'assistant') {
-      throw new AiInputError(`Message ${index + 1} has an invalid role`)
-    }
-    return {
-      role: message.role as ChatRole,
-      content: stringField(message.content, `Message ${index + 1}`, 12_000)
-    }
-  })
-  if (messages.at(-1)?.role !== 'user') throw new AiInputError('The final message must be from the user')
-
-  const preferences = body.preferences && typeof body.preferences === 'object'
-    ? body.preferences as Record<string, unknown>
-    : {}
-  return {
-    passage: {
-      reference: stringField(passage.reference, 'Passage reference', 300),
-      module: stringField(passage.module, 'Passage module', 200),
-      content: stringField(passage.content, 'Passage content', 30_000)
-    },
-    messages,
-    preferences: {
-      alwaysCite: preferences.alwaysCite !== false,
-      drawApocrypha: preferences.drawApocrypha === true
-    }
-  }
-}
-
 function systemPrompt(input: ChatInput): string {
   const instructions = [
     'You are Sword, a careful Bible study partner.',
