@@ -16,6 +16,7 @@ import CommentaryPanel from '../components/CommentaryPanel.vue'
 import ComparePanel from '../components/ComparePanel.vue'
 import CrossReferencesPanel from '../components/CrossReferencesPanel.vue'
 import VoiceInputButton from '../components/VoiceInputButton.vue'
+import MarkdownContent from '../components/MarkdownContent.vue'
 
 const reader = useReader()
 const ui = useUi()
@@ -390,7 +391,13 @@ function menuNote() {
           >Context · {{ passageContext.reference }} · {{ passageContext.module }}</div>
           <div v-for="(message, index) in chatMessages" :key="index" class="message" :class="message.role">
             <div class="message-role">{{ message.role === 'user' ? 'You' : 'Study partner' }}</div>
-            <div class="message-content">{{ message.content }}<span v-if="sending && index === chatMessages.length - 1" class="stream-cursor"></span></div>
+            <div v-if="message.role === 'user'" class="message-content plain-message">
+              {{ message.content }}
+            </div>
+            <div v-else class="message-content assistant-message">
+              <MarkdownContent :source="message.content" />
+              <span v-if="sending && index === chatMessages.length - 1" class="stream-cursor"></span>
+            </div>
           </div>
           <div v-if="chatError" class="chat-error">
             <span>{{ chatError }}</span>
@@ -733,7 +740,7 @@ function menuNote() {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.message { max-width: 92%; }
+.message { min-width: 0; max-width: 92%; }
 .message.user {
   align-self: flex-end;
   background: var(--soft);
@@ -753,9 +760,10 @@ function menuNote() {
   color: var(--ink);
   font-size: 13px;
   line-height: 1.6;
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.plain-message { white-space: pre-wrap; }
+.assistant-message { min-width: 0; }
 .stream-cursor {
   display: inline-block;
   width: 6px;

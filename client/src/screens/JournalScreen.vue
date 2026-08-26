@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import ConnectionsGraph from '../components/ConnectionsGraph.vue'
+import MarkdownEditor from '../components/MarkdownEditor.vue'
 import { api, type ConnectionNode, type ConnectionsPayload } from '../services/api'
 import { useNotes } from '../stores/notes'
 import { useReader } from '../stores/reader'
@@ -36,9 +37,6 @@ const dateLabel = computed(() => {
 
 function onTitle(e: Event) {
   notes.save({ title: (e.target as HTMLInputElement).value })
-}
-function onBody(e: Event) {
-  notes.save({ body: (e.target as HTMLTextAreaElement).value })
 }
 function addTag() {
   const t = tagDraft.value.trim().toLowerCase()
@@ -181,12 +179,11 @@ onMounted(async () => {
           <button class="refchip add" @click="linkPassage">+ Link current passage</button>
         </div>
 
-        <textarea
-          class="body-input serif"
-          :value="notes.current.body"
-          @input="onBody"
-          placeholder="Write freely…"
-        ></textarea>
+        <MarkdownEditor
+          :key="notes.current.id"
+          :source="notes.current.body"
+          @update:source="notes.save({ body: $event })"
+        />
 
         <div class="tags-row">
           <span v-for="t in notes.current.tags" :key="t" class="tag" @click="removeTag(t)" :title="'Remove #' + t">
@@ -400,19 +397,6 @@ onMounted(async () => {
   border-style: dashed;
   border-color: var(--line);
   color: var(--muted);
-}
-.body-input {
-  width: 100%;
-  box-sizing: border-box;
-  min-height: 320px;
-  background: none;
-  border: none;
-  outline: none;
-  resize: vertical;
-  font-size: 17px;
-  line-height: 1.8;
-  color: var(--ink);
-  padding: 0;
 }
 .tags-row {
   display: flex;
