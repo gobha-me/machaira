@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { describe, it } from 'node:test'
 import Database from 'better-sqlite3'
 import { buildApp } from '../src/app.ts'
-import { ChatConversationService } from '../src/chat.ts'
+import { ChatConflictError, ChatConversationService } from '../src/chat.ts'
 import { openDatabase } from '../src/database.ts'
 
 function cookie(response: { headers: Record<string, string | string[] | undefined> }): string {
@@ -130,6 +130,10 @@ describe('chat conversation storage', () => {
 
       const dangling = chats.startTurn('user-1', conversation.id, turn('One more'))
       chats.appendDelta('user-1', conversation.id, dangling.assistantMessage.id, 'Still running')
+      assert.throws(
+        () => chats.delete('user-1', conversation.id),
+        (error: unknown) => error instanceof ChatConflictError
+      )
       new ChatConversationService(db)
       const recovered = chats.get('user-1', conversation.id)!.messages.at(-1)!
       assert.equal(recovered.status, 'interrupted')
