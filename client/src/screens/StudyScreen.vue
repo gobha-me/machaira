@@ -1,10 +1,7 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useReader } from '../stores/reader'
 import { useUi } from '../stores/ui'
-import { useSettings } from '../stores/settings'
-import { useAiProvider } from '../stores/aiProvider'
-import { api, type ChatMessage } from '../services/api'
 import { useCompare } from '../composables/useCompare'
 import { useWordStudy } from '../composables/useWordStudy'
 import { useNotes } from '../composables/useNotes'
@@ -15,13 +12,10 @@ import StrongsCard from '../components/StrongsCard.vue'
 import CommentaryPanel from '../components/CommentaryPanel.vue'
 import ComparePanel from '../components/ComparePanel.vue'
 import CrossReferencesPanel from '../components/CrossReferencesPanel.vue'
-import VoiceInputButton from '../components/VoiceInputButton.vue'
-import MarkdownContent from '../components/MarkdownContent.vue'
+import StudyPartner from '../components/StudyPartner.vue'
 
 const reader = useReader()
 const ui = useUi()
-const settings = useSettings()
-const aiProvider = useAiProvider()
 
 const {
   focus,
@@ -60,12 +54,6 @@ const compareBoxEl = ref<HTMLElement | null>(null)
 const strongsBoxEl = ref<HTMLElement | null>(null)
 const commentaryBoxEl = ref<HTMLElement | null>(null)
 const crossReferencesBoxEl = ref<HTMLElement | null>(null)
-const partnerBodyEl = ref<HTMLElement | null>(null)
-const chatDraft = ref('')
-const chatMessages = ref<ChatMessage[]>([])
-const chatError = ref<string | null>(null)
-const sending = ref(false)
-let chatAbort: AbortController | null = null
 
 const passageContext = computed(() => {
   const verses = (reader.data?.verses ?? [])
@@ -79,75 +67,8 @@ const passageContext = computed(() => {
 
 onMounted(async () => {
   if (!reader.ready) await reader.init()
-  if (!aiProvider.ready) await aiProvider.load().catch(() => undefined)
   syncFromSelection()
 })
-onBeforeUnmount(() => chatAbort?.abort())
-
-async function scrollChat(): Promise<void> {
-  await nextTick()
-  if (partnerBodyEl.value) partnerBodyEl.value.scrollTop = partnerBodyEl.value.scrollHeight
-}
-
-async function sendChat(): Promise<void> {
-  const content = chatDraft.value.trim()
-  if (!content || sending.value || !aiProvider.provider || !passageContext.value.content) return
-  chatDraft.value = ''
-  chatError.value = null
-  chatMessages.value.push({ role: 'user', content })
-  // Keep an odd number so the retained window begins and ends with a user turn.
-  const requestMessages = chatMessages.value.slice(-19).map((message) => ({ ...message }))
-  const response: ChatMessage = { role: 'assistant', content: '' }
-  let receivedText = false
-  chatMessages.value.push(response)
-  sending.value = true
-  chatAbort = new AbortController()
-  await scrollChat()
-  try {
-    await api.streamChat({
-      passage: passageContext.value,
-      messages: requestMessages,
-      preferences: {
-        alwaysCite: settings.alwaysCite,
-        drawApocrypha: settings.drawApocrypha
-      }
-    }, (delta) => {
-      const activeResponse = chatMessages.value.at(-1)
-      if (activeResponse?.role === 'assistant') {
-        activeResponse.content += delta
-        receivedText = true
-      }
-      void scrollChat()
-    }, chatAbort.signal)
-  } catch (error) {
-    if ((error as Error).name !== 'AbortError') chatError.value = (error as Error).message
-    if (!receivedText) chatMessages.value.pop()
-  } finally {
-    sending.value = false
-    chatAbort = null
-    await scrollChat()
-  }
-}
-
-function cancelChat(): void {
-  chatAbort?.abort()
-}
-
-function clearChat(): void {
-  if (sending.value) return
-  chatMessages.value = []
-  chatError.value = null
-}
-
-async function retryChat(): Promise<void> {
-  if (sending.value) return
-  const lastUser = chatMessages.value.map((message) => message.role).lastIndexOf('user')
-  if (lastUser < 0) return
-  const content = chatMessages.value[lastUser].content
-  chatMessages.value.splice(lastUser)
-  chatDraft.value = content
-  await sendChat()
-}
 
 // Tapping a word brings its verse forward (compare follows the selection) and looks it up.
 // Selecting only when the verse sits outside the current selection avoids selectVerse's
@@ -356,70 +277,7 @@ function menuNote() {
       </div>
     </div>
 
-    <!-- right: study partner -->
-    <div class="partner">
-      <div class="topbar">
-        <div class="mark"></div>
-        <span class="ptitle">Study partner</span>
-        <div class="spacer"></div>
-        <button v-if="chatMessages.length" class="clear-chat" :disabled="sending" @click="clearChat">Clear</button>
-        <span class="sub">{{ aiProvider.provider?.model ?? 'not connected' }}</span>
-      </div>
-      <div ref="partnerBodyEl" class="partner-body" :class="{ chatting: chatMessages.length }">
-        <div v-if="aiProvider.loading && !aiProvider.ready" class="disabled-note">
-          <div class="dn-title serif">Connecting…</div>
-        </div>
-        <div v-else-if="!aiProvider.provider" class="disabled-note">
-          <div class="dn-title serif">Bring your own model</div>
-          <p>
-            The study partner talks to an LLM — any OpenAI-compatible endpoint, Claude, or a local
-            model. Connect a provider in Settings to enable chat about this passage.
-          </p>
-          <button class="dn-btn" @click="ui.go('settings')">Open Settings →</button>
-        </div>
-        <div v-else-if="!chatMessages.length" class="disabled-note">
-          <div class="dn-title serif">Ask about this passage</div>
-          <p :title="`${passageContext.reference} · ${passageContext.module}`">
-            {{ passageContext.reference }} from {{ passageContext.module }} is included as context.
-            Conversation history stays in this browser tab only.
-          </p>
-        </div>
-        <div v-else class="messages" aria-live="polite">
-          <div
-            class="context-chip"
-            :title="`Context · ${passageContext.reference} · ${passageContext.module}`"
-          >Context · {{ passageContext.reference }} · {{ passageContext.module }}</div>
-          <div v-for="(message, index) in chatMessages" :key="index" class="message" :class="message.role">
-            <div class="message-role">{{ message.role === 'user' ? 'You' : 'Study partner' }}</div>
-            <div v-if="message.role === 'user'" class="message-content plain-message">
-              {{ message.content }}
-            </div>
-            <div v-else class="message-content assistant-message">
-              <MarkdownContent :source="message.content" />
-              <span v-if="sending && index === chatMessages.length - 1" class="stream-cursor"></span>
-            </div>
-          </div>
-          <div v-if="chatError" class="chat-error">
-            <span>{{ chatError }}</span>
-            <button @click="retryChat">Retry</button>
-          </div>
-        </div>
-      </div>
-      <form class="composer" @submit.prevent="sendChat">
-        <input
-          v-model="chatDraft"
-          :disabled="!aiProvider.provider || sending"
-          :placeholder="aiProvider.provider ? `Ask about ${passageContext.reference}` : 'Connect a provider in Settings to chat'"
-        />
-        <VoiceInputButton
-          v-model="chatDraft"
-          label="study question"
-          :disabled="!aiProvider.provider || sending"
-        />
-        <button v-if="sending" type="button" class="send cancel" title="Stop response" @click="cancelChat">■</button>
-        <button v-else type="submit" class="send" :disabled="!aiProvider.provider || !chatDraft.trim() || !passageContext.content">→</button>
-      </form>
-    </div>
+    <StudyPartner :passage="passageContext" />
 
     <PassageActions
       v-if="menuOpen"
@@ -663,166 +521,6 @@ function menuNote() {
   color: var(--muted);
   flex-shrink: 0;
 }
-/* partner */
-.partner {
-  width: clamp(320px, 40vw, 430px);
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  background: var(--card);
-}
-.mark {
-  width: 8px;
-  height: 8px;
-  background: var(--accent);
-  transform: rotate(45deg);
-  flex-shrink: 0;
-}
-.ptitle {
-  font-size: 14px;
-  font-weight: 700;
-}
-.partner-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.partner-body.chatting {
-  display: block;
-  padding: 18px 16px 28px;
-}
-.clear-chat {
-  border: 0;
-  background: none;
-  color: var(--muted);
-  cursor: pointer;
-  font-size: 11px;
-}
-.clear-chat:disabled { opacity: 0.45; cursor: default; }
-.disabled-note {
-  text-align: center;
-  max-width: 300px;
-}
-.dn-title {
-  font-size: 18px;
-  margin-bottom: 8px;
-}
-.disabled-note p {
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--muted);
-  margin: 0 0 16px;
-  overflow-wrap: anywhere;
-}
-.dn-btn {
-  background: none;
-  border: 1px solid var(--accent);
-  color: var(--accent);
-  border-radius: 8px;
-  padding: 9px 16px;
-  font-size: 12.5px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.messages { display: flex; flex-direction: column; gap: 16px; }
-.context-chip {
-  align-self: center;
-  max-width: 100%;
-  padding: 5px 9px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--muted);
-  font-size: 10.5px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.message { min-width: 0; max-width: 92%; }
-.message.user {
-  align-self: flex-end;
-  background: var(--soft);
-  border-radius: 12px 12px 3px 12px;
-  padding: 10px 12px;
-}
-.message.assistant { align-self: flex-start; }
-.message-role {
-  margin-bottom: 4px;
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-.message-content {
-  color: var(--ink);
-  font-size: 13px;
-  line-height: 1.6;
-  overflow-wrap: anywhere;
-}
-.plain-message { white-space: pre-wrap; }
-.assistant-message { min-width: 0; }
-.stream-cursor {
-  display: inline-block;
-  width: 6px;
-  height: 12px;
-  margin-left: 2px;
-  background: var(--accent);
-  animation: pulse 0.8s ease-in-out infinite alternate;
-}
-.chat-error {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--accent);
-  font-size: 12px;
-}
-.chat-error button {
-  border: 1px solid var(--accent);
-  border-radius: 6px;
-  background: none;
-  color: var(--accent);
-  cursor: pointer;
-  padding: 4px 8px;
-}
-.composer {
-  flex-shrink: 0;
-  border-top: 1px solid var(--line);
-  padding: 14px 20px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.composer input {
-  flex: 1;
-  min-width: 0;
-  background: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  padding: 11px 13px;
-  font-size: 13px;
-  color: var(--muted);
-  outline: none;
-}
-.send {
-  width: 40px;
-  height: 40px;
-  border-radius: 9px;
-  background: var(--accent);
-  color: var(--on-accent);
-  border: none;
-  font-size: 16px;
-  cursor: pointer;
-}
-.send.cancel { font-size: 11px; }
-.send:disabled { opacity: 0.5; }
-.composer input:disabled,
-.send:disabled {
-  cursor: not-allowed;
-}
-
 @media (max-width: 768px) {
   .study {
     display: block;
@@ -857,17 +555,6 @@ function menuNote() {
     padding: 3px 2px;
     touch-action: pan-y;
     -webkit-touch-callout: none;
-  }
-  .partner {
-    width: 100%;
-    min-height: 70dvh;
-    border-top: 1px solid var(--line);
-  }
-  .partner-body {
-    min-height: 320px;
-  }
-  .composer {
-    padding: 12px 14px;
   }
 }
 </style>

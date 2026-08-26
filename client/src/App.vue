@@ -10,6 +10,7 @@ import { useAiProvider } from './stores/aiProvider'
 import { useSemanticIndex } from './stores/semanticIndex'
 import { useTtsProvider } from './stores/ttsProvider'
 import { useSttProvider } from './stores/sttProvider'
+import { useChatConversations } from './stores/chatConversations'
 import { applyVars } from './theme'
 import RailNav from './components/RailNav.vue'
 import ReadScreen from './screens/ReadScreen.vue'
@@ -31,6 +32,7 @@ const aiProvider = useAiProvider()
 const semanticIndex = useSemanticIndex()
 const ttsProvider = useTtsProvider()
 const sttProvider = useSttProvider()
+const chatConversations = useChatConversations()
 const personalLoading = ref(false)
 const personalReady = ref(false)
 const personalError = ref<string | null>(null)
@@ -87,7 +89,8 @@ async function loadPersonalData(userId: string): Promise<void> {
       aiProvider.load(),
       semanticIndex.load(),
       ttsProvider.load(),
-      sttProvider.load()
+      sttProvider.load(),
+      chatConversations.load()
     ])
     if (generation === personalLoadGeneration && auth.user?.id === userId) {
       personalReady.value = true
@@ -115,6 +118,7 @@ watch(
     semanticIndex.reset()
     ttsProvider.reset()
     sttProvider.reset()
+    chatConversations.reset()
     personalReady.value = false
     personalError.value = null
     if (userId) void loadPersonalData(userId)

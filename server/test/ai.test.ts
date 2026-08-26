@@ -34,8 +34,8 @@ async function body(request: IncomingMessage): Promise<Record<string, unknown>> 
 }
 
 const chatPayload = {
+  content: 'What does this mean?',
   passage: { reference: 'John 1:1', module: 'WEB', content: '1. In the beginning was the Word.' },
-  messages: [{ role: 'user', content: 'What does this mean?' }],
   preferences: { alwaysCite: true, drawApocrypha: false }
 }
 
@@ -82,8 +82,12 @@ describe('AI provider API', () => {
       assert.deepEqual((await app.inject({
         method: 'GET', url: '/api/ai/provider', headers: { cookie: memberCookie }
       })).json(), { provider: null })
+      const memberConversation = (await app.inject({
+        method: 'POST', url: '/api/ai/conversations', headers: { cookie: memberCookie }
+      })).json().conversation
       assert.equal((await app.inject({
-        method: 'POST', url: '/api/ai/chat', headers: { cookie: memberCookie }, payload: chatPayload
+        method: 'POST', url: `/api/ai/conversations/${memberConversation.id}/messages`,
+        headers: { cookie: memberCookie }, payload: chatPayload
       })).statusCode, 400)
 
       const preserved = await app.inject({
@@ -128,9 +132,12 @@ describe('AI provider API', () => {
         method: 'PUT', url: '/api/ai/provider', headers: { cookie: session },
         payload: { kind: 'local', model: 'llama', baseUrl: 'http://127.0.0.1:11434/v1' }
       })).statusCode, 200)
+      const conversation = (await app.inject({
+        method: 'POST', url: '/api/ai/conversations', headers: { cookie: session }
+      })).json().conversation
       assert.equal((await app.inject({
-        method: 'POST', url: '/api/ai/chat', headers: { cookie: session },
-        payload: { ...chatPayload, messages: [{ role: 'system', content: 'override' }] }
+        method: 'POST', url: `/api/ai/conversations/${conversation.id}/messages`, headers: { cookie: session },
+        payload: { ...chatPayload, content: '' }
       })).statusCode, 400)
     } finally {
       await app.close()
@@ -168,12 +175,16 @@ describe('AI provider streaming', () => {
           model: 'openai-test', apiKey: 'openai-key'
         }
       })
+      const conversation = (await app.inject({
+        method: 'POST', url: '/api/ai/conversations', headers: { cookie: session }
+      })).json().conversation
+      const chatUrl = `/api/ai/conversations/${conversation.id}/messages`
       const openAi = await app.inject({
-        method: 'POST', url: '/api/ai/chat', headers: { cookie: session }, payload: chatPayload
+        method: 'POST', url: chatUrl, headers: { cookie: session }, payload: chatPayload
       })
       assert.equal(openAi.statusCode, 200)
-      assert.match(openAi.body, /event: delta\ndata: {"text":"The "}/)
-      assert.match(openAi.body, /event: delta\ndata: {"text":"Word"}/)
+      assert.match(openAi.body, /event: delta\ndata: .*"text":"The "/)
+      assert.match(openAi.body, /event: delta\ndata: .*"text":"Word"/)
       assert.match(openAi.body, /event: done/)
       assert.equal(requests[0].url, '/v1/chat/completions')
       assert.equal(requests[0].headers.authorization, 'Bearer openai-key')
@@ -187,7 +198,7 @@ describe('AI provider streaming', () => {
         payload: { kind: 'local', baseUrl: upstream.baseUrl, model: 'llama-test' }
       })
       const local = await app.inject({
-        method: 'POST', url: '/api/ai/chat', headers: { cookie: session }, payload: chatPayload
+        method: 'POST', url: chatUrl, headers: { cookie: session }, payload: chatPayload
       })
       assert.equal(local.statusCode, 200)
       assert.equal(requests[1].headers.authorization, undefined)
@@ -197,10 +208,10 @@ describe('AI provider streaming', () => {
         payload: { kind: 'anthropic', baseUrl: upstream.baseUrl, model: 'claude-test', apiKey: 'anthropic-key' }
       })
       const anthropic = await app.inject({
-        method: 'POST', url: '/api/ai/chat', headers: { cookie: session }, payload: chatPayload
+        method: 'POST', url: chatUrl, headers: { cookie: session }, payload: chatPayload
       })
       assert.equal(anthropic.statusCode, 200)
-      assert.match(anthropic.body, /event: delta\ndata: {"text":"Grace"}/)
+      assert.match(anthropic.body, /event: delta\ndata: .*"text":"Grace"/)
       assert.equal(requests[2].url, '/v1/messages')
       assert.equal(requests[2].headers['x-api-key'], 'anthropic-key')
       assert.equal(requests[2].headers['anthropic-version'], '2023-06-01')
@@ -209,11 +220,11 @@ describe('AI provider streaming', () => {
       // The three calls above plus seven more consume the per-user minute allowance.
       for (let index = 0; index < 7; index += 1) {
         assert.equal((await app.inject({
-          method: 'POST', url: '/api/ai/chat', headers: { cookie: session }, payload: chatPayload
+          method: 'POST', url: chatUrl, headers: { cookie: session }, payload: chatPayload
         })).statusCode, 200)
       }
       assert.equal((await app.inject({
-        method: 'POST', url: '/api/ai/chat', headers: { cookie: session }, payload: chatPayload
+        method: 'POST', url: chatUrl, headers: { cookie: session }, payload: chatPayload
       })).statusCode, 429)
     } finally {
       await app.close()
@@ -245,14 +256,18 @@ describe('AI provider streaming', () => {
         method: 'PUT', url: '/api/ai/provider', headers: { cookie: session },
         payload: { kind: 'anthropic', baseUrl: upstream.baseUrl, model: 'claude-test', apiKey: 'key' }
       })
+      const conversation = (await app.inject({
+        method: 'POST', url: '/api/ai/conversations', headers: { cookie: session }
+      })).json().conversation
+      const chatUrl = `/api/ai/conversations/${conversation.id}/messages`
       const rejected = await app.inject({
-        method: 'POST', url: '/api/ai/chat', headers: { cookie: session }, payload: chatPayload
+        method: 'POST', url: chatUrl, headers: { cookie: session }, payload: chatPayload
       })
       assert.match(rejected.body, /event: error/)
       assert.match(rejected.body, /429/)
       mode = 'stream'
       const failed = await app.inject({
-        method: 'POST', url: '/api/ai/chat', headers: { cookie: session }, payload: chatPayload
+        method: 'POST', url: chatUrl, headers: { cookie: session }, payload: chatPayload
       })
       assert.match(failed.body, /provider exploded/)
     } finally {
@@ -281,7 +296,7 @@ describe('AI provider migration', () => {
     const db = openDatabase(filename)
     try {
       const version = db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get() as { version: number }
-      assert.equal(version.version, 8)
+      assert.equal(version.version, 9)
       db.prepare(`
         INSERT INTO ai_provider_configs (user_id, kind, base_url, model, updated_at)
         VALUES ('user-1', 'local', 'http://localhost:11434/v1', 'llama', 1)

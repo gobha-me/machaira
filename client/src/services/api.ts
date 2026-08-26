@@ -371,15 +371,46 @@ export interface SemanticIndexStatus {
   lastError: string | null
 }
 
+export type ChatMessageStatus = 'streaming' | 'completed' | 'interrupted' | 'failed'
+
 export interface ChatMessage {
+  id: string
   role: 'user' | 'assistant'
   content: string
+  status: ChatMessageStatus
+  replyToMessageId: string | null
+  passage: { reference: string; module: string } | null
+  error: string | null
+  createdAt: number
+  updatedAt: number
 }
 
-export interface ChatRequest {
-  passage: { reference: string; module: string; content: string }
+export interface ChatConversationSummary {
+  id: string
+  title: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface ChatConversation extends ChatConversationSummary {
   messages: ChatMessage[]
+}
+
+export interface ConversationMessageInput {
+  content: string
+  passage: { reference: string; module: string; content: string }
   preferences: { alwaysCite: boolean; drawApocrypha: boolean }
+}
+
+export interface ConversationStreamHandlers {
+  accepted: (value: {
+    conversation: ChatConversationSummary
+    userMessage: ChatMessage | null
+    assistantMessage: ChatMessage
+  }) => void
+  delta: (messageId: string, text: string) => void
+  done: (message: ChatMessage) => void
+  error: (message: ChatMessage, error: string) => void
 }
 
 let unauthorizedHandler: (() => void) | null = null
@@ -435,10 +466,10 @@ export async function consumeSseEvents(
           .map((line) => line.slice(5).trimStart()).join('\n')
         if (!raw) continue
         const data = JSON.parse(raw) as Record<string, unknown>
+        if (event) handler(event, data)
         if (event === 'error') throw new Error(
           typeof data.message === 'string' ? data.message : 'Server stream failed'
         )
-        if (event) handler(event, data)
       }
       if (done) break
     }
@@ -454,6 +485,26 @@ export async function consumeSse(
   return consumeSseEvents(response, (event, data) => {
     if (event === 'delta' && typeof data.text === 'string') handlers.delta(data.text)
     else if (event === 'done') handlers.done?.()
+  })
+}
+
+async function consumeConversationStream(
+  response: Response,
+  handlers: ConversationStreamHandlers
+): Promise<void> {
+  return consumeSseEvents(response, (event, data) => {
+    if (event === 'accepted') {
+      handlers.accepted(data as unknown as Parameters<ConversationStreamHandlers['accepted']>[0])
+    } else if (event === 'delta' && typeof data.messageId === 'string' && typeof data.text === 'string') {
+      handlers.delta(data.messageId, data.text)
+    } else if (event === 'done' && data.assistantMessage) {
+      handlers.done(data.assistantMessage as ChatMessage)
+    } else if (event === 'error' && data.assistantMessage) {
+      handlers.error(
+        data.assistantMessage as ChatMessage,
+        typeof data.message === 'string' ? data.message : 'Response failed'
+      )
+    }
   })
 }
 
@@ -787,14 +838,61 @@ export const api = {
     )).text
   },
 
-  async streamChat(
-    input: ChatRequest,
-    onDelta: (text: string) => void,
+  async chatConversations(): Promise<ChatConversationSummary[]> {
+    return (await getJson<{ conversations: ChatConversationSummary[] }>('/api/ai/conversations'))
+      .conversations
+  },
+
+  async createChatConversation(): Promise<ChatConversation> {
+    return (await requestJson<{ conversation: ChatConversation }>(
+      '/api/ai/conversations', json('POST')
+    )).conversation
+  },
+
+  async chatConversation(id: string): Promise<ChatConversation> {
+    return (await getJson<{ conversation: ChatConversation }>(
+      `/api/ai/conversations/${encodeURIComponent(id)}`
+    )).conversation
+  },
+
+  async renameChatConversation(id: string, title: string): Promise<ChatConversationSummary> {
+    return (await requestJson<{ conversation: ChatConversationSummary }>(
+      `/api/ai/conversations/${encodeURIComponent(id)}`,
+      json('PATCH', { title })
+    )).conversation
+  },
+
+  async deleteChatConversation(id: string): Promise<void> {
+    return requestVoid(`/api/ai/conversations/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  },
+
+  async streamConversationMessage(
+    conversationId: string,
+    input: ConversationMessageInput,
+    handlers: ConversationStreamHandlers,
     signal?: AbortSignal
   ): Promise<void> {
-    const res = await request('/api/ai/chat', { ...json('POST', input), signal })
+    const res = await request(
+      `/api/ai/conversations/${encodeURIComponent(conversationId)}/messages`,
+      { ...json('POST', input), signal }
+    )
     if (!res.ok) throw new ApiError(res.status, (await res.json().catch(() => ({}))) as ApiErrorBody)
-    await consumeSse(res, { delta: onDelta })
+    await consumeConversationStream(res, handlers)
+  },
+
+  async retryConversationMessage(
+    conversationId: string,
+    messageId: string,
+    preferences: ConversationMessageInput['preferences'],
+    handlers: ConversationStreamHandlers,
+    signal?: AbortSignal
+  ): Promise<void> {
+    const res = await request(
+      `/api/ai/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/retry`,
+      { ...json('POST', { preferences }), signal }
+    )
+    if (!res.ok) throw new ApiError(res.status, (await res.json().catch(() => ({}))) as ApiErrorBody)
+    await consumeConversationStream(res, handlers)
   },
 
   async authStatus(): Promise<AuthStatus> {
