@@ -131,6 +131,10 @@ describe('chat conversation storage', () => {
       const dangling = chats.startTurn('user-1', conversation.id, turn('One more'))
       chats.appendDelta('user-1', conversation.id, dangling.assistantMessage.id, 'Still running')
       assert.throws(
+        () => chats.startTurn('user-1', conversation.id, turn('Too soon')),
+        (error: unknown) => error instanceof ChatConflictError
+      )
+      assert.throws(
         () => chats.delete('user-1', conversation.id),
         (error: unknown) => error instanceof ChatConflictError
       )
