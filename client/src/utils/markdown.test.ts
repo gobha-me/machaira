@@ -69,4 +69,26 @@ const answer = 42
     expect(html).toContain('<a href="#notes">fragment</a>')
     expect(html).toContain('<a href="mailto:reader@example.com">mail</a>')
   })
+
+  it('linkifies only ordinary Scripture text when explicitly enabled', () => {
+    const html = renderMarkdown(`Read Gen 1:1–3 and **1 Cor 13:4-7**.
+
+[John 3:16](https://example.com/reference) and \`Psalm 1:1\`.
+
+\`\`\`
+Romans 8:1
+\`\`\``, { scriptureLinks: true })
+
+    expect(html).toContain('data-scripture-book="Gen"')
+    expect(html).toContain('data-scripture-verse-end="3"')
+    expect(html).toContain('data-scripture-book="1Cor"')
+    expect(html.match(/data-scripture-book=/g)).toHaveLength(2)
+    expect(html).toContain('<a href="https://example.com/reference" target="_blank" rel="noopener noreferrer">John 3:16</a>')
+    expect(html).toContain('<code>Psalm 1:1</code>')
+    expect(html).toContain('<pre><code>Romans 8:1')
+  })
+
+  it('leaves Scripture text unchanged unless linkification is requested', () => {
+    expect(renderMarkdown('John 3:16')).toBe('<p>John 3:16</p>\n')
+  })
 })

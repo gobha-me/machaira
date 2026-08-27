@@ -1,14 +1,40 @@
 <script setup lang="ts">
+import type { ScriptureTarget } from '@machaira/scripture'
 import { computed } from 'vue'
 import { renderMarkdown } from '../utils/markdown'
 
-const props = defineProps<{ source: string }>()
-const rendered = computed(() => renderMarkdown(props.source))
+const props = withDefaults(defineProps<{ source: string; scriptureLinks?: boolean }>(), {
+  scriptureLinks: false
+})
+const emit = defineEmits<{ (event: 'open-scripture', target: ScriptureTarget): void }>()
+const rendered = computed(() => renderMarkdown(props.source, {
+  scriptureLinks: props.scriptureLinks
+}))
+
+function numericAttribute(link: HTMLAnchorElement, name: string): number | null {
+  const raw = link.getAttribute(name)
+  if (raw === null) return null
+  const value = Number.parseInt(raw, 10)
+  return Number.isSafeInteger(value) && value > 0 ? value : null
+}
+
+function activateLink(event: MouseEvent): void {
+  if (!(event.target instanceof Element)) return
+  const link = event.target.closest<HTMLAnchorElement>('a[data-scripture-book]')
+  if (!link) return
+  const book = link.dataset.scriptureBook
+  const chapter = numericAttribute(link, 'data-scripture-chapter')
+  if (!book || chapter === null) return
+  event.preventDefault()
+  const verseStart = numericAttribute(link, 'data-scripture-verse-start')
+  const verseEnd = numericAttribute(link, 'data-scripture-verse-end')
+  emit('open-scripture', { book, chapter, verseStart, verseEnd })
+}
 </script>
 
 <template>
   <!-- renderMarkdown escapes raw HTML and validates every generated link before this boundary. -->
-  <div class="markdown-content" v-html="rendered"></div>
+  <div class="markdown-content" @click="activateLink" v-html="rendered"></div>
 </template>
 
 <style scoped>
@@ -56,6 +82,9 @@ const rendered = computed(() => renderMarkdown(props.source))
   color: var(--accent);
   text-decoration-thickness: 1px;
   text-underline-offset: 0.14em;
+}
+.markdown-content :deep(.scripture-reference) {
+  font-weight: 600;
 }
 .markdown-content :deep(code) {
   border: 1px solid var(--line);

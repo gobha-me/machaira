@@ -28,12 +28,13 @@ disabled states when no configured path is available. See
 
 ## Architecture
 
-Two npm workspaces run together in development:
+Three npm workspaces run together in development:
 
 ```
 machaira/
   client/   Vue 3 + Vite + TypeScript + Pinia   (UI, dev server on :5273)
   server/   Fastify + node-sword-interface       (SWORD engine wrapper, :5274)
+  shared/   Framework-neutral Scripture reference contracts
 ```
 
 - **`server/`** wraps [`node-sword-interface`](https://www.npmjs.com/package/node-sword-interface)
@@ -158,7 +159,9 @@ between screens, and can be reopened, renamed, or deleted from the Study partner
 
 Assistant replies render safe Markdown while user questions remain plain text. Raw HTML and remote
 images are disabled, unsafe link protocols are rejected, and external web links open in a separate
-tab without opener access.
+tab without opener access. Each assistant reply can be copied as its original Markdown source.
+Recognized Scripture references in ordinary response text open the passage in the current Study
+translation without clearing the active conversation; code and existing links are left unchanged.
 
 ### Provider model discovery
 

@@ -20,12 +20,14 @@ npm run build        # server (tsc) then client (vue-tsc -b && vite build)
 docker build .       # production image: native addon + server + compiled client
 ```
 
-Per-workspace: `npm -w server run <script>`, `npm -w client run <script>`. There is no
+Per-workspace: `npm -w shared run <script>`, `npm -w server run <script>`, or
+`npm -w client run <script>`. There is no
 `typecheck` script yet — use `npx vue-tsc --noEmit` (client) / `npx tsc --noEmit` (server).
 
 ## Layout
 
-npm workspaces: `client/` (Vue 3 + Vite + TS) and `server/` (Fastify + TS, ESM).
+npm workspaces: `client/` (Vue 3 + Vite + TS), `server/` (Fastify + TS, ESM), and
+`shared/` (framework-neutral Scripture book/reference contracts used by both).
 
 - `server/src/sword.ts` — the only module that touches `node-sword-interface`. Singleton
   + all public API.
