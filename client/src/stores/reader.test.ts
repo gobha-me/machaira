@@ -76,6 +76,24 @@ function chapter(moduleName: string, book: string, chapterNumber: number): Chapt
   }
 }
 
+function chapterWithVerses(
+  moduleName: string,
+  book: string,
+  chapterNumber: number,
+  verses: number[]
+): ChapterPayload {
+  return {
+    ...chapter(moduleName, book, chapterNumber),
+    verses: verses.map((n) => ({
+      n,
+      text: `Verse ${n}`,
+      notes: [],
+      segments: [{ kind: 'text' as const, text: `Verse ${n}` }],
+      crossReferences: []
+    }))
+  }
+}
+
 function prepareLibrary(...names: string[]): void {
   const library = useLibrary()
   library.modules = names.map(bible)
@@ -321,5 +339,91 @@ describe('reader position', () => {
     expect([reader.moduleName, reader.book, reader.chapter]).toEqual(['WEB', 'Gen', 1])
     expect(reader.selectedVerse).toBeNull()
     expect(api.chapter).toHaveBeenCalledTimes(2)
+  })
+
+  it('preflights an available reference and commits its range atomically', async () => {
+    prepareLibrary('WEB')
+    mockReaderApi()
+    const reader = useReader()
+    reader.activateUser('user-a')
+    await reader.init()
+    vi.mocked(api.chapter).mockResolvedValueOnce(chapterWithVerses('WEB', 'Rom', 8, [1, 2, 3]))
+
+    const result = await reader.openAvailableRef({
+      book: 'Rom', chapter: 8, verseStart: 1, verseEnd: 3
+    })
+
+    expect(result).toEqual({ ok: true })
+    expect([reader.moduleName, reader.book, reader.chapter]).toEqual(['WEB', 'Rom', 8])
+    expect([reader.selectedVerse, reader.rangeEnd]).toEqual([1, 3])
+    expect(reader.data?.verses.map((verse) => verse.n)).toEqual([1, 2, 3])
+  })
+
+  it('keeps the current passage unchanged when a target is unavailable', async () => {
+    prepareLibrary('WEB')
+    mockReaderApi()
+    const reader = useReader()
+    reader.activateUser('user-a')
+    await reader.init()
+    reader.selectVerse(1)
+    const before = {
+      book: reader.book,
+      chapter: reader.chapter,
+      data: reader.data,
+      selectedVerse: reader.selectedVerse,
+      rangeEnd: reader.rangeEnd
+    }
+    vi.mocked(api.chapter).mockResolvedValueOnce(chapterWithVerses('WEB', 'John', 3, [15, 16]))
+
+    const result = await reader.openAvailableRef({
+      book: 'John', chapter: 3, verseStart: 16, verseEnd: 17
+    })
+
+    expect(result).toEqual({ ok: false, error: 'This reference is not available in WEB.' })
+    expect({
+      book: reader.book,
+      chapter: reader.chapter,
+      data: reader.data,
+      selectedVerse: reader.selectedVerse,
+      rangeEnd: reader.rangeEnd
+    }).toEqual(before)
+  })
+
+  it('keeps the current passage unchanged when reference preflight fails', async () => {
+    prepareLibrary('WEB')
+    mockReaderApi()
+    const reader = useReader()
+    reader.activateUser('user-a')
+    await reader.init()
+    const before = JSON.parse(JSON.stringify(reader.$state))
+    vi.mocked(api.chapter).mockRejectedValueOnce(new Error('read failed'))
+
+    expect(await reader.openAvailableRef({
+      book: 'John', chapter: 3, verseStart: 16, verseEnd: 16
+    })).toEqual({ ok: false, error: 'This reference is not available in WEB.' })
+    expect(reader.$state).toEqual(before)
+  })
+
+  it('discards a preflight that finishes after the account changes', async () => {
+    prepareLibrary('WEB')
+    mockReaderApi()
+    const reader = useReader()
+    reader.activateUser('user-a')
+    await reader.init()
+    const pending = deferred<ChapterPayload>()
+    vi.mocked(api.chapter).mockReturnValueOnce(pending.promise)
+
+    const opening = reader.openAvailableRef({
+      book: 'John', chapter: 3, verseStart: 16, verseEnd: 16
+    })
+    reader.activateUser('user-b')
+    pending.resolve(chapterWithVerses('WEB', 'John', 3, [16]))
+
+    expect(await opening).toEqual({
+      ok: false,
+      error: 'The passage changed before this reference could open.'
+    })
+    expect(reader.activeUserId).toBe('user-b')
+    expect(reader.data).toBeNull()
   })
 })

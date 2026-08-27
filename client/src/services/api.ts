@@ -1,5 +1,8 @@
 // Typed client for the local SWORD backend (proxied at /api in dev).
 
+import type { ScriptureTarget } from '@machaira/scripture'
+export type { ScriptureTarget } from '@machaira/scripture'
+
 export interface ModuleInfo {
   id: string
   name: string
@@ -140,13 +143,6 @@ export interface GeneralBookEntry {
   title: string
   content: string
   depth: number
-}
-
-export interface ScriptureTarget {
-  book: string
-  chapter: number
-  verseStart: number | null
-  verseEnd: number | null
 }
 
 export interface ConnectionSeed extends ScriptureTarget {

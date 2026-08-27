@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import type { ScriptureTarget } from '@machaira/scripture'
 import { computed, nextTick, ref, watch } from 'vue'
 import { useAiProvider } from '../stores/aiProvider'
 import { useChatConversations } from '../stores/chatConversations'
 import { useSettings } from '../stores/settings'
+import { useReader } from '../stores/reader'
 import { useUi } from '../stores/ui'
 import type { ChatMessage } from '../services/api'
 import MarkdownContent from './MarkdownContent.vue'
@@ -15,11 +17,14 @@ const props = defineProps<{
 const aiProvider = useAiProvider()
 const chats = useChatConversations()
 const settings = useSettings()
+const reader = useReader()
 const ui = useUi()
 const bodyEl = ref<HTMLElement | null>(null)
 const historyOpen = ref(false)
 const renamingId = ref<string | null>(null)
 const renameDraft = ref('')
+const copyFeedback = ref<Record<string, { kind: 'success' | 'error'; text: string }>>({})
+const referenceErrors = ref<Record<string, string>>({})
 
 const messages = computed(() => chats.current?.messages ?? [])
 
@@ -96,6 +101,30 @@ async function saveRename(id: string): Promise<void> {
 async function removeConversation(id: string, title: string): Promise<void> {
   if (!window.confirm(`Delete “${title}” and its full transcript?`)) return
   await chats.remove(id)
+}
+
+async function copyResponse(message: ChatMessage): Promise<void> {
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error('Clipboard access is unavailable')
+    await navigator.clipboard.writeText(message.content)
+    copyFeedback.value = {
+      ...copyFeedback.value,
+      [message.id]: { kind: 'success', text: 'Copied' }
+    }
+  } catch {
+    copyFeedback.value = {
+      ...copyFeedback.value,
+      [message.id]: { kind: 'error', text: 'Copy failed' }
+    }
+  }
+}
+
+async function openScripture(messageId: string, target: ScriptureTarget): Promise<void> {
+  const result = await reader.openAvailableRef(target)
+  const next = { ...referenceErrors.value }
+  if (result.ok) delete next[messageId]
+  else next[messageId] = result.error
+  referenceErrors.value = next
 }
 </script>
 
@@ -186,13 +215,38 @@ async function removeConversation(id: string, title: string): Promise<void> {
             :title="`Context · ${contextBefore(index)!.reference} · ${contextBefore(index)!.module}`"
           >Context · {{ contextBefore(index)!.reference }} · {{ contextBefore(index)!.module }}</div>
           <div class="message" :class="message.role">
-            <div class="message-role">{{ message.role === 'user' ? 'You' : 'Study partner' }}</div>
+            <div class="message-head">
+              <div class="message-role">{{ message.role === 'user' ? 'You' : 'Study partner' }}</div>
+              <template v-if="message.role === 'assistant'">
+                <button
+                  class="copy-response"
+                  type="button"
+                  :disabled="!message.content"
+                  :aria-label="`Copy response from ${message.createdAt ? new Date(message.createdAt).toLocaleString() : 'study partner'}`"
+                  @click="copyResponse(message)"
+                >Copy</button>
+                <span
+                  v-if="copyFeedback[message.id]"
+                  class="copy-feedback"
+                  :class="copyFeedback[message.id].kind"
+                  :role="copyFeedback[message.id].kind === 'error' ? 'alert' : 'status'"
+                >{{ copyFeedback[message.id].text }}</span>
+              </template>
+            </div>
             <div v-if="message.role === 'user'" class="message-content plain-message">
               {{ message.content }}
             </div>
             <div v-else class="message-content assistant-message">
-              <MarkdownContent v-if="message.content" :source="message.content" />
+              <MarkdownContent
+                v-if="message.content"
+                :source="message.content"
+                scripture-links
+                @open-scripture="openScripture(message.id, $event)"
+              />
               <span v-if="message.status === 'streaming'" class="stream-cursor"></span>
+              <div v-if="referenceErrors[message.id]" class="reference-error" role="alert">
+                {{ referenceErrors[message.id] }}
+              </div>
               <div v-if="message.status === 'failed' || message.status === 'interrupted'" class="message-status">
                 <span>{{ message.status === 'interrupted' ? 'Response interrupted.' : (message.error || 'Response failed.') }}</span>
                 <button v-if="retryable(message, index)" :disabled="chats.sending" @click="retry(message)">Retry</button>
@@ -256,7 +310,13 @@ async function removeConversation(id: string, title: string): Promise<void> {
 .message { min-width: 0; max-width: 92%; }
 .message.user { align-self: flex-end; background: var(--soft); border-radius: 12px 12px 3px 12px; padding: 10px 12px; }
 .message.assistant { align-self: flex-start; }
-.message-role { margin-bottom: 4px; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.message-head { min-height: 19px; margin-bottom: 4px; display: flex; align-items: center; gap: 7px; }
+.message-role { color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.copy-response { margin-left: auto; border: 0; padding: 1px 3px; background: none; color: var(--accent); cursor: pointer; font-size: 10px; font-weight: 600; }
+.copy-response:disabled { opacity: .45; cursor: default; }
+.copy-feedback { font-size: 10px; color: var(--muted); }
+.copy-feedback.error, .reference-error { color: #a23b32; }
+.reference-error { margin-top: 6px; font-size: 11.5px; }
 .message-content { color: var(--ink); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
 .plain-message { white-space: pre-wrap; }
 .assistant-message { min-width: 0; }

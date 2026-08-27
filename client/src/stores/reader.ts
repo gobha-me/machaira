@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import type { ScriptureTarget } from '@machaira/scripture'
 import { api, type BookEntry, type ChapterPayload } from '../services/api'
 import { formatPassageRef } from '../utils/passageRef'
 import { useLibrary } from './library'
@@ -28,6 +29,11 @@ let readerGeneration = 0
 let moduleLoadGeneration = 0
 let chapterLoadGeneration = 0
 let highlightLoadGeneration = 0
+let referenceOpenGeneration = 0
+
+export type OpenReferenceResult =
+  | { ok: true }
+  | { ok: false; error: string }
 
 interface ReaderPosition {
   moduleName: string
@@ -287,6 +293,56 @@ export const useReader = defineStore('reader', {
         this.rangeEnd = verseEnd ?? verse
       }
     },
+    async openAvailableRef(target: ScriptureTarget): Promise<OpenReferenceResult> {
+      const moduleName = this.moduleName
+      const userId = this.activeUserId
+      if (!moduleName) return { ok: false, error: 'No current translation is available.' }
+      const book = this.books.find((candidate) => candidate.code === target.book)
+      if (!book || target.chapter > book.chapters) {
+        return { ok: false, error: `This reference is not available in ${moduleName}.` }
+      }
+
+      const generation = ++referenceOpenGeneration
+      const originBook = this.book
+      const originChapter = this.chapter
+      let data: ChapterPayload
+      try {
+        data = await api.chapter(moduleName, target.book, target.chapter)
+      } catch {
+        return { ok: false, error: `This reference is not available in ${moduleName}.` }
+      }
+      if (
+        generation !== referenceOpenGeneration ||
+        this.activeUserId !== userId ||
+        this.moduleName !== moduleName ||
+        this.book !== originBook ||
+        this.chapter !== originChapter
+      ) {
+        return { ok: false, error: 'The passage changed before this reference could open.' }
+      }
+
+      if (target.verseStart !== null) {
+        const verses = new Set(data.verses.map((verse) => verse.n))
+        const end = target.verseEnd ?? target.verseStart
+        for (let verse = target.verseStart; verse <= end; verse += 1) {
+          if (!verses.has(verse)) {
+            return { ok: false, error: `This reference is not available in ${moduleName}.` }
+          }
+        }
+      }
+
+      // Invalidate an older chapter fetch only once this preflight is known to be valid.
+      chapterLoadGeneration += 1
+      this.loadingChapter = false
+      this.book = target.book
+      this.chapter = target.chapter
+      this.data = data
+      this.selectedVerse = target.verseStart
+      this.rangeEnd = target.verseStart === null ? null : (target.verseEnd ?? target.verseStart)
+      this.error = null
+      this.persistPos()
+      return { ok: true }
+    },
     async setChapter(n: number): Promise<void> {
       this.chapter = n
       await this.loadChapter()
@@ -387,6 +443,7 @@ export const useReader = defineStore('reader', {
       moduleLoadGeneration += 1
       chapterLoadGeneration += 1
       highlightLoadGeneration += 1
+      referenceOpenGeneration += 1
       this.activeUserId = userId
       this.moduleName = null
       this.books = []

@@ -18,11 +18,13 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY client/package.json client/package.json
 COPY server/package.json server/package.json
+COPY shared/package.json shared/package.json
 COPY patches patches
 RUN npm ci
 
 COPY client client
 COPY server server
+COPY shared shared
 RUN npm run build \
   && npm prune --omit=dev \
   && mkdir -p server/node_modules
@@ -44,6 +46,8 @@ COPY --chown=node:node --from=build /app/node_modules node_modules
 COPY --chown=node:node --from=build /app/server/package.json server/package.json
 COPY --chown=node:node --from=build /app/server/node_modules server/node_modules
 COPY --chown=node:node --from=build /app/server/dist server/dist
+COPY --chown=node:node --from=build /app/shared/package.json shared/package.json
+COPY --chown=node:node --from=build /app/shared/dist shared/dist
 COPY --chown=node:node --from=build /app/client/package.json client/package.json
 COPY --chown=node:node --from=build /app/client/dist client/dist
 
