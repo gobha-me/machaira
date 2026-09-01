@@ -398,6 +398,20 @@ function voiceChoices(target: 'tts-local' | 'tts-cloud'): DiscoveryChoice[] {
   }))
 }
 
+function voiceDiscoveryMessage(target: 'tts-local' | 'tts-cloud'): string {
+  if (target === 'tts-local' || cloudTtsProvider.value !== 'venice') {
+    return 'This provider does not publish a voice catalog here. Enter a voice ID manually.'
+  }
+  const state = discovery[target]
+  if (!state.loaded) return 'Load models to discover voices, or enter a voice ID manually.'
+  if (state.loading) return 'Loading voices for this model…'
+  if (state.voiceModel !== cloudTtsModel.value.trim()) {
+    return 'Press Enter or load models to discover voices for this model.'
+  }
+  if (!state.voices.length) return 'This model did not report any voices. Enter a voice ID manually.'
+  return 'Type to search provider voices by name or ID.'
+}
+
 async function loadDiscovery(
   target: DiscoveryTarget,
   provider: DiscoveryProvider,
@@ -407,6 +421,7 @@ async function loadDiscovery(
   refresh = false
 ): Promise<string | null> {
   const state = discovery[target]
+  const requestedModel = model?.trim() ?? ''
   const requestId = state.requestId + 1
   state.requestId = requestId
   state.loading = true
@@ -421,9 +436,11 @@ async function loadDiscovery(
       ...(refresh ? { refresh: true } : {})
     })
     if (state.requestId !== requestId) return null
+    if (target === 'tts-local' && localTtsModel.value.trim() !== requestedModel) return null
+    if (target === 'tts-cloud' && cloudTtsModel.value.trim() !== requestedModel) return null
     state.models = result.models
     state.voices = result.voices
-    state.voiceModel = model?.trim() ?? ''
+    state.voiceModel = requestedModel
     state.loaded = true
     state.cached = result.cached
     state.truncated = result.truncated
@@ -472,14 +489,20 @@ async function loadTtsModels(tier: 'local' | 'cloud', model?: string, refresh?: 
 async function selectTtsModel(tier: 'local' | 'cloud', model: string): Promise<void> {
   if (tier === 'local') localTtsModel.value = model
   else cloudTtsModel.value = model
-  if (tier === 'cloud' && cloudTtsProvider.value === 'venice') await loadTtsModels(tier, model, false)
+  const state = discovery[`tts-${tier}`]
+  if (tier === 'cloud' && cloudTtsProvider.value === 'venice' && state.loaded && model.trim()) {
+    await loadTtsModels(tier, model, false)
+  }
 }
 
 function updateTtsModel(tier: 'local' | 'cloud', model: string): void {
   if (tier === 'local') localTtsModel.value = model
   else cloudTtsModel.value = model
   const state = discovery[`tts-${tier}`]
-  if (state.voiceModel !== model) {
+  if (state.voiceModel !== model.trim()) {
+    state.requestId += 1
+    state.loading = false
+    state.error = ''
     state.voices = []
     state.voiceModel = ''
   }
@@ -977,6 +1000,7 @@ async function rebuildSemanticIndex(): Promise<void> {
               label="Local TTS voice"
               placeholder="Voice ID"
             />
+            <div class="voice-discovery-note">{{ voiceDiscoveryMessage('tts-local') }}</div>
           </div>
         </div>
         <div class="row bordered compact-provider-row">
@@ -991,7 +1015,7 @@ async function rebuildSemanticIndex(): Promise<void> {
               @update:model-value="clearDiscovery('tts-local')"
             />
           </div>
-          <button class="pill action" type="button" :disabled="discovery['tts-local'].loading || !localTtsBaseUrl.trim()" @click="loadTtsModels('local')">
+          <button id="tts-local-discovery" class="pill action" type="button" :disabled="discovery['tts-local'].loading || !localTtsBaseUrl.trim()" @click="loadTtsModels('local')">
             {{ discovery['tts-local'].loading ? 'Loading…' : discovery['tts-local'].loaded ? 'Refresh models' : 'Test & load models' }}
           </button>
           <button
@@ -1043,6 +1067,7 @@ async function rebuildSemanticIndex(): Promise<void> {
               placeholder="Model ID"
               @update:model-value="updateTtsModel('cloud', $event)"
               @select="selectTtsModel('cloud', $event)"
+              @commit="selectTtsModel('cloud', $event)"
             />
           </div>
           <div class="provider-field">
@@ -1056,6 +1081,7 @@ async function rebuildSemanticIndex(): Promise<void> {
               label="Cloud TTS voice"
               placeholder="Voice ID"
             />
+            <div v-if="voiceDiscoveryMessage('tts-cloud')" class="voice-discovery-note">{{ voiceDiscoveryMessage('tts-cloud') }}</div>
           </div>
           <div class="provider-field provider-key-field">
             <label for="tts-cloud-api-key">API key</label>
@@ -1068,7 +1094,7 @@ async function rebuildSemanticIndex(): Promise<void> {
               @update:model-value="clearDiscovery('tts-cloud')"
             />
           </div>
-          <button class="pill action" type="button" :disabled="discovery['tts-cloud'].loading || !cloudTtsBaseUrl.trim()" @click="loadTtsModels('cloud')">
+          <button id="tts-cloud-discovery" class="pill action" type="button" :disabled="discovery['tts-cloud'].loading || !cloudTtsBaseUrl.trim()" @click="loadTtsModels('cloud')">
             {{ discovery['tts-cloud'].loading ? 'Loading…' : discovery['tts-cloud'].loaded ? 'Refresh models' : 'Test & load models' }}
           </button>
           <button
@@ -1763,6 +1789,7 @@ h1 {
   flex-direction: column;
   gap: 5px;
 }
+.voice-discovery-note { color: var(--muted); font-size: 11px; line-height: 1.35; }
 .provider-url-field { flex-basis: 260px; }
 .provider-key-field { flex-basis: 220px; }
 .compact-provider-row .provider-input,

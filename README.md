@@ -110,7 +110,8 @@ Two non-browser paths are supported:
 - **Venice or another OpenAI-compatible cloud:** the Venice preset uses
   `https://api.venice.ai/api/v1`, model `tts-kokoro`, and voice `af_sky`. A cloud key is required,
   encrypted at rest, and used only by the server. Venice discovery filters to TTS models and loads
-  the voice catalog for the selected model.
+  the searchable voice catalog for the selected model. Voice fields accept case-insensitive name
+  or ID searches; providers without a voice catalog remain usable through manual voice-ID entry.
 
 Remote audio uses the per-account **Remote audio buffer** setting, which accepts 3–8 verses and
 defaults to 4. Playback waits for that many remaining verses to be ready, reports preparation
