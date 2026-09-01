@@ -2,7 +2,6 @@ import type { MachairaDatabase } from './database.js'
 import type { SecretStore } from './secrets.js'
 import {
   VoiceConfigError,
-  limitedProviderError,
   parseVoiceOrder,
   voiceEndpoint,
   voiceProviderUrl,
@@ -25,6 +24,7 @@ export interface TtsConfig {
   order: TtsTier[]
   local: TtsEndpointConfig | null
   cloud: TtsEndpointConfig | null
+  remoteAudioCacheSize: number
 }
 
 interface StoredTtsConfig {
@@ -37,6 +37,7 @@ interface StoredTtsConfig {
   cloud_base_url: string | null
   cloud_model: string | null
   cloud_voice: string | null
+  remote_audio_cache_size: number
 }
 
 interface EndpointInput {
@@ -52,6 +53,9 @@ const PROVIDERS = new Set<TtsProviderKind>(['openai-compatible', 'venice'])
 const LOCAL_KEY = 'tts-local-api-key'
 const CLOUD_KEY = 'tts-cloud-api-key'
 const MAX_AUDIO_BYTES = 10 * 1024 * 1024
+const DEFAULT_REMOTE_AUDIO_CACHE_SIZE = 4
+const MIN_REMOTE_AUDIO_CACHE_SIZE = 3
+const MAX_REMOTE_AUDIO_CACHE_SIZE = 8
 
 export const TtsInputError = VoiceConfigError
 export class TtsProviderError extends Error {}
@@ -132,10 +136,14 @@ export class TtsService {
     const row = this.db.prepare(`
       SELECT provider_order_json,
         local_provider, local_base_url, local_model, local_voice,
-        cloud_provider, cloud_base_url, cloud_model, cloud_voice
+        cloud_provider, cloud_base_url, cloud_model, cloud_voice,
+        remote_audio_cache_size
       FROM tts_configs WHERE user_id = ?
     `).get(userId) as StoredTtsConfig | undefined
-    if (!row) return { order: ['browser'], local: null, cloud: null }
+    if (!row) return {
+      order: ['browser'], local: null, cloud: null,
+      remoteAudioCacheSize: DEFAULT_REMOTE_AUDIO_CACHE_SIZE
+    }
     let order: TtsTier[] = ['browser']
     try {
       order = parseVoiceOrder(JSON.parse(row.provider_order_json))
@@ -145,7 +153,8 @@ export class TtsService {
     return {
       order,
       local: storedEndpoint(row, 'local', this.secrets.has(userId, LOCAL_KEY)),
-      cloud: storedEndpoint(row, 'cloud', this.secrets.has(userId, CLOUD_KEY))
+      cloud: storedEndpoint(row, 'cloud', this.secrets.has(userId, CLOUD_KEY)),
+      remoteAudioCacheSize: row.remote_audio_cache_size
     }
   }
 
@@ -157,13 +166,21 @@ export class TtsService {
     const order = parseVoiceOrder(input.order)
     const local = parseEndpoint(input.local, 'local')
     const cloud = parseEndpoint(input.cloud, 'cloud')
+    const existing = this.get(userId)
+    const remoteAudioCacheSize = input.remoteAudioCacheSize === undefined
+      ? existing.remoteAudioCacheSize
+      : input.remoteAudioCacheSize
+    if (!Number.isSafeInteger(remoteAudioCacheSize)
+      || (remoteAudioCacheSize as number) < MIN_REMOTE_AUDIO_CACHE_SIZE
+      || (remoteAudioCacheSize as number) > MAX_REMOTE_AUDIO_CACHE_SIZE) {
+      throw new TtsInputError('Remote audio cache size must be an integer from 3 to 8')
+    }
     if (order.includes('local') && !local) {
       throw new TtsInputError('Configure the local provider before enabling it')
     }
     if (order.includes('cloud') && !cloud) {
       throw new TtsInputError('Configure the cloud provider before enabling it')
     }
-    const existing = this.get(userId)
     const localIdentityUnchanged = !!local
       && local.provider === existing.local?.provider
       && local.baseUrl === existing.local.baseUrl
@@ -183,8 +200,9 @@ export class TtsService {
         INSERT INTO tts_configs (
           user_id, provider_order_json,
           local_provider, local_base_url, local_model, local_voice,
-          cloud_provider, cloud_base_url, cloud_model, cloud_voice, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          cloud_provider, cloud_base_url, cloud_model, cloud_voice,
+          remote_audio_cache_size, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(user_id) DO UPDATE SET
           provider_order_json = excluded.provider_order_json,
           local_provider = excluded.local_provider,
@@ -195,11 +213,13 @@ export class TtsService {
           cloud_base_url = excluded.cloud_base_url,
           cloud_model = excluded.cloud_model,
           cloud_voice = excluded.cloud_voice,
+          remote_audio_cache_size = excluded.remote_audio_cache_size,
           updated_at = excluded.updated_at
       `).run(
         userId, JSON.stringify(order),
         local?.provider ?? null, local?.baseUrl ?? null, local?.model ?? null, local?.voice ?? null,
         cloud?.provider ?? null, cloud?.baseUrl ?? null, cloud?.model ?? null, cloud?.voice ?? null,
+        remoteAudioCacheSize,
         Date.now()
       )
       this.updateSecret(userId, LOCAL_KEY, local, localIdentityUnchanged)
@@ -266,7 +286,8 @@ export class TtsService {
       throw new TtsProviderError(`Could not reach TTS provider: ${(error as Error).message}`)
     }
     if (!response.ok) {
-      throw new TtsProviderError(`TTS provider rejected the request (${response.status}): ${await limitedProviderError(response)}`)
+      await response.body?.cancel().catch(() => undefined)
+      throw new TtsProviderError(`TTS provider rejected the request (HTTP ${response.status})`)
     }
     const contentType = response.headers.get('content-type')?.split(';', 1)[0].trim().toLowerCase() ?? ''
     if (!contentType.startsWith('audio/')) {

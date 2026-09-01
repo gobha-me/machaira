@@ -338,13 +338,22 @@ describe('STT schema migration', () => {
         id TEXT PRIMARY KEY, username TEXT NOT NULL, username_normalized TEXT NOT NULL UNIQUE,
         password_hash TEXT NOT NULL, role TEXT NOT NULL, disabled_at INTEGER, created_at INTEGER NOT NULL
       );
+      CREATE TABLE tts_configs (
+        user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        provider_order_json TEXT NOT NULL,
+        local_provider TEXT CHECK (local_provider IN ('openai-compatible')),
+        local_base_url TEXT, local_model TEXT, local_voice TEXT,
+        cloud_provider TEXT CHECK (cloud_provider IN ('openai-compatible', 'venice')),
+        cloud_base_url TEXT, cloud_model TEXT, cloud_voice TEXT,
+        updated_at INTEGER NOT NULL
+      );
       INSERT INTO users VALUES ('user-1', 'Owner', 'owner', 'hash', 'admin', NULL, 1);
     `)
     old.close()
     const db = openDatabase(filename)
     try {
       const version = db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get() as { version: number }
-      assert.equal(version.version, 9)
+      assert.equal(version.version, 10)
       db.prepare(`
         INSERT INTO stt_configs (user_id, provider_order_json, updated_at)
         VALUES ('user-1', '["browser"]', 1)

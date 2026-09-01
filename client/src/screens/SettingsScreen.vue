@@ -86,6 +86,7 @@ const cloudTtsModel = ref(ttsProvider.config.cloud?.model ?? 'tts-kokoro')
 const cloudTtsVoice = ref(ttsProvider.config.cloud?.voice ?? 'af_sky')
 const cloudTtsApiKey = ref('')
 const cloudTtsRemoved = ref(false)
+const remoteAudioCacheSize = ref(ttsProvider.config.remoteAudioCacheSize)
 const ttsMessage = ref('')
 const browserSttPriority = ref(sttPriorityOf('browser'))
 const localSttPriority = ref(sttPriorityOf('local'))
@@ -190,7 +191,10 @@ const cloudTtsKeyReady = computed(() => cloudTtsRemoved.value
 const ttsReadyToSave = computed(() => ttsOrderValid.value
   && (localTtsPriority.value === 0 || localTtsComplete.value)
   && (cloudTtsPriority.value === 0 || cloudTtsComplete.value)
-  && cloudTtsKeyReady.value)
+  && cloudTtsKeyReady.value
+  && Number.isSafeInteger(remoteAudioCacheSize.value)
+  && remoteAudioCacheSize.value >= 3
+  && remoteAudioCacheSize.value <= 8)
 
 function sttPriorityOf(tier: SttTier): number {
   const index = sttProvider.config.order.indexOf(tier)
@@ -623,7 +627,8 @@ async function saveTtsConfig(): Promise<void> {
     await ttsProvider.save({
       order: ttsOrder.value,
       local: endpointInput('local'),
-      cloud: endpointInput('cloud')
+      cloud: endpointInput('cloud'),
+      remoteAudioCacheSize: remoteAudioCacheSize.value
     })
     localTtsApiKey.value = ''
     cloudTtsApiKey.value = ''
@@ -1075,6 +1080,23 @@ async function rebuildSemanticIndex(): Promise<void> {
         </div>
         <div v-if="!ttsOrderValid" class="row bordered provider-warning" role="alert">
           Enabled providers need unique, consecutive priorities beginning with First.
+        </div>
+        <div class="row bordered">
+          <div class="row-text">
+            <label class="row-title" for="tts-remote-audio-cache-size">Remote audio buffer</label>
+            <div class="row-sub">Verses prepared before playback and retained around the current verse (3–8)</div>
+          </div>
+          <div class="spacer"></div>
+          <input
+            id="tts-remote-audio-cache-size"
+            v-model.number="remoteAudioCacheSize"
+            name="tts-remote-audio-cache-size"
+            class="setting-select priority-select"
+            type="number"
+            min="3"
+            max="8"
+            step="1"
+          />
         </div>
         <div class="row bordered provider-actions">
           <span class="provider-message" :class="{ failed: ttsProvider.error || discovery['tts-local'].error || discovery['tts-cloud'].error || !ttsOrderValid }">{{ ttsMessage }}</span>

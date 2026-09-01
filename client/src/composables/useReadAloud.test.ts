@@ -3,7 +3,7 @@ import {
   createReadAloudController,
   type ReadAloudEnvironment
 } from './useReadAloud'
-import type { TtsConfig } from '../services/api'
+import { ApiError, type TtsConfig } from '../services/api'
 
 class FakeUtterance {
   onend: (() => void) | null = null
@@ -22,6 +22,7 @@ class FakeAudio {
 function config(order: TtsConfig['order'] = ['browser']): TtsConfig {
   return {
     order,
+    remoteAudioCacheSize: 4,
     local: {
       provider: 'openai-compatible', baseUrl: 'http://tts.local/v1',
       model: 'kokoro', voice: 'af_heart', hasApiKey: false
@@ -111,7 +112,7 @@ describe('read-aloud controller', () => {
     expect(complete).toHaveBeenCalledOnce()
   })
 
-  it('prefetches one remote verse and releases audio objects', async () => {
+  it('prepares the bounded remote startup window and releases audio objects', async () => {
     const { result, fetchAudio, audios, releases } = environment()
     const controller = createReadAloudController({
       verses: () => [{ n: 1, text: 'one' }, { n: 2, text: 'two' }],
@@ -120,11 +121,13 @@ describe('read-aloud controller', () => {
     }, result)
 
     controller.start()
+    expect(controller.preparationTarget.value).toBe(2)
     await vi.waitFor(() => expect(audios).toHaveLength(1))
     expect(fetchAudio).toHaveBeenCalledTimes(2)
     expect(fetchAudio.mock.calls.map((call) => call.slice(0, 2))).toEqual([
       ['local', 'one'], ['local', 'two']
     ])
+    expect(controller.preparedCount.value).toBe(2)
     audios[0].onended?.()
     await vi.waitFor(() => expect(audios).toHaveLength(2))
     expect(releases[0]).toHaveBeenCalledOnce()
@@ -211,7 +214,7 @@ describe('read-aloud controller', () => {
     controller.start()
     utterances[0].onerror?.({ error: 'synthesis-failed' })
     await vi.waitFor(() => expect(audios).toHaveLength(1))
-    expect(controller.notice.value).toBe('Browser voice failed; continuing with Local TTS')
+    expect(controller.notice.value).toBe('Browser voice failed at verse 1; continuing with Local TTS')
     expect(fetchAudio).toHaveBeenCalledWith('local', 'one', expect.any(AbortSignal))
     expect(fetchAudio.mock.calls.some((call) => call[0] === 'cloud')).toBe(false)
     audios[0].onended?.()
@@ -240,7 +243,7 @@ describe('read-aloud controller', () => {
     controller.start()
     await vi.waitFor(() => expect(audios).toHaveLength(2))
     expect(releases[0]).toHaveBeenCalledOnce()
-    expect(controller.notice.value).toBe('Local TTS failed; continuing with Cloud TTS')
+    expect(controller.notice.value).toBe('Local TTS failed at verse 1; continuing with Cloud TTS')
     expect(fetchAudio.mock.calls.map((call) => call[0])).toEqual(['local', 'cloud'])
     audios[1].onended?.()
     await vi.waitFor(() => expect(controller.completed.value).toBe(true))
@@ -260,7 +263,7 @@ describe('read-aloud controller', () => {
       await vi.advanceTimersByTimeAsync(30_000)
       expect(synthesis.cancel).toHaveBeenCalled()
       expect(audios).toHaveLength(1)
-      expect(controller.notice.value).toBe('Browser voice failed; continuing with Local TTS')
+      expect(controller.notice.value).toBe('Browser voice failed at verse 1; continuing with Local TTS')
       audios[0].onended?.()
       await vi.advanceTimersByTimeAsync(0)
       expect(controller.completed.value).toBe(true)
@@ -310,9 +313,137 @@ describe('read-aloud controller', () => {
     controller.togglePlayback()
 
     await vi.waitFor(() => expect(audios).toHaveLength(2))
-    expect(controller.notice.value).toBe('Local TTS failed; continuing with Cloud TTS')
+    expect(controller.notice.value).toBe('Local TTS failed at verse 1; continuing with Cloud TTS')
     expect(fetchAudio.mock.calls.map((call) => call[0])).toEqual(['local', 'cloud'])
     audios[1].onended?.()
     await vi.waitFor(() => expect(controller.completed.value).toBe(true))
+  })
+
+  it('waits for the configured startup target and runs at most two syntheses concurrently', async () => {
+    const { result, audios } = environment()
+    const resolvers: Array<() => void> = []
+    let activeRequests = 0
+    let peakRequests = 0
+    result.fetchAudio = vi.fn((_provider, _text, signal) => new Promise<Blob>((resolve, reject) => {
+      activeRequests += 1
+      peakRequests = Math.max(peakRequests, activeRequests)
+      const finish = () => {
+        activeRequests -= 1
+        resolve(new Blob(['audio'], { type: 'audio/mpeg' }))
+      }
+      signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true })
+      resolvers.push(finish)
+    }))
+    const controller = createReadAloudController({
+      verses: () => [
+        { n: 1, text: 'one' }, { n: 2, text: 'two' },
+        { n: 3, text: 'three' }, { n: 4, text: 'four' },
+        { n: 5, text: 'five' }
+      ],
+      startVerse: () => null,
+      config: () => config(['local'])
+    }, result)
+
+    controller.start()
+    await vi.waitFor(() => expect(result.fetchAudio).toHaveBeenCalledTimes(2))
+    expect(controller.preparationTarget.value).toBe(4)
+    expect(controller.preparedCount.value).toBe(0)
+    expect(audios).toHaveLength(0)
+
+    resolvers[0]!()
+    await vi.waitFor(() => expect(result.fetchAudio).toHaveBeenCalledTimes(3))
+    expect(controller.preparedCount.value).toBe(1)
+    expect(audios).toHaveLength(0)
+    resolvers[1]!()
+    await vi.waitFor(() => expect(result.fetchAudio).toHaveBeenCalledTimes(4))
+    resolvers[2]!()
+    resolvers[3]!()
+
+    await vi.waitFor(() => expect(audios).toHaveLength(1))
+    expect(controller.preparedCount.value).toBe(4)
+    expect(controller.preparationProgress.value).toBe(100)
+    expect(controller.preparing.value).toBe(false)
+    expect(peakRequests).toBe(2)
+    controller.stop()
+  })
+
+  it('retries a failed background prefetch when the verse reaches the playhead', async () => {
+    const { result, audios } = environment()
+    const attempts = new Map<string, number>()
+    result.fetchAudio = vi.fn(async (_provider, text) => {
+      const attempt = (attempts.get(text) ?? 0) + 1
+      attempts.set(text, attempt)
+      if (text === 'five' && attempt === 1) throw new Error('transient provider failure')
+      return new Blob([text], { type: 'audio/mpeg' })
+    })
+    const controller = createReadAloudController({
+      verses: () => [
+        { n: 1, text: 'one' }, { n: 2, text: 'two' },
+        { n: 3, text: 'three' }, { n: 4, text: 'four' },
+        { n: 5, text: 'five' }
+      ],
+      startVerse: () => null,
+      config: () => config(['local'])
+    }, result)
+
+    controller.start()
+    await vi.waitFor(() => expect(audios).toHaveLength(1))
+    audios[0]!.onended?.()
+    await vi.waitFor(() => expect(audios).toHaveLength(2))
+    audios[1]!.onended?.()
+    await vi.waitFor(() => expect(attempts.get('five')).toBe(1))
+    await vi.waitFor(() => expect(audios).toHaveLength(3))
+    audios[2]!.onended?.()
+    await vi.waitFor(() => expect(audios).toHaveLength(4))
+    audios[3]!.onended?.()
+    await vi.waitFor(() => expect(attempts.get('five')).toBe(2))
+    await vi.waitFor(() => expect(audios).toHaveLength(5))
+    audios[4]!.onended?.()
+
+    await vi.waitFor(() => expect(controller.completed.value).toBe(true))
+    expect(controller.error.value).toBeNull()
+  })
+
+  it('replays the retained previous verse without another synthesis request', async () => {
+    const { result, audios, fetchAudio, releases } = environment()
+    const controller = createReadAloudController({
+      verses: () => [
+        { n: 1, text: 'one' }, { n: 2, text: 'two' },
+        { n: 3, text: 'three' }, { n: 4, text: 'four' }
+      ],
+      startVerse: () => null,
+      config: () => config(['local'])
+    }, result)
+
+    controller.start()
+    await vi.waitFor(() => expect(audios).toHaveLength(1))
+    audios[0]!.onended?.()
+    await vi.waitFor(() => expect(audios).toHaveLength(2))
+    expect(controller.canPrevious.value).toBe(true)
+    controller.previous()
+    await vi.waitFor(() => expect(audios).toHaveLength(3))
+
+    expect(fetchAudio.mock.calls.filter((call) => call[1] === 'one')).toHaveLength(1)
+    expect(releases[1]).toHaveBeenCalledOnce()
+    expect(controller.currentVerse.value).toBe(1)
+    controller.stop()
+  })
+
+  it('reports a tier and verse without exposing provider response bodies', async () => {
+    const { result } = environment()
+    result.fetchAudio = vi.fn(async () => {
+      throw new ApiError(502, { error: 'secret upstream response body' })
+    })
+    const controller = createReadAloudController({
+      verses: () => [{ n: 7, text: 'seven' }],
+      startVerse: () => null,
+      config: () => config(['local'])
+    }, result)
+
+    controller.start()
+    await vi.waitFor(() => expect(controller.error.value).not.toBeNull())
+    expect(controller.error.value).toContain('Local TTS failed at verse 7')
+    expect(controller.error.value).toContain('HTTP 502')
+    expect(controller.error.value).not.toContain('secret upstream response body')
   })
 })

@@ -265,6 +265,7 @@ export interface TtsConfig {
   order: TtsTier[]
   local: TtsEndpointConfig | null
   cloud: TtsEndpointConfig | null
+  remoteAudioCacheSize: number
 }
 
 export interface TtsEndpointInput {
@@ -771,6 +772,7 @@ export const api = {
     order: TtsTier[]
     local: TtsEndpointInput | null
     cloud: TtsEndpointInput | null
+    remoteAudioCacheSize: number
   }): Promise<TtsConfig> {
     return (await requestJson<{ config: TtsConfig }>(
       '/api/tts/config', json('PUT', input)

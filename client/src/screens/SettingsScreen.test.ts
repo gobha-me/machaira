@@ -17,6 +17,7 @@ const providerControlIds = [
   'tts-cloud-model',
   'tts-cloud-voice',
   'tts-cloud-api-key',
+  'tts-remote-audio-cache-size',
   'stt-browser-priority',
   'stt-local-priority',
   'stt-local-base-url',
@@ -103,5 +104,19 @@ describe('Settings provider controls', () => {
       expect(tag).toContain('autocomplete="new-password"')
       expect(html).toContain(`aria-controls="${id}"`)
     }
+  })
+
+  it('renders the bounded remote audio buffer control', async () => {
+    const app = createSSRApp({ render: () => h(SettingsScreen) })
+    app.use(createPinia())
+
+    const html = await renderToString(app)
+    const tag = controlTag(html, 'tts-remote-audio-cache-size')
+
+    expect(tag).toContain('type="number"')
+    expect(tag).toContain('min="3"')
+    expect(tag).toContain('max="8"')
+    expect(tag).toContain('step="1"')
+    expect(html).toContain('Remote audio buffer')
   })
 })

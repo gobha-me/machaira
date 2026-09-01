@@ -162,6 +162,15 @@ describe('chat conversation storage', () => {
         id TEXT PRIMARY KEY, username TEXT NOT NULL, username_normalized TEXT NOT NULL UNIQUE,
         password_hash TEXT NOT NULL, role TEXT NOT NULL, disabled_at INTEGER, created_at INTEGER NOT NULL
       );
+      CREATE TABLE tts_configs (
+        user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        provider_order_json TEXT NOT NULL,
+        local_provider TEXT CHECK (local_provider IN ('openai-compatible')),
+        local_base_url TEXT, local_model TEXT, local_voice TEXT,
+        cloud_provider TEXT CHECK (cloud_provider IN ('openai-compatible', 'venice')),
+        cloud_base_url TEXT, cloud_model TEXT, cloud_voice TEXT,
+        updated_at INTEGER NOT NULL
+      );
       INSERT INTO users VALUES ('user-1', 'Owner', 'owner', 'hash', 'admin', NULL, 1);
     `)
     old.close()
@@ -169,7 +178,7 @@ describe('chat conversation storage', () => {
     const db = openDatabase(filename)
     try {
       assert.equal((db.prepare('SELECT MAX(version) AS version FROM schema_migrations')
-        .get() as { version: number }).version, 9)
+        .get() as { version: number }).version, 10)
       const chats = new ChatConversationService(db)
       const conversation = chats.create('user-1')
       const started = chats.startTurn('user-1', conversation.id, turn('Persist me'))
