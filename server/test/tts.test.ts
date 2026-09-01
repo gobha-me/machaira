@@ -72,7 +72,8 @@ describe('TTS configuration API', () => {
       assert.deepEqual(saved.json().config, {
         order: ['local', 'browser', 'cloud'],
         local: { ...local, hasApiKey: true },
-        cloud: { ...cloud, hasApiKey: true }
+        cloud: { ...cloud, hasApiKey: true },
+        remoteAudioCacheSize: 4
       })
       assert.doesNotMatch(saved.body, /local-secret|cloud-secret/)
 
@@ -86,7 +87,22 @@ describe('TTS configuration API', () => {
       }))
       assert.deepEqual((await app.inject({
         method: 'GET', url: '/api/tts/config', headers: { cookie: member }
-      })).json().config, { order: ['browser'], local: null, cloud: null })
+      })).json().config, {
+        order: ['browser'], local: null, cloud: null, remoteAudioCacheSize: 4
+      })
+
+      const resized = await app.inject({
+        method: 'PUT', url: '/api/tts/config', headers: { cookie: member },
+        payload: { order: ['browser'], local: null, cloud: null, remoteAudioCacheSize: 6 }
+      })
+      assert.equal(resized.statusCode, 200)
+      assert.equal(resized.json().config.remoteAudioCacheSize, 6)
+      const legacySave = await app.inject({
+        method: 'PUT', url: '/api/tts/config', headers: { cookie: member },
+        payload: { order: ['browser'], local: null, cloud: null }
+      })
+      assert.equal(legacySave.statusCode, 200)
+      assert.equal(legacySave.json().config.remoteAudioCacheSize, 6)
 
       const preserved = await app.inject({
         method: 'PUT', url: '/api/tts/config', headers: { cookie: owner },
@@ -109,7 +125,10 @@ describe('TTS configuration API', () => {
         { order: ['cloud'], local: null, cloud: null },
         { order: ['browser', 'browser'], local: null, cloud: null },
         { order: ['local'], local: { ...local, provider: 'venice' }, cloud: null },
-        { order: ['cloud'], local: null, cloud: { ...cloud, clearApiKey: true } }
+        { order: ['cloud'], local: null, cloud: { ...cloud, clearApiKey: true } },
+        { order: ['browser'], local: null, cloud: null, remoteAudioCacheSize: 2 },
+        { order: ['browser'], local: null, cloud: null, remoteAudioCacheSize: 9 },
+        { order: ['browser'], local: null, cloud: null, remoteAudioCacheSize: 4.5 }
       ]) {
         assert.equal((await app.inject({
           method: 'PUT', url: '/api/tts/config', headers: { cookie: member }, payload
@@ -224,6 +243,7 @@ describe('TTS speech proxy', () => {
         })
         assert.equal(response.statusCode, 502)
         assert.match(response.json().error, expected)
+        assert.doesNotMatch(response.body, /slow down/)
         mode = mode === 'error' ? 'json' : 'large'
       }
     } finally {
@@ -252,11 +272,21 @@ describe('TTS schema migration', () => {
     const db = openDatabase(filename)
     try {
       const version = db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get() as { version: number }
-      assert.equal(version.version, 9)
+      assert.equal(version.version, 10)
+      const columns = db.prepare('PRAGMA table_info(tts_configs)').all() as Array<{
+        name: string; dflt_value: string | null
+      }>
+      assert.deepEqual(
+        columns.find((column) => column.name === 'remote_audio_cache_size')?.dflt_value,
+        '4'
+      )
       db.prepare(`
         INSERT INTO tts_configs (user_id, provider_order_json, updated_at)
         VALUES ('user-1', '["browser"]', 1)
       `).run()
+      assert.equal((db.prepare(`
+        SELECT remote_audio_cache_size AS size FROM tts_configs WHERE user_id = 'user-1'
+      `).get() as { size: number }).size, 4)
       db.prepare("DELETE FROM users WHERE id = 'user-1'").run()
       const count = db.prepare('SELECT COUNT(*) AS count FROM tts_configs').get() as { count: number }
       assert.equal(count.count, 0)

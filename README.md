@@ -15,7 +15,7 @@ semantic search, personal journaling, and a bring-your-own-model study partner.
 
 | Screen | What it does |
 | --- | --- |
-| **Read** | Renders a chapter from any installed translation in a responsive phone, tablet, or desktop layout; translation picker, book/chapter navigation, touch-friendly passage tools and range selection, persisted highlights, and browser read-aloud follow-along. |
+| **Read** | Renders a chapter from any installed translation in a responsive phone, tablet, or desktop layout; translation picker, book/chapter navigation, touch-friendly passage tools and range selection, persisted highlights, and provider-backed read-aloud follow-along. |
 | **Study** | Side-by-side verse comparison, Strong's glosses, and streamed Markdown passage-aware chat—with pluggable hold-to-talk input—through user-configured providers. |
 | **Search** | Real SWORD full-text and embedding-backed “by meaning” search across Scripture and installed Generic Books, with typed or hold-to-talk input. |
 | **Library** | Browse a unified official-repository catalog, inspect canon and license coverage, install from an exact repository, or import a local SWORD ZIP. |
@@ -112,9 +112,15 @@ Two non-browser paths are supported:
   encrypted at rest, and used only by the server. Venice discovery filters to TTS models and loads
   the voice catalog for the selected model.
 
-Remote audio is generated a verse at a time with one-verse prefetch for prompt start and accurate
-follow-along. Stop, pause/resume, replay, navigation cancellation, provider failure, and fallback
-apply to browser and generated audio. Browser-local WASM/WebGPU voices are not supported yet.
+Remote audio uses the per-account **Remote audio buffer** setting, which accepts 3–8 verses and
+defaults to 4. Playback waits for that many remaining verses to be ready, reports preparation
+progress, and then maintains a bounded rolling window with at most two synthesis requests in
+flight per read-aloud session. The immediately previous verse remains reusable while spare
+capacity is biased forward;
+previous/next controls can seek within the chapter without regenerating retained audio. Rejected
+background work is removed so the foreground verse can retry before visible configured fallback.
+Stop, pause/resume, replay, seeking, navigation cancellation, provider failure, and fallback apply
+to browser and generated audio. Browser-local WASM/WebGPU voices are not supported yet.
 
 Search and the Study partner use a separate ordered voice-input graph configured under
 **Settings → Voice input**. Hold the microphone button with a pointer, or hold Space/Enter while it

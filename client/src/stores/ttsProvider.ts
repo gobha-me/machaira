@@ -6,7 +6,9 @@ import {
   type TtsTier
 } from '../services/api'
 
-const DEFAULT_CONFIG: TtsConfig = { order: ['browser'], local: null, cloud: null }
+const DEFAULT_CONFIG: TtsConfig = {
+  order: ['browser'], local: null, cloud: null, remoteAudioCacheSize: 4
+}
 
 export const useTtsProvider = defineStore('ttsProvider', {
   state: () => ({
@@ -33,6 +35,7 @@ export const useTtsProvider = defineStore('ttsProvider', {
       order: TtsTier[]
       local: TtsEndpointInput | null
       cloud: TtsEndpointInput | null
+      remoteAudioCacheSize: number
     }): Promise<void> {
       this.loading = true
       this.error = null

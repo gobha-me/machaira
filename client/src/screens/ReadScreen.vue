@@ -107,14 +107,21 @@ const {
   active: listening,
   playing,
   preparing: preparingAudio,
+  preparedCount,
+  preparationTarget,
+  preparationProgress,
   currentVerse: spokenVerse,
   completed: listeningComplete,
   error: listeningError,
   notice: listeningNotice,
   currentProvider: listeningProvider,
   progress: progressPct,
+  canPrevious: canPlayPrevious,
+  canNext: canPlayNext,
   toggle: toggleListen,
   togglePlayback: togglePlay,
+  previous: playPrevious,
+  next: playNext,
   stop: stopListening
 } = useReadAloud({
   verses: () => reader.data?.verses ?? [],
@@ -640,12 +647,28 @@ async function menuNote() {
     <!-- listen bar -->
     <div v-if="listening" class="listenbar">
       <button
+        class="seek"
+        type="button"
+        :disabled="!canPlayPrevious"
+        aria-label="Previous verse"
+        title="Previous verse"
+        @click="playPrevious"
+      >←</button>
+      <button
         class="play"
         :disabled="preparingAudio"
-        :title="preparingAudio ? 'Generating audio' : playing ? 'Pause read-aloud' : listeningComplete ? 'Replay chapter' : 'Resume read-aloud'"
-        :aria-label="preparingAudio ? 'Generating audio' : playing ? 'Pause read-aloud' : listeningComplete ? 'Replay chapter' : 'Resume read-aloud'"
+        :title="preparingAudio ? 'Preparing audio' : playing ? 'Pause read-aloud' : listeningComplete ? 'Replay chapter' : 'Resume read-aloud'"
+        :aria-label="preparingAudio ? 'Preparing audio' : playing ? 'Pause read-aloud' : listeningComplete ? 'Replay chapter' : 'Resume read-aloud'"
         @click="togglePlay"
       >{{ playing ? '❚❚' : '▶' }}</button>
+      <button
+        class="seek"
+        type="button"
+        :disabled="!canPlayNext"
+        aria-label="Next verse"
+        title="Next verse"
+        @click="playNext"
+      >→</button>
       <div class="listen-meta">
         <div class="listen-title" :title="`${reader.bookName} ${reader.chapter} · ${activeTranslationLabel}`">{{ reader.bookName }} {{ reader.chapter }} · {{ reader.moduleName }}</div>
         <div class="listen-sub" :class="{ error: listeningError }" aria-live="polite">
@@ -654,7 +677,7 @@ async function menuNote() {
             : listeningComplete
               ? 'Chapter complete'
               : preparingAudio
-                ? `Generating audio — verse ${spokenVerse} · ${listeningProvider}`
+                ? `Preparing ${listeningProvider} audio — ${preparedCount} of ${preparationTarget} verses ready`
                 : listeningNotice
                   ? listeningNotice
                   : spokenVerse
@@ -666,11 +689,11 @@ async function menuNote() {
         class="listen-track"
         :class="{ preparing: preparingAudio }"
         role="progressbar"
-        aria-label="Read-aloud progress"
-        :aria-valuenow="preparingAudio ? undefined : progressPct"
+        :aria-label="preparingAudio ? 'Audio preparation progress' : 'Read-aloud progress'"
+        :aria-valuenow="preparingAudio ? preparationProgress : progressPct"
         aria-valuemin="0"
         aria-valuemax="100"
-      ><div class="listen-fill" :style="{ width: preparingAudio ? '100%' : progressPct + '%' }"></div></div>
+      ><div class="listen-fill" :style="{ width: (preparingAudio ? preparationProgress : progressPct) + '%' }"></div></div>
       <button class="listen-close hover-ink" aria-label="Close read-aloud" @click="stopListening">Close</button>
     </div>
   </div>
@@ -1279,6 +1302,20 @@ h1 {
   font-size: 13px;
   flex-shrink: 0;
 }
+.seek {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--soft);
+  color: var(--ink);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.seek:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
 .listen-meta {
   min-width: 0;
 }
@@ -1307,19 +1344,6 @@ h1 {
   height: 100%;
   background: var(--accent);
   transition: width 0.3s;
-}
-.listen-track.preparing .listen-fill {
-  animation: listen-preparing 1.1s ease-in-out infinite alternate;
-}
-@keyframes listen-preparing {
-  from { opacity: 0.2; }
-  to { opacity: 0.85; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .listen-track.preparing .listen-fill {
-    animation: none;
-    opacity: 0.5;
-  }
 }
 .listen-close {
   background: none;
