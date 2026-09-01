@@ -24,16 +24,18 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   'update:modelValue': [value: string]
   select: [value: string]
+  commit: [value: string]
 }>()
 
 const open = ref(false)
 const activeIndex = ref(-1)
 const query = ref('')
+const editing = ref(false)
 const input = ref<HTMLInputElement | null>(null)
 const listboxId = `discovery-${Math.random().toString(36).slice(2)}`
 
 const filtered = computed(() => {
-  return filterDiscoveryChoices(props.options, query.value)
+  return filterDiscoveryChoices(props.options, editing.value ? query.value : '')
 })
 
 const confirmed = computed(() => filtered.value.filter((choice) => choice.compatibility === 'confirmed'))
@@ -42,6 +44,7 @@ const stale = computed(() => isStaleDiscoveryChoice(props.options, props.modelVa
 
 function update(value: string): void {
   query.value = value
+  editing.value = true
   emit('update:modelValue', value)
   open.value = true
   activeIndex.value = -1
@@ -53,14 +56,28 @@ function select(choice: DiscoveryChoice): void {
   open.value = false
   activeIndex.value = -1
   query.value = ''
+  editing.value = false
+}
+
+function commitManual(): void {
+  if (!editing.value) return
+  const value = query.value.trim()
+  if (value !== props.modelValue) emit('update:modelValue', value)
+  emit('commit', value)
+  query.value = ''
+  editing.value = false
 }
 
 function toggle(): void {
   if (!props.options.length) return
   open.value = !open.value
   query.value = ''
+  editing.value = false
   activeIndex.value = open.value ? 0 : -1
-  void nextTick(() => input.value?.focus())
+  void nextTick(() => {
+    input.value?.focus()
+    input.value?.select()
+  })
 }
 
 function onKeydown(event: KeyboardEvent): void {
@@ -80,23 +97,40 @@ function onKeydown(event: KeyboardEvent): void {
   }
   if (event.key === 'Enter') {
     const choice = filtered.value[activeIndex.value]
-    if (choice) select(choice)
+    if (choice) {
+      select(choice)
+    } else {
+      commitManual()
+      open.value = false
+      activeIndex.value = -1
+    }
     event.preventDefault()
     return
   }
+  if (!filtered.value.length) return
   const direction = event.key === 'ArrowDown' ? 1 : -1
-  activeIndex.value = (activeIndex.value + direction + filtered.value.length) % filtered.value.length
+  if (activeIndex.value < 0) {
+    activeIndex.value = direction > 0 ? 0 : filtered.value.length - 1
+  } else {
+    activeIndex.value = (activeIndex.value + direction + filtered.value.length) % filtered.value.length
+  }
   event.preventDefault()
 }
 
 function onFocus(): void {
-  if (!props.options.length) return
   query.value = ''
-  open.value = true
+  editing.value = false
   activeIndex.value = -1
+  void nextTick(() => input.value?.select())
+  if (!props.options.length) {
+    open.value = false
+    return
+  }
+  open.value = true
 }
 
 function closeSoon(): void {
+  commitManual()
   window.setTimeout(() => { open.value = false }, 100)
 }
 </script>
@@ -112,6 +146,7 @@ function closeSoon(): void {
         class="discovery-input"
         :placeholder="placeholder"
         role="combobox"
+        aria-autocomplete="list"
         autocomplete="off"
         autocapitalize="off"
         data-1p-ignore="true"
