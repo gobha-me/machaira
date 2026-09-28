@@ -249,7 +249,7 @@ async function openScripture(messageId: string, target: ScriptureTarget): Promis
               </div>
               <div v-if="message.status === 'failed' || message.status === 'interrupted'" class="message-status">
                 <span>{{ message.status === 'interrupted' ? 'Response interrupted.' : (message.error || 'Response failed.') }}</span>
-                <button v-if="retryable(message, index)" :disabled="chats.sending" @click="retry(message)">Retry</button>
+                <button v-if="retryable(message, index)" :disabled="chats.sending || chats.loading" @click="retry(message)">Retry</button>
               </div>
             </div>
           </div>
@@ -262,16 +262,16 @@ async function openScripture(messageId: string, target: ScriptureTarget): Promis
       <input
         v-model="chats.draft"
         aria-label="Ask the study partner"
-        :disabled="!aiProvider.provider || chats.sending"
+        :disabled="!aiProvider.provider || chats.sending || chats.loading"
         :placeholder="aiProvider.provider ? `Ask about ${passage.reference}` : 'Connect a provider in Settings to chat'"
       />
       <VoiceInputButton
         v-model="chats.draft"
         label="study question"
-        :disabled="!aiProvider.provider || chats.sending"
+        :disabled="!aiProvider.provider || chats.sending || chats.loading"
       />
       <button v-if="chats.sending" type="button" class="send cancel" title="Stop response" @click="chats.stop">■</button>
-      <button v-else type="submit" class="send" :disabled="!aiProvider.provider || !chats.draft.trim() || !passage.content">→</button>
+      <button v-else type="submit" class="send" :disabled="!aiProvider.provider || chats.loading || !chats.draft.trim() || !passage.content">→</button>
     </form>
   </aside>
 </template>

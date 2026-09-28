@@ -28,6 +28,56 @@ describe('chat SSE parser', () => {
       'event: error\ndata: {"message":"Provider unavailable"}\n\n'
     ]), { delta: () => undefined })).rejects.toThrow('Provider unavailable')
   })
+
+  it('rejects truncated and malformed streams without losing emitted text', async () => {
+    const deltas: string[] = []
+    await expect(consumeSse(fragmentedResponse([
+      'event: delta\ndata: {"text":"Partial"}\n\n'
+    ]), { delta: (text) => deltas.push(text) })).rejects.toThrow('before completion')
+    expect(deltas).toEqual(['Partial'])
+    await expect(consumeSse(fragmentedResponse([
+      'event: delta\ndata: {"text":"Partial"}\n\nevent: done\ndata: broken\n\n'
+    ]), { delta: () => undefined })).rejects.toThrow()
+  })
+
+  it('cancels the reader after completion rather than waiting for EOF', async () => {
+    const cancel = vi.fn()
+    const response = new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('event: done\ndata: {}\n\n'))
+      },
+      cancel
+    }))
+    await consumeSse(response, { delta: () => undefined })
+    expect(cancel).toHaveBeenCalledOnce()
+  })
+})
+
+describe('install SSE completion', () => {
+  it('rejects progress-only EOF and reports 100 only after fragmented completion', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(fragmentedResponse(['event: progress\ndata: {"pct":40}\n\n']))
+      .mockResolvedValueOnce(fragmentedResponse([
+        'event: progress\r\ndata: {"pct":40}\r\n\r\nevent: do', 'ne\r\ndata: {}\r\n\r\n'
+      ]))
+    vi.stubGlobal('fetch', fetchMock)
+    const progress = vi.fn()
+    await expect(api.install('CrossWire', 'WEB', progress)).rejects.toThrow('before completion')
+    expect(progress.mock.calls).toEqual([[40]])
+    await api.install('CrossWire', 'WEB', progress)
+    expect(progress.mock.calls).toEqual([[40], [40], [100]])
+  })
+
+  it('rejects a conversation completion without a completed message', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(fragmentedResponse([
+      'event: done\ndata: {}\n\n'
+    ])))
+    await expect(api.streamConversationMessage('conversation-1', {
+      content: 'Question', passage: { reference: 'John 1:1', module: 'WEB', content: 'The Word' },
+      preferences: { alwaysCite: true, drawApocrypha: false }
+    }, { accepted: vi.fn(), delta: vi.fn(), done: vi.fn(), error: vi.fn() }))
+      .rejects.toThrow('Invalid conversation completion')
+  })
 })
 
 describe('generic SSE parser', () => {

@@ -88,6 +88,54 @@ function sendVectors(response: ServerResponse, inputs: string[]): void {
 }
 
 describe('semantic index', () => {
+  it('owns the rebuild lock before awaiting sources and releases it after failure', async () => {
+    const db = openDatabase(':memory:')
+    seedUser(db)
+    const providers = new EmbeddingProviderService(db, new SecretStore(db, randomBytes(32)))
+    providers.save('user-1', { kind: 'local', baseUrl: 'https://provider.invalid/v1', model: 'test' })
+    let rejectSources!: (error: Error) => void
+    let sourceCalls = 0
+    const blockedSources = new Promise<Awaited<ReturnType<SemanticSources['installed']>>>(
+      (_resolve, reject) => { rejectSources = reject }
+    )
+    const index = new SemanticIndexService(db, providers, {
+      ...sources,
+      installed() { sourceCalls += 1; return blockedSources }
+    })
+    try {
+      const first = index.rebuild('user-1', () => undefined)
+      await assert.rejects(index.rebuild('user-1', () => undefined), /already running/)
+      assert.equal(sourceCalls, 1)
+      rejectSources(new Error('source failure'))
+      await assert.rejects(first, /source failure/)
+      // A retry reaches source discovery rather than encountering a leaked lock.
+      await assert.rejects(index.rebuild('user-1', () => undefined), /source failure/)
+      assert.equal(sourceCalls, 2)
+    } finally {
+      db.close()
+    }
+  })
+
+  it('releases the lock after unconfigured, empty-corpus, and cancelled setup', async () => {
+    const db = openDatabase(':memory:')
+    seedUser(db)
+    const providers = new EmbeddingProviderService(db, new SecretStore(db, randomBytes(32)))
+    const index = new SemanticIndexService(db, providers, { ...sources, async installed() { return [] } })
+    try {
+      await assert.rejects(index.rebuild('user-1', () => undefined), /Configure an embedding provider/)
+      providers.save('user-1', { kind: 'local', baseUrl: 'https://provider.invalid/v1', model: 'test' })
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        await assert.rejects(index.rebuild('user-1', () => undefined), /Install a public-domain corpus/)
+      }
+      const aborted = new AbortController()
+      aborted.abort(new Error('cancelled during setup'))
+      await assert.rejects(index.rebuild('user-1', () => undefined, aborted.signal), /cancelled during setup/)
+      await assert.rejects(index.rebuild('user-1', () => undefined), /Install a public-domain corpus/)
+    } finally {
+      db.close()
+    }
+  })
+
   it('isolates embedding configuration and never exposes or stores plaintext keys', () => {
     const db = openDatabase(':memory:')
     seedUser(db)

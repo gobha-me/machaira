@@ -52,6 +52,16 @@ const conversation: ChatConversation = {
   messages: []
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (error: Error) => void
+  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej })
+  return { promise, resolve, reject }
+}
+
+const passage = { reference: 'John 1:1', module: 'WEB', content: 'The Word' }
+const preferences = { alwaysCite: true, drawApocrypha: false }
+
 describe('chat conversations store', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
@@ -108,6 +118,101 @@ describe('chat conversations store', () => {
     expect(chats.sending).toBe(false)
   })
 
+  it('locks the first send before creating a conversation', async () => {
+    const creation = deferred<ChatConversation>()
+    const create = vi.spyOn(api, 'createChatConversation').mockReturnValue(creation.promise)
+    const stream = vi.spyOn(api, 'streamConversationMessage').mockResolvedValue()
+    const chats = useChatConversations()
+    chats.draft = 'Question'
+    const first = chats.send(passage, preferences)
+    expect(chats.sending).toBe(true)
+    await chats.send(passage, preferences)
+    expect(create).toHaveBeenCalledTimes(1)
+    creation.resolve({ ...conversation, messages: [] })
+    await first
+    expect(stream).toHaveBeenCalledTimes(1)
+    expect(chats.sending).toBe(false)
+  })
+
+  it('stops pending creation without consuming the draft or starting a stream', async () => {
+    const creation = deferred<ChatConversation>()
+    const create = vi.spyOn(api, 'createChatConversation').mockReturnValue(creation.promise)
+    const stream = vi.spyOn(api, 'streamConversationMessage')
+    const chats = useChatConversations()
+    chats.draft = 'Question'
+    const pending = chats.send(passage, preferences)
+    chats.stop()
+    creation.resolve({ ...conversation, messages: [] })
+    await pending
+    expect(create.mock.calls[0][0]?.aborted).toBe(true)
+    expect(chats.draft).toBe('Question')
+    expect(chats.current).toBeNull()
+    expect(chats.sending).toBe(false)
+    expect(stream).not.toHaveBeenCalled()
+  })
+
+  it.each(['success', 'failure'])('ignores an older history selection %s and its loading cleanup', async (outcome) => {
+    const first = deferred<ChatConversation>()
+    const second = deferred<ChatConversation>()
+    vi.spyOn(api, 'chatConversation').mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
+    const chats = useChatConversations()
+    const selectingFirst = chats.select('first')
+    const selectingSecond = chats.select('second')
+    if (outcome === 'success') first.resolve({ ...conversation, id: 'first', messages: [] })
+    else first.reject(new Error('obsolete error'))
+    await selectingFirst
+    expect(chats.loading).toBe(true)
+    expect(chats.error).toBeNull()
+    second.resolve({ ...conversation, id: 'second', messages: [] })
+    await selectingSecond
+    expect(chats.activeId).toBe('second')
+    expect(chats.loading).toBe(false)
+  })
+
+  it('keeps the latest selection when history responses resolve in reverse order', async () => {
+    const first = deferred<ChatConversation>()
+    vi.spyOn(api, 'chatConversation').mockReturnValueOnce(first.promise)
+      .mockResolvedValueOnce({ ...conversation, id: 'second', messages: [] })
+    const chats = useChatConversations()
+    const selectingFirst = chats.select('first')
+    await chats.select('second')
+    chats.draft = 'Current draft'
+    first.resolve({ ...conversation, id: 'first', messages: [] })
+    await selectingFirst
+    expect(chats.activeId).toBe('second')
+    expect(chats.draft).toBe('Current draft')
+  })
+
+  it('invalidates history selection when starting a new chat', async () => {
+    const selected = deferred<ChatConversation>()
+    vi.spyOn(api, 'chatConversation').mockReturnValue(selected.promise)
+    const chats = useChatConversations()
+    const selecting = chats.select('first')
+    chats.newChat()
+    chats.draft = 'New question'
+    selected.resolve({ ...conversation, id: 'first', messages: [] })
+    await selecting
+    expect(chats.current).toBeNull()
+    expect(chats.activeId).toBeNull()
+    expect(chats.draft).toBe('New question')
+    expect(chats.loading).toBe(false)
+  })
+
+  it('does not send into the previous conversation while selection is pending', async () => {
+    const selected = deferred<ChatConversation>()
+    vi.spyOn(api, 'chatConversation').mockReturnValue(selected.promise)
+    const stream = vi.spyOn(api, 'streamConversationMessage')
+    const chats = useChatConversations()
+    chats.current = { ...conversation, messages: [] }
+    chats.activeId = conversation.id
+    chats.draft = 'Question'
+    const selecting = chats.select('second')
+    await chats.send(passage, preferences)
+    expect(stream).not.toHaveBeenCalled()
+    selected.resolve({ ...conversation, id: 'second', messages: [] })
+    await selecting
+  })
+
   it('keeps failed attempts and appends a retry response', async () => {
     const chats = useChatConversations()
     chats.current = {
@@ -162,7 +267,7 @@ describe('chat conversations store', () => {
       { reference: 'John 1:1', module: 'WEB', content: 'The Word' },
       { alwaysCite: true, drawApocrypha: false }
     )
-    await vi.waitFor(() => expect(chats.sending).toBe(true))
+    await vi.waitFor(() => expect(chats.current?.messages[1]?.content).toBe('Partial answer'))
 
     chats.stop()
     await sending
@@ -188,4 +293,35 @@ describe('chat conversations store', () => {
     expect(chats.activeId).toBeNull()
     expect(chats.draft).toBe('')
   })
+
+  it.each(['offline', 'streaming', 'completed'] as const)(
+    'reconciles accepted partial responses after transport failure (%s)', async (recovery) => {
+      vi.spyOn(api, 'createChatConversation').mockResolvedValue({ ...conversation, messages: [] })
+      vi.spyOn(api, 'streamConversationMessage').mockImplementation(async (_id, _input, handlers) => {
+        handlers.accepted({
+          conversation: conversationSummary, userMessage: userMessage(), assistantMessage: assistantMessage()
+        })
+        handlers.delta('assistant-1', 'Partial answer')
+        throw new Error('Response stream ended before completion')
+      })
+      const refresh = vi.spyOn(api, 'chatConversation')
+      if (recovery === 'offline') refresh.mockRejectedValue(new Error('offline'))
+      else refresh.mockResolvedValue({
+        ...conversation, messages: [userMessage(), assistantMessage(recovery, recovery === 'completed' ? 'Full answer' : 'Partial')]
+      })
+      const chats = useChatConversations()
+      chats.draft = 'Question'
+      await chats.send(
+        { reference: 'John 1:1', module: 'WEB', content: 'The Word' },
+        { alwaysCite: true, drawApocrypha: false }
+      )
+      expect(refresh).toHaveBeenCalledWith(conversation.id)
+      expect(chats.current?.messages[1]).toMatchObject({
+        content: recovery === 'completed' ? 'Full answer' : 'Partial answer',
+        status: recovery === 'completed' ? 'completed' : 'interrupted'
+      })
+      expect(chats.error).toBe(recovery === 'completed' ? null : 'Response stream ended before completion')
+      expect(chats.sending).toBe(false)
+    }
+  )
 })

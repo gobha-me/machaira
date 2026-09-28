@@ -510,6 +510,10 @@ export class SemanticIndexService {
   }
 
   async status(userId: string): Promise<SemanticIndexStatus> {
+    return this.readStatus(userId, true)
+  }
+
+  private async readStatus(userId: string, checkBuilding: boolean): Promise<SemanticIndexStatus> {
     const provider = this.providers.get(userId)
     if (!provider) return {
       state: 'unconfigured', chunkCount: 0, modules: [], model: null, updatedAt: null, lastError: null
@@ -521,7 +525,7 @@ export class SemanticIndexService {
       active.provider_signature !== providerSignature(provider)
       || active.module_signature !== moduleSignature(modules)
     )
-    const state = this.building.has(userId)
+    const state = checkBuilding && this.building.has(userId)
       ? 'building'
       : active
         ? stale ? 'stale' : 'ready'
@@ -542,11 +546,24 @@ export class SemanticIndexService {
     signal?: AbortSignal
   ): Promise<SemanticIndexStatus> {
     if (this.building.has(userId)) throw new SemanticStateError('An index rebuild is already running')
+    this.building.add(userId)
+    try {
+      return await this.performRebuild(userId, onProgress, signal)
+    } finally {
+      this.building.delete(userId)
+    }
+  }
+
+  private async performRebuild(
+    userId: string,
+    onProgress: (progress: { module: string; processed: number; batchSize: number }) => void,
+    signal?: AbortSignal
+  ): Promise<SemanticIndexStatus> {
+    signal?.throwIfAborted()
     const credentials = this.providers.credentials(userId)
     const modules = await this.eligibleModules(userId)
     if (modules.length === 0) throw new SemanticStateError('Install a public-domain corpus or enable an installed module for AI processing first')
 
-    this.building.add(userId)
     const runId = randomUUID()
     let dimension: number | null = null
     let processed = 0
@@ -647,8 +664,7 @@ export class SemanticIndexService {
         `).run(userId, runId)
       })()
       if (previous && previous.id !== runId) this.removeRun(previous)
-      this.building.delete(userId)
-      return await this.status(userId)
+      return await this.readStatus(userId, false)
     } catch (error) {
       this.cleanupVectors(runId, dimension)
       this.db.prepare('DELETE FROM semantic_chunks WHERE run_id = ?').run(runId)
@@ -658,8 +674,6 @@ export class SemanticIndexService {
         WHERE id = ?
       `).run(Date.now(), (error as Error).message.slice(0, 2000), runId)
       throw error
-    } finally {
-      this.building.delete(userId)
     }
   }
 

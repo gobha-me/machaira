@@ -201,6 +201,7 @@ async function* sseData(response: Response): AsyncGenerator<string> {
       if (done) break
     }
   } finally {
+    await reader.cancel().catch(() => undefined)
     reader.releaseLock()
   }
 }
@@ -277,19 +278,29 @@ export async function* streamProviderChat(
   let emitted = false
   try {
     for await (const data of sseData(response)) {
-      if (data === '[DONE]') break
+      combinedSignal.throwIfAborted()
+      if (data === '[DONE]' && config.kind !== 'anthropic') {
+        if (!emitted) throw new AiProviderError('Provider returned no response text')
+        return
+      }
       let payload: unknown
       try {
         payload = JSON.parse(data)
       } catch {
-        continue
+        throw new AiProviderError('Provider sent a malformed stream event')
       }
+      if (!payload || typeof payload !== 'object') throw new AiProviderError('Provider sent a malformed stream event')
       if (config.kind === 'anthropic') {
         const event = payload as { type?: string; delta?: { type?: string; text?: string }; error?: { message?: string } }
         if (event.type === 'error') throw new AiProviderError(event.error?.message ?? 'Anthropic stream failed')
+        if (event.type === 'message_stop') {
+          if (!emitted) throw new AiProviderError('Provider returned no response text')
+          return
+        }
         if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta' && event.delta.text) {
           emitted = true
           yield event.delta.text
+          combinedSignal.throwIfAborted()
         }
       } else {
         const providerError = (payload as { error?: { message?: string } })?.error
@@ -298,10 +309,17 @@ export async function* streamProviderChat(
         if (text) {
           emitted = true
           yield text
+          combinedSignal.throwIfAborted()
+        }
+        const finish = (payload as { choices?: { finish_reason?: unknown }[] }).choices?.[0]?.finish_reason
+        if (typeof finish === 'string' && finish) {
+          if (!emitted) throw new AiProviderError('Provider returned no response text')
+          return
         }
       }
     }
-    if (!emitted) throw new AiProviderError('Provider returned no response text')
+    combinedSignal.throwIfAborted()
+    throw new AiProviderError('Provider stream ended before completion')
   } catch (error) {
     if (error instanceof AiProviderError) throw error
     if (combinedSignal.aborted) throw new AiProviderError('Provider request timed out or was cancelled')

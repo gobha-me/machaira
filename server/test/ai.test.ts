@@ -146,6 +146,49 @@ describe('AI provider API', () => {
 })
 
 describe('AI provider streaming', () => {
+  it('persists partial replies as failed when upstream closes without completion', async () => {
+    const upstream = await listen((request, response) => {
+      response.writeHead(200, { 'content-type': 'text/event-stream' })
+      response.end(request.url?.endsWith('/messages')
+        ? 'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Partial"}}\n\n'
+        : 'data: {"choices":[{"delta":{"content":"Partial"}}]}\n\n')
+    })
+    const app = await buildApp({
+      databasePath: ':memory:', secretKey: randomBytes(32), logger: false, registerFeatureRoutes: false
+    })
+    await app.ready()
+    try {
+      const session = cookie(await app.inject({
+        method: 'POST', url: '/api/auth/bootstrap',
+        payload: { username: 'Owner', password: 'correct horse battery staple' }
+      }))
+      for (const kind of ['openai-compatible', 'anthropic']) {
+        await app.inject({
+          method: 'PUT', url: '/api/ai/provider', headers: { cookie: session },
+          payload: { kind, baseUrl: upstream.baseUrl, model: 'test', apiKey: 'fake-key' }
+        })
+        const conversation = (await app.inject({
+          method: 'POST', url: '/api/ai/conversations', headers: { cookie: session }
+        })).json().conversation
+        const result = await app.inject({
+          method: 'POST', url: `/api/ai/conversations/${conversation.id}/messages`,
+          headers: { cookie: session }, payload: chatPayload
+        })
+        assert.match(result.body, /event: error/)
+        assert.doesNotMatch(result.body, /event: done/)
+        const saved = (await app.inject({
+          method: 'GET', url: `/api/ai/conversations/${conversation.id}`, headers: { cookie: session }
+        })).json().conversation.messages.at(-1)
+        assert.equal(saved.content, 'Partial')
+        assert.equal(saved.status, 'failed')
+        assert.match(saved.error, /before completion/)
+      }
+    } finally {
+      await app.close()
+      await upstream.close()
+    }
+  })
+
   it('normalizes OpenAI-compatible and Anthropic streaming responses', async () => {
     const requests: { url: string; headers: IncomingMessage['headers']; body: Record<string, unknown> }[] = []
     const upstream = await listen(async (request, response) => {

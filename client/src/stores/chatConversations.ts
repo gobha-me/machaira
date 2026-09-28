@@ -17,6 +17,7 @@ function byUpdated(items: ChatConversationSummary[]): ChatConversationSummary[] 
 
 export const useChatConversations = defineStore('chatConversations', {
   state: () => ({
+    selectionGeneration: 0,
     list: [] as ChatConversationSummary[],
     current: null as ChatConversation | null,
     activeId: null as string | null,
@@ -28,53 +29,63 @@ export const useChatConversations = defineStore('chatConversations', {
   }),
   actions: {
     async load(): Promise<void> {
+      if (this.sending) return
       const activeGeneration = generation
+      const selectionGeneration = ++this.selectionGeneration
       this.loading = true
       this.error = null
       try {
         const conversations = await api.chatConversations()
-        if (activeGeneration !== generation) return
+        if (activeGeneration !== generation || selectionGeneration !== this.selectionGeneration) return
         const sorted = byUpdated(conversations)
         const id = this.activeId && conversations.some((item) => item.id === this.activeId)
           ? this.activeId
           : sorted[0]?.id ?? null
         const current = id ? await api.chatConversation(id) : null
-        if (activeGeneration !== generation) return
+        if (activeGeneration !== generation || selectionGeneration !== this.selectionGeneration) return
         this.list = sorted
         this.activeId = id
         this.current = current
         this.loaded = true
       } catch (error) {
-        if (activeGeneration !== generation) return
+        if (activeGeneration !== generation || selectionGeneration !== this.selectionGeneration) return
         this.error = (error as Error).message
         throw error
       } finally {
-        if (activeGeneration === generation) this.loading = false
+        if (activeGeneration === generation && selectionGeneration === this.selectionGeneration) this.loading = false
       }
     },
 
     async select(id: string): Promise<void> {
-      if (this.sending || id === this.activeId) return
+      if (this.sending) return
       const activeGeneration = generation
+      const selectionGeneration = ++this.selectionGeneration
+      if (id === this.activeId) {
+        this.loading = false
+        this.error = null
+        return
+      }
       this.loading = true
       this.error = null
       try {
         const current = await api.chatConversation(id)
-        if (activeGeneration !== generation) return
+        if (activeGeneration !== generation || selectionGeneration !== this.selectionGeneration) return
         this.current = current
         this.activeId = id
         this.draft = ''
       } catch (error) {
-        if (activeGeneration !== generation) return
+        if (activeGeneration !== generation || selectionGeneration !== this.selectionGeneration) return
         this.error = (error as Error).message
         throw error
       } finally {
-        if (activeGeneration === generation) this.loading = false
+        if (activeGeneration === generation && selectionGeneration === this.selectionGeneration) this.loading = false
       }
     },
 
     newChat(): void {
       if (this.sending) return
+      this.selectionGeneration += 1
+      this.loading = false
       this.activeId = null
       this.current = null
       this.draft = ''
@@ -118,31 +129,40 @@ export const useChatConversations = defineStore('chatConversations', {
       preferences: ConversationMessageInput['preferences']
     ): Promise<void> {
       const content = this.draft.trim()
-      if (!content || this.sending || !passage.content) return
-      let conversation
+      if (!content || this.sending || this.loading || !passage.content) return
+      const activeGeneration = generation
+      const controller = new AbortController()
+      activeAbort = controller
+      this.sending = true
+      this.error = null
       try {
-        conversation = await this.ensureConversation()
+        const conversation = await this.ensureConversation(controller.signal)
+        if (activeGeneration !== generation) return
+        controller.signal.throwIfAborted()
+        this.draft = ''
+        await this.runStream(
+          (handlers, signal) => api.streamConversationMessage(
+            conversation.id,
+            { content, passage, preferences },
+            handlers,
+            signal
+          ),
+          content
+        )
       } catch (error) {
+        if (activeGeneration !== generation) return
         if ((error as Error).name !== 'AbortError') this.error = (error as Error).message
-        return
+      } finally {
+        if (activeGeneration === generation) this.sending = false
+        if (activeAbort === controller) activeAbort = null
       }
-      this.draft = ''
-      await this.runStream(
-        (handlers, signal) => api.streamConversationMessage(
-          conversation.id,
-          { content, passage, preferences },
-          handlers,
-          signal
-        ),
-        content
-      )
     },
 
     async retry(
       assistantMessageId: string,
       preferences: ConversationMessageInput['preferences']
     ): Promise<void> {
-      if (!this.current || this.sending) return
+      if (!this.current || this.sending || this.loading) return
       const conversationId = this.current.id
       await this.runStream(
         (handlers, signal) => api.retryConversationMessage(
@@ -168,6 +188,7 @@ export const useChatConversations = defineStore('chatConversations', {
 
     reset(): void {
       generation += 1
+      this.selectionGeneration += 1
       activeAbort?.abort()
       activeAbort = null
       this.list = []
@@ -180,10 +201,12 @@ export const useChatConversations = defineStore('chatConversations', {
       this.error = null
     },
 
-    async ensureConversation(): Promise<ChatConversation> {
+    async ensureConversation(signal?: AbortSignal): Promise<ChatConversation> {
+      signal?.throwIfAborted()
       if (this.current) return this.current
       const activeGeneration = generation
-      const conversation = await api.createChatConversation()
+      const conversation = await api.createChatConversation(signal)
+      signal?.throwIfAborted()
       if (activeGeneration !== generation) {
         const error = new Error('Conversation request was cancelled')
         error.name = 'AbortError'
@@ -206,10 +229,12 @@ export const useChatConversations = defineStore('chatConversations', {
       activeAbort = controller
       let accepted = false
       let terminalFailure = false
+      let assistantId: string | null = null
       const handlers: ConversationStreamHandlers = {
         accepted: ({ conversation, userMessage, assistantMessage }) => {
           if (activeGeneration !== generation) return
           accepted = true
+          assistantId = assistantMessage.id
           this.upsertSummary(conversation)
           if (!this.current || this.current.id !== conversation.id) return
           Object.assign(this.current, conversation)
@@ -249,6 +274,30 @@ export const useChatConversations = defineStore('chatConversations', {
           if (restoreDraft) this.draft = restoreDraft
         } else if (!terminalFailure && !this.error) {
           this.error = (error as Error).message
+          const conversationId = this.current?.id
+          const partial = this.current?.messages.find((item) => item.id === assistantId)
+          if (partial?.status === 'streaming') {
+            partial.status = 'interrupted'
+            partial.error = this.error
+          }
+          if (conversationId) {
+            try {
+              const recovered = await api.chatConversation(conversationId)
+              if (activeGeneration !== generation || this.current?.id !== conversationId) return
+              const target = recovered.messages.find((item) => item.id === assistantId)
+              if (!target) return
+              if (target?.status === 'streaming') {
+                target.status = 'interrupted'
+                target.error = this.error
+                if (partial && partial.content.length > target.content.length) target.content = partial.content
+              }
+              this.current = recovered
+              this.upsertSummary(recovered)
+              if (target?.status === 'completed') this.error = null
+            } catch {
+              // Keep the interrupted partial response and its retry affordance offline.
+            }
+          }
         }
       } finally {
         if (activeGeneration === generation) this.sending = false
