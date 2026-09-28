@@ -74,9 +74,13 @@ function onKey(e: KeyboardEvent) {
 }
 onMounted(() => {
   window.addEventListener('keydown', onKey)
+  readingPlan.startClock()
   auth.initialize()
 })
-onUnmounted(() => window.removeEventListener('keydown', onKey))
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKey)
+  readingPlan.stopClock()
+})
 
 async function loadPersonalData(userId: string): Promise<void> {
   const generation = ++personalLoadGeneration

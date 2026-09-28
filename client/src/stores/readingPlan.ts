@@ -11,6 +11,12 @@ import {
 } from '../services/plan'
 
 const DAY_MS = 86_400_000
+const clocks = new WeakMap<object, () => void>()
+
+export function localCalendarDay(ms: number): number {
+  const date = new Date(ms)
+  return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / DAY_MS
+}
 
 function midnight(ms: number): number {
   const d = new Date(ms)
@@ -19,6 +25,7 @@ function midnight(ms: number): number {
 }
 
 interface ReadingPlanState {
+  calendarDay: number
   enabled: boolean
   startDate: number | null
   completed: Set<string>
@@ -31,6 +38,7 @@ export interface ReadingRow extends Reading {
 
 export const useReadingPlan = defineStore('readingPlan', {
   state: (): ReadingPlanState => ({
+    calendarDay: localCalendarDay(Date.now()),
     enabled: false,
     startDate: null,
     completed: new Set(),
@@ -40,7 +48,7 @@ export const useReadingPlan = defineStore('readingPlan', {
     // Days since the plan began (0-based), clamped to the 365-day window.
     currentDayIndex(state): number {
       if (state.startDate == null) return 0
-      const days = Math.floor((midnight(Date.now()) - state.startDate) / DAY_MS)
+      const days = state.calendarDay - localCalendarDay(state.startDate)
       return Math.max(0, Math.min(PLAN_DAYS - 1, days))
     },
     currentDay(): number {
@@ -99,7 +107,35 @@ export const useReadingPlan = defineStore('readingPlan', {
     }
   },
   actions: {
+    refreshCalendar(): void {
+      this.calendarDay = localCalendarDay(Date.now())
+    },
+    startClock(): void {
+      this.stopClock()
+      let timer: ReturnType<typeof setTimeout>
+      const tick = () => {
+        this.refreshCalendar()
+        clearTimeout(timer)
+        const now = Date.now()
+        const next = new Date(now)
+        next.setHours(24, 0, 0, 0)
+        timer = setTimeout(tick, Math.max(1, next.getTime() - now))
+      }
+      window.addEventListener('focus', tick)
+      document.addEventListener('visibilitychange', tick)
+      clocks.set(this, () => {
+        clearTimeout(timer)
+        window.removeEventListener('focus', tick)
+        document.removeEventListener('visibilitychange', tick)
+      })
+      tick()
+    },
+    stopClock(): void {
+      clocks.get(this)?.()
+      clocks.delete(this)
+    },
     async load(): Promise<void> {
+      this.refreshCalendar()
       if (this.loaded) return
       const rec = await readingPlanDb.get()
       if (rec) {
