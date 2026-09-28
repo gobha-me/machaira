@@ -831,9 +831,9 @@ export const api = {
       .conversations
   },
 
-  async createChatConversation(): Promise<ChatConversation> {
+  async createChatConversation(signal?: AbortSignal): Promise<ChatConversation> {
     return (await requestJson<{ conversation: ChatConversation }>(
-      '/api/ai/conversations', json('POST')
+      '/api/ai/conversations', { ...json('POST'), signal }
     )).conversation
   },
 
