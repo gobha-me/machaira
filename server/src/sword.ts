@@ -7,6 +7,7 @@ import { bookInfo } from './books.js'
 import { stripMarkup, parseVerseMarkup, type VerseNote, type VerseSegment } from './text.js'
 import type { ScriptureTarget } from './scripture-reference.js'
 import { auditedCoverage } from './catalog-audit.js'
+import { scopeIncludesKind, scopedScriptureHits, type SearchScope } from './search-scope.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -678,16 +679,20 @@ export function readPlainChapter(
 export function searchModules(
   requestedModules: string[],
   q: string,
-  searchType: 'multiWord' | 'phrase'
+  searchType: 'multiWord' | 'phrase',
+  scope: SearchScope = 'all'
 ): Promise<SearchHit[]> {
   return withSword(async () => {
     const nsi = sword()
     const local = allLocalModulesSync()
     const installed = new Map(local.map((module) => [String(module.name), String(module.type)]))
-    const modules = requestedModules.filter((m) => installed.has(m))
+    const modules = [...new Set(requestedModules)].filter((m) => scopeIncludesKind(
+      scope, installed.get(m) === 'BIBLE' ? 'scripture' : installed.get(m) === 'GENBOOK' ? 'general-book' : ''
+    ))
     const results: SearchHit[] = []
     for (const module of modules) {
       if (installed.get(module) === 'GENBOOK') {
+        let moduleMatches = 0
         const terms = q.toLocaleLowerCase().split(/\s+/).filter(Boolean)
         for (const entry of nsi.getGenBookEntries(module, 100000)) {
           const key = String(entry.key ?? '')
@@ -699,13 +704,13 @@ export function searchModules(
           if (!matches) continue
           const title = key.split('/').filter(Boolean).at(-1) ?? key
           results.push({ kind: 'general-book', module, key, title, content })
-          if (results.length >= 200) break
+          if (++moduleMatches >= 200) break
         }
         continue
       }
       if (installed.get(module) !== 'BIBLE') continue
       const hits: SwordVerse[] = await nsi.getModuleSearchResults(module, q, undefined, searchType)
-      for (const h of hits.slice(0, 50)) {
+      for (const h of scopedScriptureHits(hits, scope)) {
         results.push({
           kind: 'scripture',
           module,

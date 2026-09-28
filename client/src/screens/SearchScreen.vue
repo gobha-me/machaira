@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { isDeuterocanonicalBook } from '@machaira/scripture'
 import { useReader } from '../stores/reader'
 import { useLibrary } from '../stores/library'
 import { useUi } from '../stores/ui'
 import { useNotes } from '../stores/notes'
 import { useSemanticIndex } from '../stores/semanticIndex'
-import { api, type Note, type SearchHit } from '../services/api'
+import { api, type Note, type SearchHit, type SearchScope } from '../services/api'
 import VoiceInputButton from '../components/VoiceInputButton.vue'
 
 const reader = useReader()
@@ -18,12 +19,6 @@ const SCOPES = ['Everything', 'Scripture', 'Apocrypha', 'Ancient writings', 'Not
 type Scope = (typeof SCOPES)[number]
 type SearchMode = 'exact' | 'meaning'
 
-// Deuterocanon/apocrypha OSIS codes (mirrors the server's book table) for scope filtering.
-const APOCRYPHA = new Set([
-  'Tob', 'Jdt', 'AddEsth', 'Wis', 'Sir', 'Bar', 'EpJer', 'PrAzar', 'Sus', 'Bel',
-  '1Macc', '2Macc', '1Esd', '2Esd', 'PrMan', 'Ps151', 'AddPs', '3Macc', '4Macc', 'EpLao'
-])
-
 const q = ref('')
 const scope = ref<Scope>('Everything')
 const mode = ref<SearchMode>('exact')
@@ -33,16 +28,37 @@ const hits = ref<SearchHit[]>([])
 const noteHits = ref<Note[]>([])
 const error = ref<string | null>(null)
 const selectedGeneral = ref<SearchHit | null>(null)
+let generation = 0
+
+function invalidate(): void {
+  generation += 1
+  loading.value = false
+  hits.value = []
+  noteHits.value = []
+  error.value = null
+  selectedGeneral.value = null
+}
+
+watch(q, () => {
+  invalidate()
+  searched.value = false
+}, { flush: 'sync' })
+watch([scope, mode], invalidate, { flush: 'sync' })
+onUnmounted(invalidate)
 
 onMounted(() => {
   void Promise.all([lib.load(), semantic.load()]).catch(() => undefined)
 })
 
-const installedNames = computed(() => [...lib.installedBibles, ...lib.installedGeneralBooks].map((m) => m.name))
+const installedNames = computed(() => (
+  scope.value === 'Ancient writings' ? lib.installedGeneralBooks
+    : scope.value === 'Scripture' || scope.value === 'Apocrypha' ? lib.installedBibles
+      : [...lib.installedBibles, ...lib.installedGeneralBooks]
+).map((m) => m.name))
 
 const scriptureHits = computed(() => {
   if (scope.value === 'Scripture') return hits.value.filter((h) => h.kind === 'scripture')
-  if (scope.value === 'Apocrypha') return hits.value.filter((h) => h.kind === 'scripture' && APOCRYPHA.has(h.book))
+  if (scope.value === 'Apocrypha') return hits.value.filter((h) => h.kind === 'scripture' && isDeuterocanonicalBook(h.book))
   if (scope.value === 'Ancient writings') return hits.value.filter((h) => h.kind === 'general-book')
   return hits.value
 })
@@ -52,31 +68,34 @@ const showNotes = computed(() => scope.value === 'Everything' || scope.value ===
 
 async function run() {
   const query = q.value.trim()
-  if (!query) return
+  invalidate()
+  if (!query) { searched.value = false; return }
+  const activeGeneration = generation
+  const requestedMode = mode.value
+  const requestedScope = scope.value
+  const corpusScope: SearchScope = requestedScope === 'Ancient writings' ? 'ancient-writings'
+    : requestedScope === 'Apocrypha' ? 'apocrypha' : requestedScope === 'Scripture' ? 'scripture' : 'all'
+  const modules = [...installedNames.value]
   loading.value = true
   error.value = null
   searched.value = true
   try {
-    const tasks: Promise<void>[] = []
-    if (showScripture.value && installedNames.value.length) {
-      const scriptureSearch = mode.value === 'meaning'
-        ? api.semanticSearch(query, installedNames.value)
-        : api.search(query, installedNames.value)
-      tasks.push(scriptureSearch.then((r) => { hits.value = r }))
-    } else {
-      hits.value = []
-    }
-    if (showNotes.value) {
-      tasks.push(searchNotes(query).then((r) => { noteHits.value = r }))
-    } else {
-      noteHits.value = []
-    }
-    await Promise.all(tasks)
+    const [corpusResults, notesResults] = await Promise.all([
+      requestedScope !== 'Notes & journal' && modules.length
+        ? requestedMode === 'meaning' ? api.semanticSearch(query, modules, 50, corpusScope)
+          : api.search(query, modules, corpusScope)
+        : Promise.resolve([]),
+      requestedScope === 'Everything' || requestedScope === 'Notes & journal' ? searchNotes(query) : Promise.resolve([])
+    ])
+    if (activeGeneration !== generation) return
+    hits.value = corpusResults
+    noteHits.value = notesResults
   } catch (e) {
+    if (activeGeneration !== generation) return
     error.value = (e as Error).message
-    if (mode.value === 'meaning') void semantic.load().catch(() => undefined)
+    if (requestedMode === 'meaning') void semantic.load().catch(() => undefined)
   } finally {
-    loading.value = false
+    if (activeGeneration === generation) loading.value = false
   }
 }
 
@@ -186,7 +205,8 @@ const resultCount = computed(() => scriptureHits.value.length + (showNotes.value
 
       <template v-else-if="searched">
         <div class="count">
-          {{ resultCount }} result{{ resultCount === 1 ? '' : 's' }}
+          Showing {{ resultCount }} result{{ resultCount === 1 ? '' : 's' }}
+          <template v-if="showScripture && installedNames.length"> · {{ mode === 'meaning' ? 'top 50 corpus matches' : 'up to 50 matches per Scripture module; 200 per ancient writing' }}</template>
           <template v-if="showScripture && !installedNames.length"> · install a translation to search scripture</template>
         </div>
 

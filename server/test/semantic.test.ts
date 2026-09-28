@@ -136,6 +136,52 @@ describe('semantic index', () => {
     }
   })
 
+  it('filters module kind and apocryphal books before semantic top-k ranking', async () => {
+    const upstream = await listen(async (request, response) => {
+      const body = await requestBody(request)
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ data: body.input.map((text, index) => ({
+        index, embedding: /love/i.test(text) ? [1, 0] : [0, 1]
+      })) }))
+    })
+    const scopedSources: SemanticSources = {
+      ...sources,
+      async installed() {
+        const [bible] = await sources.installed()
+        return [bible, { ...bible, id: 'Local:Ancient', name: 'Ancient', type: 'GENBOOK', kind: 'general-book', collection: 'ancient-writings' }]
+      },
+      async books() {
+        return [{ code: 'John', name: 'John', section: 'nt', chapters: 1 }, { code: 'Tob', name: 'Tobit', section: 'apocrypha', chapters: 1 }]
+      },
+      async chapter(module, book) {
+        return [{ module, book, bookName: book, chapter: 1, verse: 1, content: book === 'John' ? 'Love' : 'Other words' }]
+      },
+      async generalBookEntries() { return [{ key: 'Entry', title: 'Entry', content: 'Other words' }] }
+    }
+    const db = openDatabase(':memory:')
+    seedUser(db)
+    const providers = new EmbeddingProviderService(db, new SecretStore(db, randomBytes(32)))
+    providers.save('user-1', { kind: 'local', baseUrl: upstream.baseUrl, model: 'test' })
+    const index = new SemanticIndexService(db, providers, scopedSources)
+    try {
+      await index.rebuild('user-1', () => undefined)
+      const query = { query: 'love', modules: ['WEB', 'Ancient'], limit: 1 }
+      const all = await index.search('user-1', query)
+      assert.equal(all[0].kind, 'scripture')
+      const apocrypha = await index.search('user-1', { ...query, scope: 'apocrypha' })
+      assert.equal(apocrypha.length, 1)
+      assert.equal(apocrypha[0].kind, 'scripture')
+      if (apocrypha[0].kind === 'scripture') assert.equal(apocrypha[0].book, 'Tob')
+      const ancient = await index.search('user-1', { ...query, scope: 'ancient-writings' })
+      assert.equal(ancient[0].kind, 'general-book')
+      assert.deepEqual(await index.search('user-1', { ...query, modules: ['Ancient'], scope: 'scripture' }), [])
+      await assert.rejects(index.search('user-1', { ...query, scope: 'invalid' }), /Invalid search scope/)
+    } finally {
+      db.close()
+      await upstream.close()
+    }
+  })
+
   it('isolates embedding configuration and never exposes or stores plaintext keys', () => {
     const db = openDatabase(':memory:')
     seedUser(db)

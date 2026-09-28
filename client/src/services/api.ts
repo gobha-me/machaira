@@ -2,6 +2,7 @@
 
 import type { ScriptureTarget } from '@machaira/scripture'
 export type { ScriptureTarget } from '@machaira/scripture'
+export type SearchScope = 'all' | 'scripture' | 'apocrypha' | 'ancient-writings'
 
 export interface ModuleInfo {
   id: string
@@ -619,17 +620,17 @@ export const api = {
     )
   },
 
-  async search(q: string, modules: string[]): Promise<SearchHit[]> {
+  async search(q: string, modules: string[], scope: SearchScope = 'all'): Promise<SearchHit[]> {
     const res = await getJson<{ results: SearchHit[] }>(
-      `/api/search?q=${encodeURIComponent(q)}&modules=${modules.join(',')}`
+      `/api/search?q=${encodeURIComponent(q)}&modules=${encodeURIComponent(modules.join(','))}&scope=${scope}`
     )
     return res.results
   },
 
-  async semanticSearch(query: string, modules: string[], limit = 50): Promise<SemanticSearchHit[]> {
+  async semanticSearch(query: string, modules: string[], limit = 50, scope: SearchScope = 'all'): Promise<SemanticSearchHit[]> {
     return (await requestJson<{ results: SemanticSearchHit[] }>(
       '/api/semantic-search',
-      json('POST', { query, modules, limit })
+      json('POST', { query, modules, limit, scope })
     )).results
   },
 

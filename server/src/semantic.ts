@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto'
 import type { MachairaDatabase } from './database.js'
 import type { SecretStore } from './secrets.js'
+import { bookCode, bookReferenceNames, isDeuterocanonicalBook } from '@machaira/scripture'
+import { parseSearchScope, scopeIncludesKind } from './search-scope.js'
 import {
   getModuleBooks,
   getGeneralBookEntries,
@@ -109,6 +111,8 @@ const PROVIDER_KINDS = new Set<EmbeddingProviderKind>(['openai-compatible', 'loc
 const DEFAULT_REBUILD_BATCH_SIZE = 32
 const MAX_EMBEDDING_BATCH_SIZE = 64
 const MAX_DIMENSION = 8192
+const CANONICAL_BOOKS = [...new Set(bookReferenceNames().map(bookCode)
+  .filter((code): code is string => code !== null && !isDeuterocanonicalBook(code)))]
 
 export class SemanticInputError extends Error {}
 export class SemanticStateError extends Error {}
@@ -683,6 +687,9 @@ export class SemanticIndexService {
     }
     const body = input as Record<string, unknown>
     const query = stringField(body.query, 'Query', 1000)
+    let scope
+    try { scope = parseSearchScope(body.scope) }
+    catch { throw new SemanticInputError('Invalid search scope') }
     if (!Array.isArray(body.modules) || body.modules.length < 1 || body.modules.length > 50) {
       throw new SemanticInputError('Modules must contain between 1 and 50 names')
     }
@@ -701,7 +708,7 @@ export class SemanticIndexService {
       || active.module_signature !== moduleSignature(installed)
     ) throw new SemanticStateError('The semantic index is stale; rebuild it in Settings')
 
-    const installedNames = new Set(installed.map((module) => module.name))
+    const installedNames = new Set(installed.filter((module) => scopeIncludesKind(scope, module.kind)).map((module) => module.name))
     const modules = [...new Set(requested)].filter((module) => installedNames.has(module))
     if (modules.length === 0) return []
     const [vector] = await requestEmbeddings(credentials, [query], signal)
@@ -714,10 +721,21 @@ export class SemanticIndexService {
       WHERE embedding MATCH ? AND k = ? AND run_id = ? AND module = ?
       ORDER BY distance
     `)
+    // For a book-level scope, filter the indexed chunks before computing the top-k.
+    // Scalar distance uses the same L2 metric as the unscoped vec0 query.
+    const scopedNearest = scope === 'apocrypha' ? this.db.prepare(`
+      SELECT v.chunk_id, vec_distance_L2(v.embedding, ?) AS distance
+      FROM semantic_chunks c JOIN ${table} v ON v.chunk_id = c.id
+      WHERE c.run_id = ? AND c.module = ? AND c.kind = 'scripture'
+        AND c.book NOT IN (${CANONICAL_BOOKS.map(() => '?').join(',')})
+      ORDER BY distance, v.chunk_id LIMIT ?
+    `) : null
     const ranked: Array<{ chunkId: number | bigint; distance: number }> = []
     const queryVector = Buffer.from(new Float32Array(vector).buffer)
     for (const module of modules) {
-      const rows = nearest.all(queryVector, limit, active.id, module) as Array<{
+      const rows = (scopedNearest
+        ? scopedNearest.all(queryVector, active.id, module, ...CANONICAL_BOOKS, limit)
+        : nearest.all(queryVector, limit, active.id, module)) as Array<{
         chunk_id: number | bigint
         distance: number
       }>
