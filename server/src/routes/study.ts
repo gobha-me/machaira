@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { compareRange, lookupStrongs, searchModules } from '../sword.js'
 import { bookInfo } from '../books.js'
+import { parseSearchScope } from '../search-scope.js'
 
 export async function registerStudy(app: FastifyInstance): Promise<void> {
   // Compare a verse (or verse range "lo-hi") across several installed translations.
@@ -42,9 +43,12 @@ export async function registerStudy(app: FastifyInstance): Promise<void> {
   })
 
   // Real full-text search across one or more installed modules.
-  app.get<{ Querystring: { modules?: string; q?: string; type?: string } }>(
+  app.get<{ Querystring: { modules?: string; q?: string; type?: string; scope?: string } }>(
     '/api/search',
-    async (req) => {
+    async (req, reply) => {
+      let scope
+      try { scope = parseSearchScope(req.query.scope) }
+      catch { return reply.code(400).send({ error: 'Invalid search scope' }) }
       const q = (req.query.q ?? '').trim()
       if (!q) return { query: q, results: [] }
       const modules = (req.query.modules ?? '')
@@ -52,7 +56,7 @@ export async function registerStudy(app: FastifyInstance): Promise<void> {
         .map((s) => s.trim())
         .filter(Boolean)
       const searchType = req.query.type === 'word' ? 'multiWord' : 'phrase'
-      const results = await searchModules(modules, q, searchType)
+      const results = await searchModules(modules, q, searchType, scope)
       return { query: q, count: results.length, results }
     }
   )
