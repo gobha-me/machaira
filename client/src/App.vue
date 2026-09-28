@@ -112,6 +112,13 @@ function retryPersonalData(): void {
 }
 
 watch(
+  () => library.installedBibles.map((module) => module.name).sort().join('|'),
+  () => {
+    if (personalReady.value && auth.user) void reader.reconcileInstalled()
+  }
+)
+
+watch(
   () => auth.user?.id ?? null,
   (userId) => {
     invalidateAccountRequests()

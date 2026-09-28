@@ -30,6 +30,7 @@ let moduleLoadGeneration = 0
 let chapterLoadGeneration = 0
 let highlightLoadGeneration = 0
 let referenceOpenGeneration = 0
+const highlightMutations = new WeakMap<object, Promise<void>>()
 
 export type OpenReferenceResult =
   | { ok: true }
@@ -169,6 +170,26 @@ export const useReader = defineStore('reader', {
     }
   },
   actions: {
+    async reconcileInstalled(): Promise<void> {
+      if (!this.activeUserId || !this.ready) return
+      if (this.moduleName && this.installedBibles.some((module) => module.name === this.moduleName)) return
+      const preferred = this.effectiveDefaultModule
+      if (preferred) {
+        await this.setModule(preferred)
+      } else {
+        moduleLoadGeneration += 1
+        chapterLoadGeneration += 1
+        referenceOpenGeneration += 1
+        this.moduleName = null
+        this.books = []
+        this.book = null
+        this.chapter = 1
+        this.data = null
+        this.clearSelection()
+        this.loadingChapter = false
+        this.error = null
+      }
+    },
     async init(): Promise<void> {
       const userId = this.activeUserId
       const generation = readerGeneration
@@ -194,7 +215,7 @@ export const useReader = defineStore('reader', {
       if (generation === readerGeneration && this.activeUserId === userId) this.ready = true
     },
     async loadHighlights(): Promise<void> {
-      const generation = highlightLoadGeneration
+      const generation = ++highlightLoadGeneration
       const all = await api.highlights()
       if (generation !== highlightLoadGeneration) return
       const map: Record<string, string> = {}
@@ -236,6 +257,10 @@ export const useReader = defineStore('reader', {
         this.chapter = 1
       }
       if (this.book) await this.loadChapter()
+      else {
+        this.data = null
+        this.clearSelection()
+      }
     },
     async setBook(code: string): Promise<void> {
       this.book = code
@@ -417,29 +442,38 @@ export const useReader = defineStore('reader', {
     // otherwise highlight the lot.
     async toggleHighlightRange(verses: number[]): Promise<void> {
       if (!this.moduleName || !this.book || verses.length === 0) return
-      const generation = highlightLoadGeneration
-      const keyFor = (v: number) => `${this.moduleName}/${this.book}/${this.chapter}/${v}`
-      const allOn = verses.every((v) => this.highlights[keyFor(v)])
-      const next = { ...this.highlights }
-      try {
-        const keys = verses.map(keyFor)
-        await api.updateHighlights(
-          allOn ? [] : keys.map((key) => ({ key, color: HL_COLOR })),
-          allOn ? keys : []
-        )
-        if (generation !== highlightLoadGeneration) return
-        for (const key of keys) {
-          if (allOn) delete next[key]
-          else next[key] = HL_COLOR
+      const generation = readerGeneration
+      const keys = [...new Set(verses)].map((v) => `${this.moduleName}/${this.book}/${this.chapter}/${v}`)
+      const previous = highlightMutations.get(this) ?? Promise.resolve()
+      const mutation = previous.catch(() => undefined).then(async () => {
+        if (generation !== readerGeneration) return
+        const allOn = keys.every((key) => this.highlights[key])
+        try {
+          await api.updateHighlights(
+            allOn ? [] : keys.map((key) => ({ key, color: HL_COLOR })),
+            allOn ? keys : []
+          )
+          if (generation !== readerGeneration) return
+          highlightLoadGeneration += 1
+          const next = { ...this.highlights }
+          for (const key of keys) {
+            if (allOn) delete next[key]
+            else next[key] = HL_COLOR
+          }
+          this.highlights = next
+          this.highlightError = null
+        } catch (error) {
+          if (generation !== readerGeneration) return
+          const message = `Highlight was not saved: ${(error as Error).message}`
+          await this.loadHighlights().catch(() => undefined)
+          if (generation !== readerGeneration) return
+          this.highlightError = message
         }
-        this.highlights = next
-        this.highlightError = null
-      } catch (error) {
-        if (generation !== highlightLoadGeneration) return
-        const message = `Highlight was not saved: ${(error as Error).message}`
-        await this.loadHighlights().catch(() => undefined)
-        if (generation !== highlightLoadGeneration) return
-        this.highlightError = message
+      })
+      highlightMutations.set(this, mutation)
+      try { await mutation }
+      finally {
+        if (highlightMutations.get(this) === mutation) highlightMutations.delete(this)
       }
     },
     activateUser(userId: string | null): void {
@@ -448,6 +482,7 @@ export const useReader = defineStore('reader', {
       chapterLoadGeneration += 1
       highlightLoadGeneration += 1
       referenceOpenGeneration += 1
+      highlightMutations.delete(this)
       this.activeUserId = userId
       this.moduleName = null
       this.books = []

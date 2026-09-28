@@ -120,6 +120,7 @@ describe('personal request lifecycle', () => {
     reader.moduleName = 'WEB'
     reader.book = 'John'
     const pending = reader.toggleHighlightRange([1])
+    await vi.waitFor(() => expect(api.updateHighlights).toHaveBeenCalledOnce())
     reader.activateUser('current')
     reader.highlights = { 'WEB/Gen/1/1': 'current' }
     if (outcome === 'success') old.resolve()
