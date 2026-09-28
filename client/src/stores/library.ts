@@ -36,6 +36,7 @@ export function catalogSearchText(module: ModuleInfo): string {
 
 export const useLibrary = defineStore('library', {
   state: () => ({
+    generation: 0,
     modules: [] as ModuleInfo[],
     diagnostics: [] as RepositoryDiagnostic[],
     usedCachedCatalog: false,
@@ -82,10 +83,12 @@ export const useLibrary = defineStore('library', {
     isInstalled(name: string): boolean { return this.modules.some((module) => module.name === name && module.installed) },
     async load(force = false, refreshRepositories = force): Promise<void> {
       if (this.loaded && !force) return
+      const generation = this.generation
       this.loading = true
       this.error = null
       try {
         const [catalog, preferences] = await Promise.all([api.catalog(refreshRepositories), api.corpusPreferences()])
+        if (generation !== this.generation) return
         this.modules = catalog.modules
         this.diagnostics = catalog.diagnostics.repositories
         this.usedCachedCatalog = catalog.diagnostics.usedCachedCatalog
@@ -93,43 +96,73 @@ export const useLibrary = defineStore('library', {
         this.preferences = preferences
         this.loaded = true
       } catch (error) {
+        if (generation !== this.generation) return
         this.error = (error as Error).message
       } finally {
-        this.loading = false
+        if (generation === this.generation) this.loading = false
       }
     },
     async refreshInstalled(): Promise<void> { await this.load(true, false) },
     async install(module: ModuleInfo): Promise<void> {
       if (!module.repository || this.installing.has(module.id)) return
+      const generation = this.generation
       this.installing.add(module.id)
       this.progress = { ...this.progress, [module.id]: 0 }
       try {
-        await api.install(module.repository, module.name, (pct) => { this.progress = { ...this.progress, [module.id]: pct } })
+        await api.install(module.repository, module.name, (pct) => {
+          if (generation === this.generation) this.progress = { ...this.progress, [module.id]: pct }
+        })
+        if (generation !== this.generation) return
         await this.load(true, false)
       } catch (error) {
+        if (generation !== this.generation) return
         this.error = `Install failed for ${module.name}: ${(error as Error).message}`
       } finally {
-        this.installing.delete(module.id)
-        const { [module.id]: _removed, ...rest } = this.progress
-        this.progress = rest
+        if (generation === this.generation) {
+          this.installing.delete(module.id)
+          const { [module.id]: _removed, ...rest } = this.progress
+          this.progress = rest
+        }
       }
     },
-    async uninstall(name: string): Promise<void> { await api.uninstall(name); await this.load(true, false) },
+    async uninstall(name: string): Promise<void> {
+      const generation = this.generation
+      await api.uninstall(name)
+      if (generation !== this.generation) return
+      await this.load(true, false)
+    },
     async importSword(file: File): Promise<string[]> {
+      const generation = this.generation
       this.importing = true
       this.error = null
       try {
         const modules = await api.importSword(file)
+        if (generation !== this.generation) return []
         await this.load(true, false)
+        if (generation !== this.generation) return []
         return modules
       } catch (error) {
+        if (generation !== this.generation) return []
         this.error = (error as Error).message
         throw error
-      } finally { this.importing = false }
+      } finally { if (generation === this.generation) this.importing = false }
     },
     async setAiEnabled(module: ModuleInfo, enabled: boolean): Promise<void> {
+      const generation = this.generation
       await api.setCorpusPreference(module.name, enabled)
+      if (generation !== this.generation) return
       this.preferences = { ...this.preferences, [module.name]: enabled }
+    },
+    resetPersonalData(): void {
+      this.generation += 1
+      this.preferences = {}
+      this.progress = {}
+      this.installing.clear()
+      this.loading = false
+      this.importing = false
+      this.error = null
+      // The shared module catalog remains reusable, but preferences need a fresh load.
+      this.loaded = false
     }
   }
 })

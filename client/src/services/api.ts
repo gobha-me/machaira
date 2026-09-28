@@ -411,14 +411,20 @@ export interface ConversationStreamHandlers {
 }
 
 let unauthorizedHandler: (() => void) | null = null
+let accountGeneration = 0
+
+export function invalidateAccountRequests(): void {
+  accountGeneration += 1
+}
 
 export function onUnauthorized(handler: () => void): void {
   unauthorizedHandler = handler
 }
 
 async function request(url: string, init?: RequestInit, notifyUnauthorized = true): Promise<Response> {
+  const generation = accountGeneration
   const res = await fetch(url, { credentials: 'same-origin', ...init })
-  if (res.status === 401 && notifyUnauthorized) unauthorizedHandler?.()
+  if (res.status === 401 && notifyUnauthorized && generation === accountGeneration) unauthorizedHandler?.()
   return res
 }
 
@@ -678,9 +684,10 @@ export const api = {
   },
 
   async rebuildSemanticIndex(
-    onProgress: (progress: { module: string; processed: number; batchSize: number }) => void
+    onProgress: (progress: { module: string; processed: number; batchSize: number }) => void,
+    signal?: AbortSignal
   ): Promise<SemanticIndexStatus> {
-    const response = await request('/api/semantic-index/rebuild', { method: 'POST' })
+    const response = await request('/api/semantic-index/rebuild', { method: 'POST', signal })
     if (!response.ok) {
       throw new ApiError(response.status, (await response.json().catch(() => ({}))) as ApiErrorBody)
     }

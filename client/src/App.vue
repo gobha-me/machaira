@@ -5,6 +5,7 @@ import { useSettings } from './stores/settings'
 import { useUi } from './stores/ui'
 import { useReadingPlan } from './stores/readingPlan'
 import { useNotes } from './stores/notes'
+import { useLibrary } from './stores/library'
 import { useReader } from './stores/reader'
 import { useAiProvider } from './stores/aiProvider'
 import { useSemanticIndex } from './stores/semanticIndex'
@@ -12,6 +13,7 @@ import { useTtsProvider } from './stores/ttsProvider'
 import { useSttProvider } from './stores/sttProvider'
 import { useChatConversations } from './stores/chatConversations'
 import { applyVars } from './theme'
+import { invalidateAccountRequests } from './services/api'
 import RailNav from './components/RailNav.vue'
 import ReadScreen from './screens/ReadScreen.vue'
 import PlanScreen from './screens/PlanScreen.vue'
@@ -27,6 +29,7 @@ const settings = useSettings()
 const ui = useUi()
 const readingPlan = useReadingPlan()
 const notes = useNotes()
+const library = useLibrary()
 const reader = useReader()
 const aiProvider = useAiProvider()
 const semanticIndex = useSemanticIndex()
@@ -111,8 +114,10 @@ function retryPersonalData(): void {
 watch(
   () => auth.user?.id ?? null,
   (userId) => {
+    invalidateAccountRequests()
     personalLoadGeneration += 1
     notes.resetPersonalData()
+    library.resetPersonalData()
     reader.activateUser(userId)
     aiProvider.reset()
     semanticIndex.reset()
@@ -123,7 +128,8 @@ watch(
     personalError.value = null
     if (userId) void loadPersonalData(userId)
     else personalLoading.value = false
-  }
+  },
+  { flush: 'sync' }
 )
 </script>
 
