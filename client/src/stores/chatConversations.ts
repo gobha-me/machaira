@@ -206,10 +206,12 @@ export const useChatConversations = defineStore('chatConversations', {
       activeAbort = controller
       let accepted = false
       let terminalFailure = false
+      let assistantId: string | null = null
       const handlers: ConversationStreamHandlers = {
         accepted: ({ conversation, userMessage, assistantMessage }) => {
           if (activeGeneration !== generation) return
           accepted = true
+          assistantId = assistantMessage.id
           this.upsertSummary(conversation)
           if (!this.current || this.current.id !== conversation.id) return
           Object.assign(this.current, conversation)
@@ -249,6 +251,30 @@ export const useChatConversations = defineStore('chatConversations', {
           if (restoreDraft) this.draft = restoreDraft
         } else if (!terminalFailure && !this.error) {
           this.error = (error as Error).message
+          const conversationId = this.current?.id
+          const partial = this.current?.messages.find((item) => item.id === assistantId)
+          if (partial?.status === 'streaming') {
+            partial.status = 'interrupted'
+            partial.error = this.error
+          }
+          if (conversationId) {
+            try {
+              const recovered = await api.chatConversation(conversationId)
+              if (activeGeneration !== generation || this.current?.id !== conversationId) return
+              const target = recovered.messages.find((item) => item.id === assistantId)
+              if (!target) return
+              if (target?.status === 'streaming') {
+                target.status = 'interrupted'
+                target.error = this.error
+                if (partial && partial.content.length > target.content.length) target.content = partial.content
+              }
+              this.current = recovered
+              this.upsertSummary(recovered)
+              if (target?.status === 'completed') this.error = null
+            } catch {
+              // Keep the interrupted partial response and its retry affordance offline.
+            }
+          }
         }
       } finally {
         if (activeGeneration === generation) this.sending = false

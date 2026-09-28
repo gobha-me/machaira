@@ -469,14 +469,18 @@ export async function consumeSseEvents(
           .map((line) => line.slice(5).trimStart()).join('\n')
         if (!raw) continue
         const data = JSON.parse(raw) as Record<string, unknown>
+        if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Invalid response stream event')
         if (event) handler(event, data)
         if (event === 'error') throw new Error(
           typeof data.message === 'string' ? data.message : 'Server stream failed'
         )
+        if (event === 'done') return
       }
       if (done) break
     }
+    throw new Error('Response stream ended before completion')
   } finally {
+    await reader.cancel().catch(() => undefined)
     reader.releaseLock()
   }
 }
@@ -500,7 +504,11 @@ async function consumeConversationStream(
       handlers.accepted(data as unknown as Parameters<ConversationStreamHandlers['accepted']>[0])
     } else if (event === 'delta' && typeof data.messageId === 'string' && typeof data.text === 'string') {
       handlers.delta(data.messageId, data.text)
-    } else if (event === 'done' && data.assistantMessage) {
+    } else if (event === 'done') {
+      const message = data.assistantMessage as ChatMessage | undefined
+      if (!message || typeof message.id !== 'string' || message.status !== 'completed') {
+        throw new Error('Invalid conversation completion event')
+      }
       handlers.done(data.assistantMessage as ChatMessage)
     } else if (event === 'error' && data.assistantMessage) {
       handlers.error(
@@ -556,37 +564,12 @@ export const api = {
   },
 
   /** Install a module, streaming progress via SSE. Resolves when done. */
-  install(repository: string, module: string, onProgress: (pct: number) => void): Promise<void> {
-    return new Promise((resolve, reject) => {
-      request('/api/sources/install', json('POST', { repository, module }))
-        .then((res) => {
-          if (!res.ok) throw new ApiError(res.status, {})
-          if (!res.body) return reject(new Error('no stream'))
-          const reader = res.body.getReader()
-          const decoder = new TextDecoder()
-          let buffer = ''
-          const pump = (): Promise<void> =>
-            reader.read().then(({ done, value }) => {
-              if (done) return resolve()
-              buffer += decoder.decode(value, { stream: true })
-              const events = buffer.split('\n\n')
-              buffer = events.pop() ?? ''
-              for (const chunk of events) {
-                const evLine = chunk.split('\n').find((l) => l.startsWith('event:'))
-                const dataLine = chunk.split('\n').find((l) => l.startsWith('data:'))
-                const ev = evLine?.slice(6).trim()
-                const data = dataLine ? JSON.parse(dataLine.slice(5).trim()) : {}
-                if (ev === 'progress') onProgress(data.pct)
-                else if (ev === 'done') {
-                  onProgress(100)
-                  resolve()
-                } else if (ev === 'error') reject(new Error(data.message))
-              }
-              return pump()
-            })
-          return pump()
-        })
-        .catch(reject)
+  async install(repository: string, module: string, onProgress: (pct: number) => void): Promise<void> {
+    const response = await request('/api/sources/install', json('POST', { repository, module }))
+    if (!response.ok) throw new ApiError(response.status, {})
+    await consumeSseEvents(response, (event, data) => {
+      if (event === 'progress' && typeof data.pct === 'number') onProgress(data.pct)
+      else if (event === 'done') onProgress(100)
     })
   },
 

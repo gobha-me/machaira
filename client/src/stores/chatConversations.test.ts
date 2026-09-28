@@ -188,4 +188,35 @@ describe('chat conversations store', () => {
     expect(chats.activeId).toBeNull()
     expect(chats.draft).toBe('')
   })
+
+  it.each(['offline', 'streaming', 'completed'] as const)(
+    'reconciles accepted partial responses after transport failure (%s)', async (recovery) => {
+      vi.spyOn(api, 'createChatConversation').mockResolvedValue({ ...conversation, messages: [] })
+      vi.spyOn(api, 'streamConversationMessage').mockImplementation(async (_id, _input, handlers) => {
+        handlers.accepted({
+          conversation: conversationSummary, userMessage: userMessage(), assistantMessage: assistantMessage()
+        })
+        handlers.delta('assistant-1', 'Partial answer')
+        throw new Error('Response stream ended before completion')
+      })
+      const refresh = vi.spyOn(api, 'chatConversation')
+      if (recovery === 'offline') refresh.mockRejectedValue(new Error('offline'))
+      else refresh.mockResolvedValue({
+        ...conversation, messages: [userMessage(), assistantMessage(recovery, recovery === 'completed' ? 'Full answer' : 'Partial')]
+      })
+      const chats = useChatConversations()
+      chats.draft = 'Question'
+      await chats.send(
+        { reference: 'John 1:1', module: 'WEB', content: 'The Word' },
+        { alwaysCite: true, drawApocrypha: false }
+      )
+      expect(refresh).toHaveBeenCalledWith(conversation.id)
+      expect(chats.current?.messages[1]).toMatchObject({
+        content: recovery === 'completed' ? 'Full answer' : 'Partial answer',
+        status: recovery === 'completed' ? 'completed' : 'interrupted'
+      })
+      expect(chats.error).toBe(recovery === 'completed' ? null : 'Response stream ended before completion')
+      expect(chats.sending).toBe(false)
+    }
+  )
 })
