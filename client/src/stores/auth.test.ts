@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { api } from '../services/api'
+import { api, invalidateAccountRequests } from '../services/api'
 import { useAuth } from './auth'
 
 function response(body: unknown, status = 200, headers?: HeadersInit): Response {
@@ -71,5 +71,23 @@ describe('auth store', () => {
 
     expect(auth.state).toBe('anonymous')
     expect(auth.user).toBeNull()
+  })
+
+  it('ignores an obsolete unauthorized response after identity changes', async () => {
+    let finish!: (value: Response) => void
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(response({
+        state: 'authenticated', user: { id: 'first', username: 'Reader', role: 'member' }
+      }))
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => { finish = resolve }))
+    const auth = useAuth()
+    await auth.initialize()
+    const pending = api.users()
+    invalidateAccountRequests()
+    auth.user = { id: 'current', username: 'Current', role: 'member' }
+    finish(response({ error: 'Authentication required' }, 401))
+    await expect(pending).rejects.toMatchObject({ status: 401 })
+    expect(auth.user?.id).toBe('current')
+    expect(auth.authenticated).toBe(true)
   })
 })

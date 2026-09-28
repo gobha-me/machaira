@@ -12,6 +12,7 @@ const DEFAULT_CONFIG: TtsConfig = {
 
 export const useTtsProvider = defineStore('ttsProvider', {
   state: () => ({
+    generation: 0,
     config: { ...DEFAULT_CONFIG, order: [...DEFAULT_CONFIG.order] } as TtsConfig,
     loading: false,
     ready: false,
@@ -19,16 +20,20 @@ export const useTtsProvider = defineStore('ttsProvider', {
   }),
   actions: {
     async load(): Promise<void> {
+      const generation = this.generation
       this.loading = true
       this.error = null
       try {
-        this.config = await api.ttsConfig()
+        const config = await api.ttsConfig()
+        if (generation !== this.generation) return
+        this.config = config
         this.ready = true
       } catch (error) {
+        if (generation !== this.generation) return
         this.error = (error as Error).message
         throw error
       } finally {
-        this.loading = false
+        if (generation === this.generation) this.loading = false
       }
     },
     async save(input: {
@@ -37,19 +42,24 @@ export const useTtsProvider = defineStore('ttsProvider', {
       cloud: TtsEndpointInput | null
       remoteAudioCacheSize: number
     }): Promise<void> {
+      const generation = this.generation
       this.loading = true
       this.error = null
       try {
-        this.config = await api.saveTtsConfig(input)
+        const config = await api.saveTtsConfig(input)
+        if (generation !== this.generation) return
+        this.config = config
         this.ready = true
       } catch (error) {
+        if (generation !== this.generation) return
         this.error = (error as Error).message
         throw error
       } finally {
-        this.loading = false
+        if (generation === this.generation) this.loading = false
       }
     },
     reset(): void {
+      this.generation += 1
       this.config = { ...DEFAULT_CONFIG, order: [...DEFAULT_CONFIG.order] }
       this.loading = false
       this.ready = false

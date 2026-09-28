@@ -15,8 +15,11 @@ const EMPTY_STATUS: SemanticIndexStatus = {
   lastError: null
 }
 
+const rebuilds = new WeakMap<object, AbortController>()
+
 export const useSemanticIndex = defineStore('semanticIndex', {
   state: () => ({
+    generation: 0,
     provider: null as EmbeddingProviderConfig | null,
     status: { ...EMPTY_STATUS } as SemanticIndexStatus,
     loading: false,
@@ -45,6 +48,7 @@ export const useSemanticIndex = defineStore('semanticIndex', {
   },
   actions: {
     async load(): Promise<void> {
+      const generation = this.generation
       this.loading = true
       this.error = null
       try {
@@ -52,14 +56,16 @@ export const useSemanticIndex = defineStore('semanticIndex', {
           api.embeddingProvider(),
           api.semanticIndexStatus()
         ])
+        if (generation !== this.generation) return
         this.provider = provider
         this.effectiveBatchSize = provider?.batchSize ?? 0
         this.status = status
       } catch (error) {
+        if (generation !== this.generation) return
         this.error = (error as Error).message
         throw error
       } finally {
-        this.loading = false
+        if (generation === this.generation) this.loading = false
       }
     },
     async save(input: {
@@ -70,55 +76,78 @@ export const useSemanticIndex = defineStore('semanticIndex', {
       apiKey?: string
       clearApiKey?: boolean
     }): Promise<void> {
+      const generation = this.generation
       this.loading = true
       this.error = null
       try {
-        this.provider = await api.saveEmbeddingProvider(input)
+        const provider = await api.saveEmbeddingProvider(input)
+        if (generation !== this.generation) return
+        this.provider = provider
         this.effectiveBatchSize = this.provider.batchSize
-        this.status = await api.semanticIndexStatus()
+        const status = await api.semanticIndexStatus()
+        if (generation !== this.generation) return
+        this.status = status
       } catch (error) {
+        if (generation !== this.generation) return
         this.error = (error as Error).message
         throw error
       } finally {
-        this.loading = false
+        if (generation === this.generation) this.loading = false
       }
     },
     async remove(): Promise<void> {
+      const generation = this.generation
       this.loading = true
       this.error = null
       try {
         await api.removeEmbeddingProvider()
+        if (generation !== this.generation) return
         this.provider = null
         this.effectiveBatchSize = 0
         this.status = { ...EMPTY_STATUS }
       } catch (error) {
+        if (generation !== this.generation) return
         this.error = (error as Error).message
         throw error
       } finally {
-        this.loading = false
+        if (generation === this.generation) this.loading = false
       }
     },
     async rebuild(): Promise<void> {
+      if (this.building) return
+      const generation = this.generation
+      const controller = new AbortController()
+      rebuilds.set(this, controller)
       this.building = true
       this.processed = 0
       this.currentModule = ''
       this.effectiveBatchSize = this.provider?.batchSize ?? 0
       this.error = null
       try {
-        this.status = await api.rebuildSemanticIndex(({ module, processed, batchSize }) => {
+        const status = await api.rebuildSemanticIndex(({ module, processed, batchSize }) => {
+          if (generation !== this.generation) return
           this.currentModule = module
           this.processed = processed
           this.effectiveBatchSize = batchSize
-        })
+        }, controller.signal)
+        if (generation !== this.generation) return
+        this.status = status
       } catch (error) {
+        if (generation !== this.generation) return
         this.error = (error as Error).message
-        this.status = await api.semanticIndexStatus().catch(() => this.status)
+        const status = await api.semanticIndexStatus().catch(() => null)
+        if (generation !== this.generation) return
+        if (status) this.status = status
         throw error
       } finally {
-        this.building = false
+        if (generation === this.generation) this.building = false
+        if (rebuilds.get(this) === controller) rebuilds.delete(this)
       }
     },
     reset(): void {
+      this.generation += 1
+      rebuilds.get(this)?.abort()
+      rebuilds.delete(this)
       this.provider = null
       this.status = { ...EMPTY_STATUS }
       this.loading = false

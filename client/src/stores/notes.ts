@@ -81,6 +81,7 @@ export const useNotes = defineStore('notes', {
       }
     },
     async create(seed?: Partial<Note>): Promise<void> {
+      const activeGeneration = generation
       this.error = null
       try {
         const note = await api.createNote({
@@ -89,9 +90,11 @@ export const useNotes = defineStore('notes', {
           tags: seed?.tags ?? [],
           refs: seed?.refs ?? []
         })
+        if (activeGeneration !== generation) return
         this.list = [note, ...this.list]
         this.currentId = note.id
       } catch (error) {
+        if (activeGeneration !== generation) return
         this.error = (error as Error).message
         throw error
       }
@@ -163,10 +166,12 @@ export const useNotes = defineStore('notes', {
       if (id) this.scheduleSave(id, 0)
     },
     async remove(id: string): Promise<void> {
+      const activeGeneration = generation
       const state = pending.get(id)
       clearTimeout(state?.timer)
       pending.delete(id)
       await api.deleteNote(id)
+      if (activeGeneration !== generation) return
       delete this.saveErrors[id]
       delete this.dirty[id]
       this.list = this.list.filter((n) => n.id !== id)

@@ -417,6 +417,7 @@ export const useReader = defineStore('reader', {
     // otherwise highlight the lot.
     async toggleHighlightRange(verses: number[]): Promise<void> {
       if (!this.moduleName || !this.book || verses.length === 0) return
+      const generation = highlightLoadGeneration
       const keyFor = (v: number) => `${this.moduleName}/${this.book}/${this.chapter}/${v}`
       const allOn = verses.every((v) => this.highlights[keyFor(v)])
       const next = { ...this.highlights }
@@ -426,6 +427,7 @@ export const useReader = defineStore('reader', {
           allOn ? [] : keys.map((key) => ({ key, color: HL_COLOR })),
           allOn ? keys : []
         )
+        if (generation !== highlightLoadGeneration) return
         for (const key of keys) {
           if (allOn) delete next[key]
           else next[key] = HL_COLOR
@@ -433,8 +435,10 @@ export const useReader = defineStore('reader', {
         this.highlights = next
         this.highlightError = null
       } catch (error) {
+        if (generation !== highlightLoadGeneration) return
         const message = `Highlight was not saved: ${(error as Error).message}`
         await this.loadHighlights().catch(() => undefined)
+        if (generation !== highlightLoadGeneration) return
         this.highlightError = message
       }
     },
