@@ -9,8 +9,8 @@ interface NotesState {
   loading: boolean
   saving: boolean
   error: string | null
-  saveError: string | null
-  saveErrorId: string | null
+  saveErrors: Record<string, string>
+  dirty: Record<string, boolean>
 }
 
 interface PendingSave {
@@ -37,12 +37,18 @@ export const useNotes = defineStore('notes', {
     loading: false,
     saving: false,
     error: null,
-    saveError: null,
-    saveErrorId: null
+    saveErrors: {},
+    dirty: {}
   }),
   getters: {
     current(state): Note | null {
       return state.list.find((n) => n.id === state.currentId) ?? null
+    },
+    saveError(state): string | null {
+      return state.currentId ? state.saveErrors[state.currentId] ?? null : null
+    },
+    saveErrorId(state): string | null {
+      return state.currentId && state.saveErrors[state.currentId] ? state.currentId : null
     }
   },
   actions: {
@@ -54,7 +60,14 @@ export const useNotes = defineStore('notes', {
       try {
         const notes = await api.notes()
         if (activeGeneration !== generation) return
-        this.list = notes
+        const local = new Map(this.list.map((note) => [note.id, note]))
+        this.list = [
+          ...this.list.filter((note) => this.dirty[note.id]),
+          ...notes.filter((note) => !this.dirty[note.id]).map((note) => {
+            const existing = local.get(note.id)
+            return existing && existing.updatedAt > note.updatedAt ? existing : note
+          })
+        ].sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id))
         if (!this.currentId || !this.list.some((note) => note.id === this.currentId)) {
           this.currentId = this.list[0]?.id ?? null
         }
@@ -98,8 +111,7 @@ export const useNotes = defineStore('notes', {
         updatedAt: Date.now()
       }
       this.list = [updated, ...this.list.filter((item) => item.id !== updated.id)]
-      this.saveError = null
-      this.saveErrorId = null
+      this.dirty[updated.id] = true
       this.scheduleSave(updated.id)
     },
     scheduleSave(id: string, delay = SAVE_DELAY_MS): void {
@@ -128,13 +140,12 @@ export const useNotes = defineStore('notes', {
         if (activeGeneration !== generation || pending.get(id) !== state) return
         if (state.revision === sentRevision) {
           this.list = [saved, ...this.list.filter((item) => item.id !== id)]
-          this.saveError = null
-          this.saveErrorId = null
+          delete this.saveErrors[id]
+          delete this.dirty[id]
         }
       } catch (error) {
         if (activeGeneration === generation && pending.get(id) === state) {
-          this.saveError = (error as Error).message
-          this.saveErrorId = id
+          this.saveErrors[id] = (error as Error).message
         }
       } finally {
         if (activeGeneration !== generation || pending.get(id) !== state) return
@@ -156,6 +167,8 @@ export const useNotes = defineStore('notes', {
       clearTimeout(state?.timer)
       pending.delete(id)
       await api.deleteNote(id)
+      delete this.saveErrors[id]
+      delete this.dirty[id]
       this.list = this.list.filter((n) => n.id !== id)
       if (this.currentId === id) this.currentId = this.list[0]?.id ?? null
       this.saving = pending.size > 0
@@ -168,8 +181,8 @@ export const useNotes = defineStore('notes', {
       this.loading = false
       this.saving = false
       this.error = null
-      this.saveError = null
-      this.saveErrorId = null
+      this.saveErrors = {}
+      this.dirty = {}
     }
   }
 })

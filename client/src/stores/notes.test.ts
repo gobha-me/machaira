@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { api, type Note } from '../services/api'
 import { useNotes } from './notes'
@@ -27,6 +27,11 @@ describe('notes store', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.restoreAllMocks()
+    vi.useRealTimers()
+    useNotes().resetPersonalData()
+  })
+  afterEach(() => {
+    useNotes().resetPersonalData()
     vi.useRealTimers()
   })
 
@@ -132,5 +137,68 @@ describe('notes store', () => {
 
     expect(notes.list).toEqual([])
     expect(notes.loaded).toBe(false)
+  })
+
+  it('retains another note’s failed draft and warning through a successful save and refresh', async () => {
+    vi.useFakeTimers()
+    const second = { ...baseNote, id: 'note-2' }
+    const update = vi.spyOn(api, 'updateNote')
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce({ ...second, body: 'Second saved', updatedAt: 200 })
+      .mockResolvedValueOnce({ ...baseNote, body: 'First draft', updatedAt: 300 })
+    vi.spyOn(api, 'notes').mockResolvedValue([baseNote, second])
+    const notes = useNotes()
+    notes.list = [baseNote, second]
+    notes.currentId = baseNote.id
+    notes.save({ body: 'First draft' })
+    await vi.advanceTimersByTimeAsync(400)
+
+    notes.select(second.id)
+    notes.save({ body: 'Second saved' })
+    await vi.advanceTimersByTimeAsync(400)
+    expect(notes.saveErrors[baseNote.id]).toBe('offline')
+    expect(notes.saving).toBe(false)
+    await notes.load()
+    notes.select(baseNote.id)
+    expect(notes.current?.body).toBe('First draft')
+    expect(notes.saveError).toBe('offline')
+
+    notes.retrySave()
+    await vi.runAllTimersAsync()
+    expect(update).toHaveBeenCalledTimes(3)
+    expect(notes.current?.body).toBe('First draft')
+    expect(notes.saveErrors).toEqual({})
+    expect(notes.dirty).toEqual({})
+  })
+
+  it('keeps edits made while a list refresh is pending', async () => {
+    vi.useFakeTimers()
+    const response = deferred<Note[]>()
+    vi.spyOn(api, 'notes').mockReturnValue(response.promise)
+    const notes = useNotes()
+    notes.list = [baseNote]
+    notes.currentId = baseNote.id
+    const loading = notes.load()
+    notes.save({ body: 'New draft' })
+    response.resolve([baseNote])
+    await loading
+    expect(notes.current?.body).toBe('New draft')
+    expect(notes.dirty[baseNote.id]).toBe(true)
+  })
+
+  it('does not roll back a completed save with an older list response', async () => {
+    vi.useFakeTimers()
+    const response = deferred<Note[]>()
+    vi.spyOn(api, 'notes').mockReturnValue(response.promise)
+    vi.spyOn(api, 'updateNote').mockResolvedValue({ ...baseNote, body: 'Saved', updatedAt: 200 })
+    const notes = useNotes()
+    notes.list = [baseNote]
+    notes.currentId = baseNote.id
+    const loading = notes.load()
+    notes.save({ body: 'Saved' })
+    await vi.advanceTimersByTimeAsync(400)
+    response.resolve([baseNote])
+    await loading
+    expect(notes.current?.body).toBe('Saved')
   })
 })

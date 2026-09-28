@@ -151,6 +151,7 @@ onMounted(async () => {
           @click="notes.select(n.id)"
         >
           <div class="item-title">{{ n.title || 'Untitled note' }}</div>
+          <div v-if="notes.saveErrors[n.id]" class="save-error" role="status">Save failed · open to retry</div>
           <div class="item-date">{{ relDate(n.updatedAt) }}</div>
           <div v-if="n.tags.length" class="item-tags">
             <span v-for="t in n.tags" :key="t" class="tagchip">{{ t }}</span>
