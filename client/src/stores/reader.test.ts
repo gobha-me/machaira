@@ -116,6 +116,64 @@ function deferred<T>() {
 }
 
 describe('reader position', () => {
+  it('recovers after installing the first translation into a ready empty reader', async () => {
+    setActivePinia(createPinia())
+    vi.restoreAllMocks()
+    mockReaderApi()
+    const reader = useReader()
+    reader.activateUser('reader')
+    prepareLibrary()
+    await reader.init()
+    expect(reader.ready).toBe(true)
+    expect(reader.moduleName).toBeNull()
+    prepareLibrary('WEB')
+    await reader.reconcileInstalled()
+    expect(reader.moduleName).toBe('WEB')
+    expect(reader.book).toBe('Gen')
+    expect(reader.data?.book).toBe('Gen')
+  })
+
+  it('preserves valid passages on fallback and clears the final removed translation', async () => {
+    setActivePinia(createPinia())
+    vi.restoreAllMocks()
+    mockReaderApi({ WEB: standardBooks, KJV: standardBooks })
+    const reader = useReader()
+    reader.activateUser('reader')
+    prepareLibrary('KJV', 'WEB')
+    reader.ready = true
+    reader.book = 'John'
+    reader.chapter = 3
+    await reader.setModule('KJV')
+    prepareLibrary('WEB')
+    await reader.reconcileInstalled()
+    expect(reader.moduleName).toBe('WEB')
+    expect(reader.book).toBe('John')
+    expect(reader.chapter).toBe(3)
+    prepareLibrary()
+    await reader.reconcileInstalled()
+    expect(reader.moduleName).toBeNull()
+    expect(reader.books).toEqual([])
+    expect(reader.data).toBeNull()
+    expect(reader.book).toBeNull()
+  })
+
+  it('does not reload a valid active translation for unrelated catalogue changes', async () => {
+    setActivePinia(createPinia())
+    vi.restoreAllMocks()
+    mockReaderApi()
+    const reader = useReader()
+    reader.activateUser('reader')
+    prepareLibrary('WEB')
+    reader.ready = true
+    await reader.setModule('WEB')
+    const bookCalls = vi.mocked(api.books).mock.calls.length
+    const chapterCalls = vi.mocked(api.chapter).mock.calls.length
+    prepareLibrary('WEB', 'KJV')
+    await reader.reconcileInstalled()
+    expect(api.books).toHaveBeenCalledTimes(bookCalls)
+    expect(api.chapter).toHaveBeenCalledTimes(chapterCalls)
+  })
+
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.restoreAllMocks()
