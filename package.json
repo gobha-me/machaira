@@ -18,7 +18,7 @@
     "postinstall": "patch-package && npm rebuild node-sword-interface"
   },
   "devDependencies": {
-    "concurrently": "^9.1.0",
+    "concurrently": "^9.2.5",
     "patch-package": "^8.0.1"
   }
 }
