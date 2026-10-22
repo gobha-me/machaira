@@ -1,6 +1,6 @@
 // Typed client for the local SWORD backend (proxied at /api in dev).
 
-import type { ReadingCursor, UserPreferences, ScriptureTarget } from '@machaira/scripture'
+import type { CrossReferenceMapScope, CrossReferenceMapPayload, CrossReferenceMapSimilarity, ReadingCursor, UserPreferences, ScriptureTarget } from '@machaira/scripture'
 export type { ScriptureTarget } from '@machaira/scripture'
 export type SearchScope = 'all' | 'scripture' | 'apocrypha' | 'ancient-writings'
 
@@ -667,6 +667,16 @@ export const api = {
       '/api/semantic-search',
       json('POST', { query, modules, limit, scope })
     )).results
+  },
+
+  crossReferenceMap(scope: CrossReferenceMapScope, signal?: AbortSignal): Promise<CrossReferenceMapPayload> {
+    return requestJson('/api/cross-reference-map', { ...json('POST', scope), signal })
+  },
+  mapSimilarity(module: string, scope: CrossReferenceMapScope, signal?: AbortSignal): Promise<CrossReferenceMapSimilarity> {
+    return requestJson('/api/cross-reference-map/similarity', { ...json('POST', { module, scope }), signal })
+  },
+  resolveMapReference(module: string, reference: string): Promise<{ target: ScriptureTarget | null }> {
+    return requestJson('/api/cross-reference-map/resolve', json('POST', { module, reference }))
   },
 
   async connections(seeds: ConnectionSeed[]): Promise<ConnectionsPayload> {

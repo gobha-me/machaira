@@ -2,12 +2,13 @@ import { defineStore } from 'pinia'
 import { computed, inject, ref } from 'vue'
 import { routerKey } from 'vue-router'
 
-export type ScreenId = 'read' | 'plan' | 'study' | 'search' | 'library' | 'journal' | 'settings'
+export type ScreenId = 'read' | 'plan' | 'study' | 'map' | 'search' | 'library' | 'journal' | 'settings'
 
 export const SCREENS: { id: ScreenId; label: string }[] = [
   { id: 'read', label: 'Read' },
   { id: 'plan', label: 'Plan' },
   { id: 'study', label: 'Study' },
+  { id: 'map', label: 'Map' },
   { id: 'search', label: 'Search' },
   { id: 'library', label: 'Library' },
   { id: 'journal', label: 'Journal' },
