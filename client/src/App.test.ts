@@ -331,6 +331,29 @@ describe('hash navigation and passage URLs', () => {
     expect((app.get('input.query').element as HTMLInputElement).value).toBe('')
     expect(app.find('.result').exists()).toBe(false)
   })
+
+  it.each(['success', 'failure'] as const)('discards a pending passage %s when accounts change', async (outcome) => {
+    const app = await startApp()
+    const pending = deferred<ChapterPayload>()
+    vi.mocked(api.chapter).mockReturnValueOnce(pending.promise)
+    await router.push('/read/WEB/Gen/2')
+    await flushPromises()
+    useAuth().user = { ...user, id: 'other-reader' }
+    await flushPromises()
+    expect(useReader().activeUserId).toBe('other-reader')
+    expect(app.get('.read h1').text()).toBe('Genesis 2')
+    const currentData = useReader().data
+
+    if (outcome === 'success') pending.resolve(passage(2))
+    else pending.reject(new Error('Previous account offline'))
+    await flushPromises()
+
+    expect(router.currentRoute.value.path).toBe('/read/WEB/Gen/2')
+    expect(useReader().activeUserId).toBe('other-reader')
+    expect(useReader().data).toBe(currentData)
+    expect(app.text()).not.toContain('passage link is not available')
+    expect(JSON.parse(localStorage.getItem('sword.reader.pos.v2:other-reader')!).chapter).toBe(2)
+  })
 })
 
 function expectRead(app: VueWrapper) {
@@ -341,6 +364,21 @@ function expectRead(app: VueWrapper) {
 }
 
 describe('startup failure isolation', () => {
+  it('keeps a damaged journal draft warning visible across routed screens', async () => {
+    const key = `machaira:note-drafts:${user.id}`
+    localStorage.setItem(key, '{broken')
+    const app = await startApp()
+    expectRead(app)
+    expect(app.get('[role="alert"]').text()).toContain('Could not read local drafts')
+    await navigate(app, 'Search')
+    expect(app.findComponent(SearchScreen).exists()).toBe(true)
+    expect(app.get('[role="alert"]').text()).toContain('Could not read local drafts')
+    await navigate(app, 'Read')
+    expectRead(app)
+    expect(app.get('[role="alert"]').text()).toContain('Could not read local drafts')
+    expect(localStorage.getItem(key)).toBe('{broken')
+  })
+
   it('renders passage note creation failures without losing the composer input', async () => {
     vi.spyOn(api, 'createNote').mockRejectedValue(new Error('Note creation unavailable'))
     const app = await startApp()
