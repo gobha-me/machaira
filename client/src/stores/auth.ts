@@ -1,11 +1,12 @@
 import { defineStore } from 'pinia'
 import { api, onUnauthorized, type AuthUser } from '../services/api'
 
-type AuthState = 'loading' | 'bootstrap' | 'anonymous' | 'authenticated'
+type AuthState = 'loading' | 'error' | 'bootstrap' | 'anonymous' | 'authenticated'
 
 export const useAuth = defineStore('auth', {
   state: () => ({
     state: 'loading' as AuthState,
+    error: null as string | null,
     user: null as AuthUser | null
   }),
   getters: {
@@ -14,6 +15,8 @@ export const useAuth = defineStore('auth', {
   },
   actions: {
     async initialize(): Promise<void> {
+      this.state = 'loading'
+      this.error = null
       onUnauthorized(() => {
         this.user = null
         this.state = 'anonymous'
@@ -22,9 +25,10 @@ export const useAuth = defineStore('auth', {
         const status = await api.authStatus()
         this.state = status.state
         this.user = status.state === 'authenticated' ? status.user : null
-      } catch {
+      } catch (error) {
         this.user = null
-        this.state = 'anonymous'
+        this.error = error instanceof Error ? error.message : 'Could not load your session.'
+        this.state = 'error'
       }
     },
     async bootstrap(username: string, password: string): Promise<void> {
