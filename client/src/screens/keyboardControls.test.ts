@@ -13,10 +13,50 @@ import { api } from '../services/api'
 beforeEach(() => { setActivePinia(createPinia()) })
 afterEach(() => {
   vi.restoreAllMocks()
+  window.getSelection()?.removeAllRanges()
   document.body.innerHTML = ''
 })
 
 describe('screen keyboard controls', () => {
+  it('invalidates a selected-word lookup in Study when the passage changes before its failure returns', async () => {
+    const reader = useReader()
+    reader.ready = true
+    reader.moduleName = 'KJV'
+    reader.book = 'John'
+    reader.data = {
+      module: 'KJV', book: 'John', bookName: 'John', chapter: 1,
+      verses: [{ n: 1, text: 'Word', notes: [], crossReferences: [], segments: [{ kind: 'word', text: 'Word', strongs: ['G3056'] }] }]
+    }
+    let reject!: (cause: Error) => void
+    vi.spyOn(api, 'strongs').mockReturnValue(new Promise((_, fail) => { reject = fail }))
+    const wrapper = mount(StudyScreen, {
+      attachTo: document.body,
+      global: { stubs: { CommentaryPanel: true, ComparePanel: true, CrossReferencesPanel: true, StudyPartner: true } }
+    })
+    try {
+      await flushPromises()
+      const word = wrapper.get('[data-selection-text] [data-strongs]').element
+      const range = document.createRange()
+      range.selectNodeContents(word)
+      window.getSelection()!.addRange(range)
+      document.dispatchEvent(new Event('selectionchange'))
+      await flushPromises()
+      const actions = document.querySelector('[aria-label="Selected text actions"]')!
+      ;[...actions.querySelectorAll('button')].find((button) => button.textContent?.trim() === 'Word study')!.click()
+      await flushPromises()
+      expect(wrapper.get('.strongs-box').text()).toContain('Looking up')
+      reader.chapter = 2
+      reject(new Error('obsolete failure'))
+      await flushPromises()
+      expect(document.querySelector('[aria-label="Selected text actions"]')).toBeNull()
+      expect(wrapper.find('.strongs-error').exists()).toBe(false)
+      expect(wrapper.get('.strongs-box').text()).not.toContain('Looking up')
+      expect(wrapper.get('.strongs-box').text()).not.toContain('G3056')
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
   it('keeps opening a plan chapter separate from marking it read, including when no module is installed', async () => {
     const plan = useReadingPlan()
     plan.enabled = true

@@ -9,6 +9,7 @@ import { useLibrary } from '../stores/library'
 import { useReader } from '../stores/reader'
 import { useSettings } from '../stores/settings'
 import { useTtsProvider } from '../stores/ttsProvider'
+import { useUi } from '../stores/ui'
 import { api, ApiError } from '../services/api'
 import { pathologicalModule } from '../test/fixtures/moduleInfo'
 
@@ -47,9 +48,165 @@ beforeEach(() => {
 })
 afterEach(() => {
   wrapper.unmount()
+  window.getSelection()?.removeAllRanges()
   document.body.innerHTML = ''
   vi.useRealTimers()
   vi.unstubAllGlobals()
+})
+
+function firstText(element: Node): Node {
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT)
+  let node: Node | null
+  while ((node = walker.nextNode())) if (node.textContent) return node
+  throw new Error('Expected Scripture text')
+}
+async function selectText(start: Node, from: number, end = start, to = start.textContent!.length, event = 'selectionchange') {
+  const range = document.createRange()
+  range.setStart(start, from)
+  range.setEnd(end, to)
+  const selection = window.getSelection()!
+  selection.removeAllRanges()
+  selection.addRange(range)
+  document.dispatchEvent(new Event(event))
+  await flushPromises()
+}
+function textActions() {
+  return document.querySelector<HTMLElement>('[aria-label="Selected text actions"]')
+}
+function textAction(label: string) {
+  return [...textActions()!.querySelectorAll('button')].find((button) => button.textContent?.trim() === label)!
+}
+
+describe('word and phrase selection actions', () => {
+  it('searches partial text across verses without changing the verse selection or blocking native copy', async () => {
+    const related = vi.spyOn(useUi(), 'findRelated').mockImplementation(() => {})
+    const verses = wrapper.findAll('[data-selection-text]')
+    const first = firstText(verses[0].element)
+    const second = firstText(verses[1].element)
+    await selectText(first, 7, second, 8)
+    expect(textActions()!.textContent).toContain('Find related')
+    await wrapper.findAll('.verse')[1].trigger('click')
+    expect(useReader().selectedVerses).toEqual([])
+    const nativeMenu = new MouseEvent('contextmenu', { bubbles: true, cancelable: true })
+    verses[0].element.dispatchEvent(nativeMenu)
+    expect(nativeMenu.defaultPrevented).toBe(false)
+    const copy = new Event('copy', { bubbles: true, cancelable: true })
+    document.dispatchEvent(copy)
+    expect(copy.defaultPrevented).toBe(false)
+    expect(window.getSelection()!.isCollapsed).toBe(false)
+    textAction('Find related').click()
+    expect(related).toHaveBeenCalledExactlyOnceWith('beginning was the Word, and the Word was with God, and the Word was God. The same')
+  })
+
+  it('resolves selected Strong’s tags even when word display is off, and shows lookup failures', async () => {
+    useSettings().showStrongs = false
+    await flushPromises()
+    const lookup = vi.spyOn(api, 'strongs').mockRejectedValue(new Error('unavailable'))
+    const word = wrapper.get('[data-strongs="G3056"]').element
+    await selectText(word.firstChild!, 0)
+    textAction('Word study').click()
+    await flushPromises()
+    expect(lookup).toHaveBeenCalledExactlyOnceWith('G3056')
+    expect(wrapper.get('[role="alert"]').text()).toContain('No entry for G3056')
+  })
+
+  it('offers a choice for multiple tagged words and explains a selection without tags', async () => {
+    const verses = wrapper.findAll('[data-selection-text]')
+    await selectText(firstText(verses[0].element), 0, wrapper.get('[data-strongs="G2316"]').element.firstChild!, 3)
+    textAction('Word study').click()
+    await flushPromises()
+    expect(textActions()!.textContent).toContain('G3056')
+    expect(textActions()!.textContent).toContain('G2316')
+    const lookup = vi.spyOn(api, 'strongs').mockRejectedValue(new Error('missing'))
+    ;[...textActions()!.querySelectorAll('button')].find((button) => button.textContent?.includes('G2316'))!.click()
+    await flushPromises()
+    expect(lookup).toHaveBeenCalledExactlyOnceWith('G2316')
+    const first = firstText(verses[0].element)
+    await selectText(first, 0, first, 6)
+    textAction('Word study').click()
+    await flushPromises()
+    expect(textActions()!.querySelector('[role="status"]')!.textContent).toContain('No Strong’s tags')
+    expect(lookup).toHaveBeenCalledOnce()
+  })
+
+  it('ignores empty/whitespace selections and dismisses on Escape without immediately reopening', async () => {
+    const first = firstText(wrapper.get('[data-selection-text]').element)
+    await selectText(first, 2, first, 3)
+    expect(textActions()).toBeNull()
+    await selectText(first, 0, first, 0)
+    expect(textActions()).toBeNull()
+    await selectText(first, 0, first, 6)
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    document.dispatchEvent(new KeyboardEvent('keyup', { key: 'Escape' }))
+    document.dispatchEvent(new Event('selectionchange'))
+    await flushPromises()
+    expect(textActions()).toBeNull()
+    expect(window.getSelection()!.toString()).toBe('In the')
+  })
+
+  it('invalidates an open selection on navigation, including reused DOM and late selection events', async () => {
+    const first = firstText(wrapper.get('[data-selection-text]').element)
+    await selectText(first, 0, first, 6)
+    const staleAction = textAction('Note')
+    useReader().chapter = 2
+    await flushPromises()
+    document.dispatchEvent(new Event('selectionchange'))
+    await flushPromises()
+    expect(textActions()).toBeNull()
+    staleAction.click()
+    expect((wrapper.get('[aria-label="Note body"]').element as HTMLTextAreaElement).value).toBe('')
+  })
+
+  it('pins a range note and its quoted text to the original reference after navigation', async () => {
+    const create = vi.spyOn(api, 'createNote').mockResolvedValue({
+      id: 'range-note', title: 'John 1:1–2 · KJV', body: 'note', refs: ['John 1:1–2 · KJV'], tags: [], createdAt: 1, updatedAt: 1
+    })
+    const verses = wrapper.findAll('[data-selection-text]')
+    await selectText(firstText(verses[0].element), 7, firstText(verses[1].element), 8)
+    textAction('Note').click()
+    await flushPromises()
+    expect(wrapper.get('.note-anchor').text()).toBe('John 1:1–2 · KJV')
+    expect((wrapper.get('[aria-label="Note body"]').element as HTMLTextAreaElement).value).toContain('> beginning was the Word')
+    useReader().chapter = 2
+    await flushPromises()
+    await wrapper.get('button.note-save').trigger('click')
+    await flushPromises()
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ refs: ['John 1:1–2 · KJV'] }))
+  })
+
+  it('keeps the range snapshot when keyboard focus collapses native selection on an action', async () => {
+    const user = userEvent.setup()
+    const first = firstText(wrapper.get('[data-selection-text]').element)
+    await selectText(first, 7, first, 16)
+    textAction('Note').focus()
+    window.getSelection()!.removeAllRanges()
+    document.dispatchEvent(new Event('selectionchange'))
+    await flushPromises()
+    expect(textActions()).not.toBeNull()
+    await user.keyboard('{Enter}')
+    await flushPromises()
+    expect(document.activeElement).toBe(wrapper.get('[aria-label="Note body"]').element)
+    expect(wrapper.get('[aria-label="Note body"]').element).toHaveProperty('value', '> beginning\n\n')
+    expect(wrapper.get('.note-anchor').text()).toBe('John 1:1 · KJV')
+  })
+
+  it('lets native touch long-press select text without opening the passage menu or suppressing its context menu', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const prose = wrapper.get('[data-selection-text]')
+    await prose.trigger('pointerdown', { pointerType: 'touch', pointerId: 1, clientX: 40, clientY: 60 })
+    await vi.advanceTimersByTimeAsync(600)
+    const nativeMenu = new MouseEvent('contextmenu', { bubbles: true, cancelable: true })
+    prose.element.dispatchEvent(nativeMenu)
+    expect(nativeMenu.defaultPrevented).toBe(false)
+    expect(document.querySelector('.passage-actions')).toBeNull()
+    const first = firstText(prose.element)
+    await selectText(first, 0, first, 6)
+    await prose.trigger('pointerup', { pointerType: 'touch', pointerId: 1 })
+    expect(textActions()).not.toBeNull()
+    expect(useReader().selectedVerses).toEqual([])
+    wrapper.unmount()
+    expect(textActions()).toBeNull()
+  })
 })
 
 describe('reader keyboard accessibility', () => {

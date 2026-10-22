@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useReader } from '../stores/reader'
 import { useUi } from '../stores/ui'
 import { useCompare } from '../composables/useCompare'
@@ -8,6 +8,7 @@ import { useNotes } from '../composables/useNotes'
 import { usePassageMenu } from '../composables/usePassageMenu'
 import { segLead } from '../utils/text'
 import PassageActions from '../components/PassageActions.vue'
+import TextSelectionActions from '../components/TextSelectionActions.vue'
 import StrongsCard from '../components/StrongsCard.vue'
 import CommentaryPanel from '../components/CommentaryPanel.vue'
 import ComparePanel from '../components/ComparePanel.vue'
@@ -36,10 +37,16 @@ const {
   entry: strongs,
   error: strongsError,
   loading: strongsLoading,
-  tapWord
+  tapWord,
+  clear: clearWordStudy
 } = useWordStudy()
 
+// A selected-word request must not populate the next passage after navigation.
+watch(() => [reader.moduleName, reader.book, reader.chapter], clearWordStudy, { flush: 'sync' })
+
 const {
+  anchor: noteAnchor,
+  anchorSelection: anchorNoteSelection,
   title: noteTitle,
   body: noteBody,
   bodyEl: noteBodyEl,
@@ -52,6 +59,16 @@ const {
   focusComposer,
   relDate: noteRelDate
 } = useNotes()
+
+const selectionRoot = ref<HTMLElement | null>(null)
+function selectionNote(reference: string, quote: string) {
+  anchorNoteSelection(reference, quote)
+  menuNote()
+}
+async function selectionWordStudy(keys: string[]) {
+  strongsBoxEl.value?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+  await tapWord(keys)
+}
 
 const compareBoxEl = ref<HTMLElement | null>(null)
 const strongsBoxEl = ref<HTMLElement | null>(null)
@@ -277,6 +294,7 @@ function menuNote() {
         </div>
         <div
           v-if="reader.data"
+          ref="selectionRoot"
           class="context serif"
         >
           <!-- eslint-disable-next-line vuejs-accessibility/click-events-have-key-events, vuejs-accessibility/no-static-element-interactions -- Prose gestures supplement the native verse-number and word buttons. -->
@@ -284,6 +302,7 @@ function menuNote() {
             v-for="v in reader.data.verses"
             :key="v.n"
             class="cverse"
+            :data-verse="v.n"
             :style="{ background: cverseBg(v.n), opacity: verseOpacity(v.n) }"
             @mousedown="onVerseMouseDown"
             @pointerdown="onVersePointerDown(v.n, $event)"
@@ -300,17 +319,18 @@ function menuNote() {
             aria-keyshortcuts="Shift+F10"
             @click.stop="onVerseClick(v.n, $event)"
             @keydown="onVerseKeydown(v.n, $event)"
-          >{{ v.n }}</button><template
+          >{{ v.n }}</button><span data-selection-text><template
             v-for="(seg, i) in v.segments"
             :key="i"
           ><template v-if="seg.kind === 'word'">{{ segLead(v.segments, i) }}<button
             type="button"
             class="wtap"
+            :data-strongs="seg.strongs.join(' ')"
             :aria-label="`Study ${seg.text} (${seg.strongs.join(', ')})`"
             @click.stop="onWordClick(v.n, seg.strongs, $event)"
           >{{ seg.text }}</button></template><template
             v-else-if="seg.kind === 'note'"
-          /><template v-else>{{ segLead(v.segments, i) + seg.text }}</template></template>{{ ' ' }}</span>
+          /><template v-else>{{ segLead(v.segments, i) + seg.text }}</template></template></span>{{ ' ' }}</span>
         </div>
         <p
           v-if="reader.highlightError"
@@ -321,8 +341,8 @@ function menuNote() {
 
         <!-- Notes: shared capability, anchored to the focused passage -->
         <div class="section-label">
-          Notes<template v-if="reader.currentRef">
-            · {{ reader.currentRef }}
+          Notes<template v-if="noteAnchor">
+            · {{ noteAnchor }}
           </template>
         </div>
         <div class="note-box">
@@ -383,6 +403,12 @@ function menuNote() {
 
     <StudyPartner :passage="passageContext" />
 
+    <TextSelectionActions
+      :root="selectionRoot"
+      @open="dismiss"
+      @word-study="selectionWordStudy"
+      @note="selectionNote"
+    />
     <PassageActions
       v-if="menuOpen"
       :ref-label="selectionLabel"
@@ -508,6 +534,8 @@ function menuNote() {
   padding: 1px 2px;
 }
 .wtap {
+  user-select: text;
+  -webkit-user-select: text;
   padding: 0;
   border: 0;
   background: none;
@@ -693,6 +721,8 @@ function menuNote() {
   }
   .cverse {
     padding: 3px 2px;
+  }
+  .cvnum {
     touch-action: pan-y;
     -webkit-touch-callout: none;
   }

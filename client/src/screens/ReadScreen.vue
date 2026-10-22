@@ -13,6 +13,7 @@ import { usePassageMenu } from '../composables/usePassageMenu'
 import { useReadAloud } from '../composables/useReadAloud'
 import { segLead } from '../utils/text'
 import PassageActions from '../components/PassageActions.vue'
+import TextSelectionActions from '../components/TextSelectionActions.vue'
 import StrongsCard from '../components/StrongsCard.vue'
 import CommentaryPanel from '../components/CommentaryPanel.vue'
 import ComparePanel from '../components/ComparePanel.vue'
@@ -204,10 +205,13 @@ async function tapReaderWord(keys: string[]) {
   await tapWord(keys)
 }
 
-// Whether the chapter renders word segments at all. Deliberately chapter-wide rather than
-// per-verse: gating the segment subtree on the selection would swap ~130 DOM nodes per verse
-// between the segment path and the plain-text fallback on every click.
-const wordsRevealed = computed(() => settings.showStrongs || wordStudyOn.value)
+async function selectionWordStudy(keys: string[]) {
+  wordStudyOn.value = true
+  await tapReaderWord(keys)
+}
+
+// Always render segments, including hidden Strong's metadata, so native selections can
+// resolve the exact tagged words without substring guesses or replacing the prose DOM.
 
 // Which of those words are actually tappable. The global Strong's setting lights up the whole
 // chapter. The menu's "Word study" lights only the selected range, so the rest of the chapter
@@ -309,6 +313,8 @@ function scrollToConnection(verse: number | null) {
 
 // ── Notes: shared quick-capture capability, anchored to the current passage ──
 const {
+  anchor: noteAnchor,
+  anchorSelection: anchorNoteSelection,
   title: noteTitle,
   body: noteBody,
   bodyEl: noteBodyEl,
@@ -321,6 +327,12 @@ const {
   focusComposer: focusNoteComposer,
   relDate: noteRelDate
 } = useNotes()
+
+const selectionRoot = ref<HTMLElement | null>(null)
+async function selectionNote(reference: string, quote: string) {
+  anchorNoteSelection(reference, quote)
+  await menuNote()
+}
 
 // ── Passage action menu: floating keystone entry (shared PassageActions component) ──
 // Gestures, menu state and the selection's presentation come from usePassageMenu, so Read and
@@ -556,6 +568,7 @@ async function menuNote() {
             </div>
 
             <div
+              ref="selectionRoot"
               class="verses serif"
               :style="versesStyle"
             >
@@ -564,6 +577,7 @@ async function menuNote() {
                 v-for="v in reader.data.verses"
                 :key="v.n"
                 class="verse"
+                :data-verse="v.n"
                 :style="{ background: verseBg(v.n), opacity: verseOpacity(v.n) }"
                 @mousedown="onVerseMouseDown"
                 @pointerdown="onVersePointerDown(v.n, $event)"
@@ -582,8 +596,8 @@ async function menuNote() {
                   title="Select verse; Shift+F10 opens passage actions"
                   @click.stop="onVerseClick(v.n, $event)"
                   @keydown="onVerseKeydown(v.n, $event)"
-                >{{ v.n }}</button><template
-                  v-if="(settings.showFootnotes && v.notes.length) || wordsRevealed"
+                >{{ v.n }}</button><span data-selection-text><template
+                  v-if="v.segments.length"
                 ><template
                   v-for="(seg, i) in v.segments"
                   :key="i"
@@ -592,17 +606,20 @@ async function menuNote() {
                 >{{ segLead(v.segments, i) }}<button
                   type="button"
                   class="wtap"
+                  :data-strongs="seg.strongs.join(' ')"
                   :aria-label="`Study ${seg.text} (${seg.strongs.join(', ')})`"
                   @click.stop="onWordClick(v.n, seg.strongs, $event)"
                 >{{ seg.text }}</button></template><sup
                   v-else-if="seg.kind === 'note' && settings.showFootnotes"
                   class="noteref"
+                  data-selection-ignore
                   :title="seg.text"
                 >{{ seg.label }}</sup><template
                   v-else-if="seg.kind === 'note'"
-                /><template
+                /><span
                   v-else
-                >{{ segLead(v.segments, i) + seg.text }}</template></template></template><template v-else>{{ v.text }}</template>{{ ' ' }}</span>
+                  :data-strongs="seg.kind === 'word' ? seg.strongs.join(' ') : undefined"
+                >{{ segLead(v.segments, i) + seg.text }}</span></template></template><template v-else>{{ v.text }}</template></span>{{ ' ' }}</span>
             </div>
 
             <div
@@ -737,10 +754,10 @@ async function menuNote() {
               >Saved ✓</span>
             </div>
             <div
-              v-if="reader.currentRef"
+              v-if="noteAnchor"
               class="note-anchor"
             >
-              {{ reader.currentRef }}
+              {{ noteAnchor }}
             </div>
             <input
               v-model="noteTitle"
@@ -852,12 +869,18 @@ async function menuNote() {
             Select any verse to compare, highlight, or start a note.
           </div>
           <div class="hint-text mobile-hint">
-            Tap a verse to select it. Long-press another verse to select a range and open its actions.
+            Tap a verse number to select it; long-press another number to extend. Long-press text for word and phrase actions.
           </div>
         </aside>
       </div>
     </div>
 
+    <TextSelectionActions
+      :root="selectionRoot"
+      @open="dismiss"
+      @word-study="selectionWordStudy"
+      @note="selectionNote"
+    />
     <PassageActions
       v-if="menuOpen"
       :ref-label="selectionLabel"
@@ -1250,6 +1273,8 @@ h1 {
   font-family: 'Instrument Sans', sans-serif;
 }
 .wtap {
+  user-select: text;
+  -webkit-user-select: text;
   border: 0;
   padding: 0;
   background: transparent;
@@ -1787,6 +1812,8 @@ h1 {
   }
   .verse {
     padding: 3px 2px;
+  }
+  .vnum {
     touch-action: pan-y;
     -webkit-touch-callout: none;
   }
