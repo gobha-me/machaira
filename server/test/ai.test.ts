@@ -40,6 +40,67 @@ const chatPayload = {
 }
 
 describe('AI provider API', () => {
+  it('accepts empty JSON only on conversation creation and rejects malformed bodies without creating rows', async () => {
+    const app = await buildApp({
+      databasePath: ':memory:', secretKey: randomBytes(32), logger: false, registerFeatureRoutes: false
+    })
+    await app.ready()
+    try {
+      const session = cookie(await app.inject({
+        method: 'POST', url: '/api/auth/bootstrap',
+        payload: { username: 'Owner', password: 'correct horse battery staple' }
+      }))
+      const headers = { cookie: session, 'content-type': 'application/json' }
+      assert.equal((await app.inject({
+        method: 'POST', url: '/api/ai/conversations',
+        headers: { 'content-type': 'application/json' }, payload: ''
+      })).statusCode, 401)
+
+      for (const payload of ['{', ' ', '{"__proto__":{"admin":true}}', '{"constructor":{"prototype":{"admin":true}}}']) {
+        const rejected = await app.inject({
+          method: 'POST', url: '/api/ai/conversations', headers, payload
+        })
+        assert.equal(rejected.statusCode, 400)
+        assert.equal(rejected.json().code, 'FST_ERR_CTP_INVALID_JSON_BODY')
+      }
+      assert.equal((await app.inject({
+        method: 'POST', url: '/api/ai/conversations', headers, payload: ' '.repeat(1024 * 1024 + 1)
+      })).statusCode, 413)
+      assert.deepEqual((await app.inject({
+        method: 'GET', url: '/api/ai/conversations', headers: { cookie: session }
+      })).json().conversations, [])
+
+      for (const contentType of ['application/json', 'application/json; charset=utf-8']) {
+        const created = await app.inject({
+          method: 'POST', url: '/api/ai/conversations',
+          headers: { ...headers, 'content-type': contentType }, payload: ''
+        })
+        assert.equal(created.statusCode, 201)
+        const conversation = created.json().conversation
+        assert.ok(conversation.id)
+        assert.deepEqual(conversation.messages, [])
+        const saved = await app.inject({
+          method: 'GET', url: `/api/ai/conversations/${conversation.id}`, headers: { cookie: session }
+        })
+        assert.equal(saved.statusCode, 200)
+        assert.deepEqual(saved.json().conversation, conversation)
+
+        const emptyMessage = await app.inject({
+          method: 'POST', url: `/api/ai/conversations/${conversation.id}/messages`, headers, payload: ''
+        })
+        assert.equal(emptyMessage.statusCode, 400)
+        assert.equal(emptyMessage.json().code, 'FST_ERR_CTP_EMPTY_JSON_BODY')
+      }
+      const emptyProvider = await app.inject({
+        method: 'PUT', url: '/api/ai/provider', headers, payload: ''
+      })
+      assert.equal(emptyProvider.statusCode, 400)
+      assert.equal(emptyProvider.json().code, 'FST_ERR_CTP_EMPTY_JSON_BODY')
+    } finally {
+      await app.close()
+    }
+  })
+
   it('isolates redacted configuration per user and never stores the key as plaintext', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'machaira-ai-'))
     const filename = join(dir, 'machaira.sqlite')
