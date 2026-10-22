@@ -16,7 +16,9 @@
     "build": "npm -w shared run build && npm -w server run build && npm -w client run build",
     "audit:catalog": "node scripts/audit-catalog.mjs",
     "postinstall": "patch-package && npm rebuild node-sword-interface",
-    "lint": "eslint client server shared --max-warnings 0"
+    "prelint": "npm -w shared run build",
+    "lint": "eslint client server shared eslint.config.js scripts/eslint-*.cjs scripts/test-lint.mjs --max-warnings 0",
+    "test:lint": "node --test scripts/test-lint.mjs"
   },
   "devDependencies": {
     "@eslint-community/eslint-plugin-eslint-comments": "^4.8.1",

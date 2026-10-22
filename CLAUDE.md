@@ -17,6 +17,8 @@ npm run dev          # runs server + client together (concurrently)
 npm run dev:server   # Fastify API on http://127.0.0.1:5274
 npm run dev:client   # Vite dev server on http://localhost:5273 (proxies /api -> :5274)
 npm run build        # server (tsc) then client (vue-tsc -b && vite build)
+npm run lint         # ESLint, including type-aware promise checks; zero warnings
+npm run test:lint    # adversarial checks for lint coverage and suppression policy
 docker build .       # production image: native addon + server + compiled client
 ```
 
@@ -88,6 +90,8 @@ npm workspaces: `client/` (Vue 3 + Vite + TS), `server/` (Fastify + TS, ESM), an
   legacy IndexedDB notes/highlights are retained as a non-destructive import source. Journal data
   remains exportable as Markdown + JSON.
 - TypeScript throughout; server is ESM (note the `.js` import specifiers).
+- Run the linter for changes. Suppress only with
+  `eslint-disable-next-line <rule> -- <specific reason>`; never blanket or file-wide.
 
 ## Roadmap
 

@@ -1,12 +1,27 @@
 const js = require('@eslint/js')
+const { defineConfig } = require('eslint/config')
 const tseslint = require('typescript-eslint')
 const vue = require('eslint-plugin-vue')
 const accessibility = require('eslint-plugin-vuejs-accessibility')
 const comments = require('@eslint-community/eslint-plugin-eslint-comments')
 const templateComments = require('./scripts/eslint-template-comments.cjs')
 
-module.exports = tseslint.config(
+module.exports = defineConfig(
   { ignores: ['**/dist/**', '**/node_modules/**', 'server/data/**'] },
+  {
+    plugins: { 'eslint-comments': comments },
+    linterOptions: { reportUnusedDisableDirectives: 'error' },
+    rules: {
+      'eslint-comments/require-description': 'error',
+      'eslint-comments/no-unlimited-disable': 'error',
+      'eslint-comments/no-use': ['error', { allow: ['eslint-disable-next-line'] }]
+    }
+  },
+  {
+    files: ['eslint.config.js', 'scripts/eslint-*.cjs', 'scripts/test-lint.mjs'],
+    extends: [js.configs.recommended],
+    languageOptions: { globals: { __dirname: 'readonly', process: 'readonly' } }
+  },
   {
     files: ['{client,server,shared}/**/*.{ts,vue}'],
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
@@ -17,8 +32,6 @@ module.exports = tseslint.config(
         extraFileExtensions: ['.vue']
       }
     },
-    plugins: { 'eslint-comments': comments },
-    linterOptions: { reportUnusedDisableDirectives: 'error' },
     rules: {
       // Start typed checks with promise safety; keep existing API/test typing intact.
       '@typescript-eslint/await-thenable': 'error',
@@ -27,10 +40,7 @@ module.exports = tseslint.config(
         allowForKnownSafeCalls: [{ from: 'package', package: 'node:test', name: ['describe', 'it', 'test'] }]
       }],
       '@typescript-eslint/no-misused-promises': 'error',
-      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', ignoreRestSiblings: true }],
-      'eslint-comments/require-description': 'error',
-      'eslint-comments/no-unlimited-disable': 'error',
-      'eslint-comments/no-use': ['error', { allow: ['eslint-disable-next-line'] }]
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', ignoreRestSiblings: true }]
     }
   },
   ...vue.configs['flat/recommended'],
@@ -41,8 +51,13 @@ module.exports = tseslint.config(
     plugins: { 'template-comments': templateComments },
     rules: {
       'template-comments/specific-disable-with-reason': 'error',
+      'vue/comment-directive': ['error', { reportUnusedDisableDirectives: true }],
       // Either a wrapping label or an explicit for/id pair associates a control.
       'vuejs-accessibility/label-has-for': ['error', { required: { some: ['nesting', 'id'] } }]
     }
+  },
+  {
+    files: ['eslint.config.js', 'scripts/eslint-*.cjs'],
+    languageOptions: { sourceType: 'commonjs' }
   }
 )
