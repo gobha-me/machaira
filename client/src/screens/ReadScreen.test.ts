@@ -122,6 +122,21 @@ describe('reader keyboard accessibility', () => {
     expect(document.activeElement).toBe(number)
   })
 
+  it('returns focus to the selected verse when Escape closes the connections rail', async () => {
+    const user = userEvent.setup()
+    const number = wrapper.get('button.vnum').element as HTMLElement
+    number.focus()
+    await user.keyboard('{Enter}')
+    await flushPromises()
+    ;(wrapper.get('.connections-card h2').element as HTMLElement).focus()
+    await user.keyboard('{Escape}')
+    await flushPromises()
+    expect(wrapper.get('.rail-side').classes()).not.toContain('open')
+    expect(wrapper.find('.connections-card').exists()).toBe(false)
+    expect(useReader().selectedVerses).toEqual([1])
+    expect(document.activeElement).toBe(number)
+  })
+
   it.each(['{Enter}', ' '])('looks up a word with %s and announces a failed lookup without changing verse selection', async (key) => {
     const user = userEvent.setup()
     const lookup = vi.spyOn(api, 'strongs').mockRejectedValueOnce(new Error('Lexicon unavailable'))

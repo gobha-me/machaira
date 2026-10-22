@@ -27,7 +27,9 @@ const seed = computed<ConnectionSeed | null>(() => {
     verseStart: bounds.lo, verseEnd: bounds.hi
   } : null
 })
-const selectionKey = computed(() => JSON.stringify([reader.activeUserId, seed.value]))
+const selectionKey = computed(() => JSON.stringify([
+  reader.activeUserId, reader.moduleName, reader.book, reader.chapter, reader.selectionBounds
+]))
 
 // Manual passage/translation/account changes start a fresh trail. Connections navigation
 // preserves it so following several links still offers a way back to the original verse.
@@ -78,8 +80,9 @@ const semanticNotice = computed(() => {
 })
 
 async function navigate(target: ConnectionSeed, back = false) {
-  if (navigating.value || !seed.value) return
-  const origin = { ...seed.value }
+  // Chapter-level references clear verse selection, but must still allow Back.
+  if (navigating.value || (!back && !seed.value)) return
+  const origin = seed.value ? { ...seed.value } : null
   const originKey = selectionKey.value
   const generation = ++navigationGeneration
   navigating.value = true
@@ -99,7 +102,7 @@ async function navigate(target: ConnectionSeed, back = false) {
       return
     }
     if (back) history.value.pop()
-    else history.value.push(origin)
+    else if (origin) history.value.push(origin)
     emit('navigated', target.verseStart)
     await nextTick()
     heading.value?.focus()
@@ -192,7 +195,7 @@ onScopeDispose(() => { navigationGeneration += 1 })
           >
             Retry connections
           </button>
-          <button @click="ui.go('settings')">
+          <button @click="ui.openSemanticSettings()">
             {{ payload.semanticState === 'stale' ? 'Rebuild index in Settings' : 'Open index settings' }}
           </button>
         </template>

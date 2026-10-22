@@ -176,6 +176,10 @@ async function openTools() {
 }
 
 async function closeTools() {
+  if (document.activeElement?.closest('.connections-card')) {
+    await closeConnections()
+    return
+  }
   toolsOpen.value = false
   await nextTick()
   toolsToggleEl.value?.focus()
@@ -291,6 +295,9 @@ async function closeConnections() {
   connectionsOpen.value = false
   toolsOpen.value = false
   await nextTick()
+  focusReadingVerse()
+}
+function focusReadingVerse() {
   const selector = reader.selectedVerse === null ? 'button.vnum' : `[aria-label="Select verse ${reader.selectedVerse}"]`
   readingEl.value?.querySelector<HTMLButtonElement>(selector)?.focus()
 }

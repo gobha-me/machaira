@@ -98,8 +98,8 @@ describe('verse connections', () => {
     const response = graph(state)
     response.edges.push({ source: 'origin', target: target.id, kind: 'thematic' })
     vi.mocked(api.connections).mockResolvedValue(response)
-    const go = vi.spyOn(useUi(), 'go').mockImplementation(() => {})
     render()
+    const openSettings = vi.spyOn(useUi(), 'openSemanticSettings')
     await flushPromises()
     const semantic = wrapper.get('section[aria-label="Related by meaning"]')
     expect(semantic.text()).toContain(notice)
@@ -107,7 +107,8 @@ describe('verse connections', () => {
     expect(wrapper.get('section[aria-label="Cross-references"] .passage').text()).toContain(target.content)
     const button = semantic.findAll('button').find((b) => b.text() === cta)!
     await button.trigger('click')
-    expect(go).toHaveBeenCalledWith('settings')
+    expect(openSettings).toHaveBeenCalledOnce()
+    expect(useUi().settingsSection).toBe('semantic-search')
   })
 
   it('distinguishes an empty ready index from a request error and retries failed requests', async () => {
@@ -176,6 +177,49 @@ describe('verse connections', () => {
     expect(useReader().book).toBe('Gen')
     expect(wrapper.text()).toContain('← Back')
     expect(wrapper.get('[role="alert"]').text()).toContain('not available')
+  })
+
+  it('returns to the origin after opening a chapter-level reference without a verse selection', async () => {
+    const response = graph()
+    response.nodes = [{ ...target, verseStart: null, verseEnd: null, label: 'Genesis 1' }]
+    vi.mocked(api.connections).mockResolvedValue(response)
+    render()
+    await flushPromises()
+    await wrapper.get('.passage').trigger('click')
+    await flushPromises()
+    expect(useReader().book).toBe('Gen')
+    expect(useReader().selectedVerses).toEqual([])
+    await wrapper.findAll('button').find((b) => b.text().includes('Back'))!.trigger('click')
+    await flushPromises()
+    expect(useReader().book).toBe('John')
+    expect(useReader().selectedVerses).toEqual([1, 2])
+    expect(wrapper.text()).not.toContain('← Back')
+  })
+
+  it('discards chapter-level Back history after manual navigation without a selection', async () => {
+    const response = graph()
+    response.nodes = [{ ...target, verseStart: null, verseEnd: null }]
+    vi.mocked(api.connections).mockResolvedValue(response)
+    render()
+    await flushPromises()
+    await wrapper.get('.passage').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('← Back')
+    useReader().chapter = 2
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('← Back')
+  })
+
+  it('retries a failed meaning lookup while keeping curated previews available', async () => {
+    vi.mocked(api.connections).mockResolvedValueOnce(graph('unavailable')).mockResolvedValue(graph())
+    render()
+    await flushPromises()
+    expect(wrapper.get('section[aria-label="Cross-references"] .preview').text()).toBe(target.content)
+    await wrapper.get('section[aria-label="Related by meaning"] button').trigger('click')
+    await flushPromises()
+    expect(api.connections).toHaveBeenCalledTimes(2)
+    expect(wrapper.text()).toContain('No related passages found')
+    expect(wrapper.text()).not.toContain('could not be loaded')
   })
 
   it.each(['selection', 'account', 'unmount'] as const)('does not navigate after %s changes during a pending chapter fetch', async (change) => {
