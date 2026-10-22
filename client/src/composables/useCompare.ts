@@ -217,7 +217,7 @@ export function useCompare(opts: UseCompareOptions = {}) {
 
   function onKey(e: KeyboardEvent) {
     const el = document.activeElement
-    if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return
+    if (e.defaultPrevented || el?.closest('input, textarea, select, [contenteditable="true"], [role="tablist"]')) return
     if (e.key === 'ArrowRight') {
       e.preventDefault()
       void stepVerse(1)

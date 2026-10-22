@@ -44,14 +44,14 @@ describe('screen keyboard controls', () => {
       const actions = document.querySelector('[aria-label="Selected text actions"]')!
       ;[...actions.querySelectorAll('button')].find((button) => button.textContent?.trim() === 'Word study')!.click()
       await flushPromises()
-      expect(wrapper.get('.strongs-box').text()).toContain('Looking up')
+      expect(wrapper.get('#study-panel-word-study').text()).toContain('Looking up')
       reader.chapter = 2
       reject(new Error('obsolete failure'))
       await flushPromises()
       expect(document.querySelector('[aria-label="Selected text actions"]')).toBeNull()
       expect(wrapper.find('.strongs-error').exists()).toBe(false)
-      expect(wrapper.get('.strongs-box').text()).not.toContain('Looking up')
-      expect(wrapper.get('.strongs-box').text()).not.toContain('G3056')
+      expect(wrapper.get('#study-panel-word-study').text()).not.toContain('Looking up')
+      expect(wrapper.get('#study-panel-word-study').text()).not.toContain('G3056')
     } finally {
       wrapper.unmount()
     }

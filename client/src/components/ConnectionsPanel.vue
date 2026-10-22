@@ -5,6 +5,12 @@ import { useReader } from '../stores/reader'
 import { useUi } from '../stores/ui'
 import CrossReferenceCredits from './CrossReferenceCredits.vue'
 
+const props = withDefaults(defineProps<{
+  variant?: 'rail' | 'page'
+  closable?: boolean
+  passage?: { verseStart: number; verseEnd: number }
+}>(), { variant: 'rail', closable: true, passage: undefined })
+
 const emit = defineEmits<{ (event: 'close'): void; (event: 'navigated', verse: number | null): void }>()
 const reader = useReader()
 const ui = useUi()
@@ -21,14 +27,16 @@ let navigationGeneration = 0
 defineExpose({ focus: () => heading.value?.focus() })
 
 const seed = computed<ConnectionSeed | null>(() => {
-  const bounds = reader.selectionBounds
+  const bounds = props.passage
+    ? { lo: props.passage.verseStart, hi: props.passage.verseEnd }
+    : reader.selectionBounds
   return reader.moduleName && reader.book && bounds ? {
     module: reader.moduleName, book: reader.book, chapter: reader.chapter,
     verseStart: bounds.lo, verseEnd: bounds.hi
   } : null
 })
 const selectionKey = computed(() => JSON.stringify([
-  reader.activeUserId, reader.moduleName, reader.book, reader.chapter, reader.selectionBounds
+  reader.activeUserId, reader.moduleName, reader.book, reader.chapter, seed.value
 ]))
 
 // Manual passage/translation/account changes start a fresh trail. Connections navigation
@@ -67,6 +75,13 @@ const groups = computed(() => (['cross-reference', 'thematic'] as const).map((ki
     nodes: payload.value?.nodes.filter((node) => !node.seed && ids.has(node.id)) ?? []
   }
 }))
+const visibleGroups = computed(() => props.variant === 'page'
+  ? groups.value.filter((group) => group.nodes.length > 0)
+  : groups.value)
+const hasConnections = computed(() => groups.value.some((group) => group.nodes.length > 0))
+const reference = computed(() => props.passage
+  ? `${reader.bookName} ${reader.chapter}:${props.passage.verseStart}${props.passage.verseStart === props.passage.verseEnd ? '' : `–${props.passage.verseEnd}`}`
+  : reader.selectionRef)
 const semanticNotice = computed(() => {
   switch (payload.value?.semanticState) {
     case 'ready': return null
@@ -123,7 +138,8 @@ onScopeDispose(() => { navigationGeneration += 1 })
 
 <template>
   <section
-    class="connections-card"
+    class="connections-panel"
+    :class="{ 'connections-card': variant === 'rail' || hasConnections }"
     aria-label="Connections"
     :aria-busy="loading || navigating"
   >
@@ -142,6 +158,7 @@ onScopeDispose(() => { navigationGeneration += 1 })
         ← Back
       </button>
       <button
+        v-if="closable"
         aria-label="Close connections"
         @click="emit('close')"
       >
@@ -149,7 +166,7 @@ onScopeDispose(() => { navigationGeneration += 1 })
       </button>
     </div>
     <p class="reference">
-      {{ reader.selectionRef }} · {{ reader.moduleName }}
+      {{ reference }} · {{ reader.moduleName }}
     </p>
     <p
       v-if="navigationError"
@@ -179,13 +196,34 @@ onScopeDispose(() => { navigationGeneration += 1 })
       </button>
     </div>
     <template v-else-if="payload">
+      <p
+        v-if="variant === 'page' && !hasConnections"
+        role="status"
+      >
+        No connections found for this passage.
+      </p>
+      <p
+        v-if="variant === 'page' && semanticNotice"
+        role="status"
+      >
+        {{ semanticNotice }}
+        <button @click="ui.openSemanticSettings()">
+          Open index settings
+        </button>
+        <button
+          v-if="payload.semanticState === 'unavailable'"
+          @click="retry++"
+        >
+          Retry connections
+        </button>
+      </p>
       <section
-        v-for="group in groups"
+        v-for="group in visibleGroups"
         :key="group.kind"
         :aria-label="group.title"
       >
         <h3>{{ group.title }}</h3>
-        <template v-if="group.kind === 'thematic' && semanticNotice">
+        <template v-if="variant === 'rail' && group.kind === 'thematic' && semanticNotice">
           <p role="status">
             {{ semanticNotice }}
           </p>
