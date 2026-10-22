@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import { isDeuterocanonicalBook } from '@machaira/scripture'
 import { useReader } from '../stores/reader'
 import { useLibrary } from '../stores/library'
@@ -46,6 +46,9 @@ watch(q, () => {
 }, { flush: 'sync' })
 watch([scope, mode], invalidate, { flush: 'sync' })
 onUnmounted(invalidate)
+// Search is cached by the router. Its modal must release the background on navigation
+// while the query, results, and any pending search remain available for Back.
+onDeactivated(() => { selectedGeneral.value = null })
 
 onMounted(() => {
   void Promise.all([lib.load(), semantic.load()]).catch(() => undefined)
