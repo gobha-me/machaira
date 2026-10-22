@@ -1,4 +1,6 @@
 import { dirname, join } from 'node:path'
+import { CrossReferenceMapService } from './cross-reference-map.js'
+import { registerCrossReferenceMap } from './routes/cross-reference-map.js'
 import { CrossReferenceService } from './cross-references.js'
 import Fastify, { type FastifyInstance } from 'fastify'
 import cookie from '@fastify/cookie'
@@ -116,6 +118,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   await registerDeploymentProviders(app, deploymentProviders)
 
   if (options.registerFeatureRoutes ?? true) {
+    await registerCrossReferenceMap(app, new CrossReferenceMapService(crossReferences!), semanticIndex)
     await registerSources(app)
     await registerRead(app, crossReferences!)
     await registerStudy(app)
