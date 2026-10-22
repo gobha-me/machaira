@@ -29,8 +29,8 @@ function onKey(event: KeyboardEvent) {
 watch([() => settings.studyPartnerOpen, mobile], async ([open], [wasOpen]) => {
   if (open && !wasOpen) opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
   await nextTick()
-  if (open && !mobile.value) document.querySelector<HTMLButtonElement>('#study-partner .close-partner')?.focus()
-  if (!open) (opener?.isConnected ? opener : props.returnFocus)?.focus()
+  if (open && !mobile.value) document.querySelector<HTMLButtonElement>('#study-partner .close-partner')?.focus({ preventScroll: true })
+  if (!open) (opener?.isConnected ? opener : props.returnFocus)?.focus({ preventScroll: true })
 })
 
 onMounted(() => {
@@ -44,15 +44,28 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <ModalDialog
-    v-if="settings.studyPartnerOpen && mobile"
-    labelledby="study-partner-title"
-    placement="end"
-    @close="close"
-  >
+  <div class="partner-slot">
+    <ModalDialog
+      v-if="settings.studyPartnerOpen && mobile"
+      labelledby="study-partner-title"
+      placement="end"
+      @close="close"
+    >
+      <div
+        id="study-partner"
+        class="partner-drawer mobile-sheet"
+      >
+        <StudyPartner
+          :passage="passage"
+          closable
+          @close="close"
+        />
+      </div>
+    </ModalDialog>
     <div
+      v-else-if="settings.studyPartnerOpen"
       id="study-partner"
-      class="partner-drawer mobile-sheet"
+      class="partner-drawer"
     >
       <StudyPartner
         :passage="passage"
@@ -60,30 +73,37 @@ onUnmounted(() => {
         @close="close"
       />
     </div>
-  </ModalDialog>
-  <div
-    v-else-if="settings.studyPartnerOpen"
-    id="study-partner"
-    class="partner-drawer"
-  >
-    <StudyPartner
-      :passage="passage"
-      closable
-      @close="close"
-    />
   </div>
 </template>
 
 <style scoped>
-/* A flex sibling reserves space for the drawer; desktop reading text is never overlaid. */
-.partner-drawer {
+/* Keep the desktop column even while closed so toggling never rewraps or scrolls
+   the reading passage. Below 1100px it takes no layout space at all. */
+.partner-slot {
   width: clamp(320px, 35vw, 430px);
   flex-shrink: 0;
+  position: relative;
+  min-height: 0;
+  display: flex;
+}
+.partner-drawer {
+  width: 100%;
   min-height: 0;
   display: flex;
   border-left: 1px solid var(--line);
+  box-sizing: border-box;
 }
 .partner-drawer :deep(.partner) { width: 100%; }
+@media (width < 1100px) {
+  .partner-slot { width: 0; }
+  .partner-drawer:not(.mobile-sheet) {
+    position: absolute;
+    inset: 0 0 0 auto;
+    z-index: 40;
+    width: clamp(320px, 40vw, 430px);
+    box-shadow: -12px 0 30px #0002;
+  }
+}
 .mobile-sheet {
   width: 100%;
   height: 100dvh;
