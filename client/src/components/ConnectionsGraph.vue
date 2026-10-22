@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import CrossReferenceCredits from './CrossReferenceCredits.vue'
 import type { ConnectionNode, ConnectionsPayload } from '../services/api'
 import { layoutConnections, visibleConnections } from '../utils/connectionsGraph'
 
@@ -109,6 +110,7 @@ function shortLabel(label: string): string {
         </text>
       </g>
     </svg>
+    <CrossReferenceCredits v-if="payload.crossReferenceAttribution" />
   </div>
 </template>
 

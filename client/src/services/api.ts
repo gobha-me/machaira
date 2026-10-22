@@ -69,6 +69,21 @@ export type VerseSegment =
   | { kind: 'note'; label: string; text: string }
   | { kind: 'word'; text: string; strongs: string[] }
 
+export interface ExternalCrossReference {
+  sourceVerse: number
+  module: string
+  target: ScriptureTarget
+  label: string
+  votes: number
+}
+export interface CrossReferenceAttribution {
+  name: string
+  url: string
+  license: string
+  licenseUrl: string
+  changes: string
+}
+
 export interface ChapterVerse {
   n: number
   text: string
@@ -76,6 +91,7 @@ export interface ChapterVerse {
   segments: VerseSegment[]
   crossReferences: string[]
   crossReferenceTargets?: ScriptureTarget[]
+  externalCrossReferences?: ExternalCrossReference[]
 }
 
 export interface ChapterPayload {
@@ -84,6 +100,7 @@ export interface ChapterPayload {
   bookName: string
   chapter: number
   verses: ChapterVerse[]
+  crossReferenceAttribution?: CrossReferenceAttribution
 }
 
 export interface CompareRow {
@@ -170,6 +187,7 @@ export interface ConnectionsPayload {
   edges: ConnectionEdge[]
   semanticState: SemanticIndexStatus['state'] | 'unavailable'
   warnings: string[]
+  crossReferenceAttribution?: CrossReferenceAttribution
 }
 
 export interface Note {

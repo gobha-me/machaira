@@ -89,7 +89,7 @@ const style = computed<CSSProperties>(() => {
       <button
         class="pa-act hover-soft"
         :disabled="!crossReferencesAvailable"
-        :title="crossReferencesAvailable ? 'Show embedded cross-references' : crossReferencesReason"
+        :title="crossReferencesAvailable ? 'Show cross-references' : crossReferencesReason"
         :aria-label="
           crossReferencesAvailable
             ? 'Cross-references'
