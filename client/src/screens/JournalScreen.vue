@@ -38,6 +38,17 @@ const dateLabel = computed(() => {
 function onTitle(e: Event) {
   notes.save({ title: (e.target as HTMLInputElement).value })
 }
+async function noteAction(action: () => Promise<void>): Promise<void> {
+  try {
+    await action()
+  } catch {
+    // The store keeps the draft/undo entry and exposes the error below.
+  }
+}
+function deleteCurrentNote(): void {
+  const id = notes.currentId
+  if (id) void noteAction(() => notes.remove(id))
+}
 function addTag() {
   const t = tagDraft.value.trim().toLowerCase()
   if (!t || !notes.current) return
@@ -137,7 +148,12 @@ onMounted(async () => {
       <div class="list-head">
         <span class="jtitle">Journal</span>
         <div class="spacer"></div>
-        <button class="new hover-accent" @click="notes.create()">New</button>
+        <button class="new hover-accent" @click="noteAction(() => notes.create())">New</button>
+      </div>
+      <p v-if="notes.error" class="save-error" role="alert">{{ notes.error }}</p>
+      <div v-for="note in notes.deleted" :key="note.id" class="undo-note" role="status">
+        Deleted “{{ note.title || 'Untitled note' }}”.
+        <button :disabled="notes.restoring[note.id]" @click="noteAction(() => notes.undoRemove(note.id))">Undo</button>
       </div>
       <div v-if="!notes.list.length" class="list-empty">
         No notes yet. Create one — or select a verse while reading and choose “Note”.
@@ -196,7 +212,11 @@ onMounted(async () => {
             placeholder="+ tag"
             @keydown.enter="addTag"
           />
-          <button class="del hover-accent-text" @click="notes.remove(notes.current.id)">Delete note</button>
+          <button
+            class="del hover-accent-text"
+            :disabled="notes.deleting[notes.current.id]"
+            @click="deleteCurrentNote"
+          >Delete note</button>
         </div>
       </div>
       <div v-else class="editor-empty">
@@ -370,6 +390,7 @@ onMounted(async () => {
   margin-bottom: 16px;
 }
 .save-error { color: #a23b32; }
+.undo-note { font-size: 12px; margin-bottom: 12px; }
 .save-error button {
   border: 0;
   background: none;

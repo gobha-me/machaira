@@ -8,6 +8,7 @@ import { api } from './services/api'
 import { readingPlanDb } from './services/db'
 import { useAuth } from './stores/auth'
 import { useNotes } from './stores/notes'
+import { useSettings } from './stores/settings'
 import { pathologicalModule } from './test/fixtures/moduleInfo'
 
 function deferred<T>() {
@@ -81,6 +82,72 @@ function expectRead(app: VueWrapper) {
 }
 
 describe('startup failure isolation', () => {
+  it('renders passage note creation failures without losing the composer input', async () => {
+    vi.spyOn(api, 'createNote').mockRejectedValue(new Error('Note creation unavailable'))
+    const app = await startApp()
+    await app.get('.note-title-input').setValue('Keep the title')
+    await app.get('.note-input').setValue('Keep the body')
+    await app.get('.note-save').trigger('click')
+    await flushPromises()
+    expect(app.get('[role="alert"]').text()).toContain('Note creation unavailable')
+    expect(app.get('.note-input').element).toHaveProperty('value', 'Keep the body')
+    expect(app.find('.note-saved').exists()).toBe(false)
+  })
+
+  it('flushes drafts on hidden/pagehide and removes lifecycle listeners on unmount', async () => {
+    const app = await startApp()
+    const notes = useNotes()
+    const flush = vi.spyOn(notes, 'flushPending')
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+    document.dispatchEvent(new Event('visibilitychange'))
+    expect(flush).not.toHaveBeenCalled()
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
+    document.dispatchEvent(new Event('visibilitychange'))
+    window.dispatchEvent(new Event('pagehide'))
+    expect(flush).toHaveBeenCalledTimes(2)
+    expect(notes.userId).toBe(user.id)
+    app.unmount()
+    wrapper = undefined
+    document.dispatchEvent(new Event('visibilitychange'))
+    window.dispatchEvent(new Event('pagehide'))
+    expect(flush).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps failed pagehide drafts while reconnecting account sync and removes the reconnect listener', async () => {
+    const note = { id: 'draft', title: 'Draft', body: 'Original', tags: [], refs: [], createdAt: 1, updatedAt: 1 }
+    vi.mocked(api.notes).mockResolvedValueOnce([note])
+    vi.spyOn(api, 'updateNote').mockRejectedValue(new Error('Pagehide save interrupted'))
+    const preferences = vi.spyOn(api, 'preferences').mockRejectedValueOnce(new Error('Preferences offline'))
+      .mockResolvedValue({ preferences: { extraSpacing: true }, updated_at: Date.now() + 1000 })
+    const cursor = vi.spyOn(api, 'readingCursor').mockRejectedValueOnce(new Error('Cursor offline'))
+      .mockResolvedValue(null)
+    const app = await startApp()
+    expectRead(app)
+
+    const notes = useNotes()
+    notes.save({ body: 'Keep my unsynced edit' })
+    window.dispatchEvent(new Event('pagehide'))
+    await flushPromises()
+    expect(api.updateNote).toHaveBeenCalledWith(note.id, expect.objectContaining({ body: 'Keep my unsynced edit' }), true)
+    expect(notes.saveError).toBe('Pagehide save interrupted')
+
+    window.dispatchEvent(new Event('online'))
+    await flushPromises()
+    expect(preferences).toHaveBeenCalledTimes(2)
+    expect(cursor).toHaveBeenCalledTimes(2)
+    expect(useSettings().extraSpacing).toBe(true)
+    expect(notes.current?.body).toBe('Keep my unsynced edit')
+    expect(localStorage.getItem(`machaira:note-drafts:${user.id}`)).toContain('Keep my unsynced edit')
+    expectRead(app)
+
+    app.unmount()
+    wrapper = undefined
+    window.dispatchEvent(new Event('online'))
+    await flushPromises()
+    expect(preferences).toHaveBeenCalledTimes(2)
+    expect(cursor).toHaveBeenCalledTimes(2)
+  })
+
   for (const [label, getMock] of optionalLoads) {
     it(`keeps Read usable when ${label} fails and retries only that feature (${getMock().name})`, async () => {
       const request = getMock()

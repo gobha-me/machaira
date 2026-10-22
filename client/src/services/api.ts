@@ -714,10 +714,10 @@ export const api = {
     return (await requestJson<{ note: Note }>('/api/notes', json('POST', seed))).note
   },
 
-  async updateNote(id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'tags' | 'refs'>>): Promise<Note> {
+  async updateNote(id: string, patch: Partial<Pick<Note, 'title' | 'body' | 'tags' | 'refs'>>, keepalive = false): Promise<Note> {
     return (await requestJson<{ note: Note }>(
       `/api/notes/${encodeURIComponent(id)}`,
-      json('PATCH', patch)
+      { ...json('PATCH', patch), keepalive }
     )).note
   },
 

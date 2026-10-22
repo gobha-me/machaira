@@ -281,6 +281,8 @@ const {
   body: noteBody,
   bodyEl: noteBodyEl,
   saved: noteSaved,
+  error: noteError,
+  saving: noteSaving,
   passageNotes,
   save: saveNote,
   openNote,
@@ -580,7 +582,8 @@ async function menuNote() {
               class="note-input"
               placeholder="Jot a note on this passage…"
             ></textarea>
-            <button class="note-save" :disabled="!noteBody.trim()" @click="saveNote">Save note</button>
+            <p v-if="noteError" class="error" role="alert">{{ noteError }}</p>
+            <button class="note-save" :disabled="!noteBody.trim() || noteSaving" @click="saveNote">Save note</button>
 
             <div v-if="passageNotes.length" class="note-list">
               <div class="note-list-label">On this passage</div>

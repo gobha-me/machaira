@@ -43,6 +43,8 @@ const {
   body: noteBody,
   bodyEl: noteBodyEl,
   saved: noteSaved,
+  error: noteError,
+  saving: noteSaving,
   passageNotes,
   save: saveNote,
   openNote,
@@ -259,8 +261,9 @@ function menuNote() {
           ></textarea>
           <div class="note-actions">
             <span v-if="noteSaved" class="note-saved">Saved ✓</span>
-            <button class="note-save" :disabled="!noteBody.trim()" @click="saveNote">Save note</button>
+            <button class="note-save" :disabled="!noteBody.trim() || noteSaving" @click="saveNote">Save note</button>
           </div>
+          <p v-if="noteError" class="error" role="alert">{{ noteError }}</p>
           <div v-if="passageNotes.length" class="note-list">
             <div class="note-list-label">On this passage</div>
             <button

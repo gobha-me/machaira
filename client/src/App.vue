@@ -85,9 +85,17 @@ function onKey(e: KeyboardEvent) {
     ui.go('search')
   }
 }
+function flushNoteDrafts(): void {
+  notes.flushPending()
+}
+function onVisibilityChange(): void {
+  if (document.visibilityState === 'hidden') flushNoteDrafts()
+}
 onMounted(() => {
   window.addEventListener('keydown', onKey)
   window.addEventListener('online', onOnline)
+  window.addEventListener('pagehide', flushNoteDrafts)
+  document.addEventListener('visibilitychange', onVisibilityChange)
   readingPlan.startClock()
   auth.initialize()
 })
@@ -95,6 +103,8 @@ onUnmounted(() => {
   personalLoadGeneration += 1
   window.removeEventListener('keydown', onKey)
   window.removeEventListener('online', onOnline)
+  window.removeEventListener('pagehide', flushNoteDrafts)
+  document.removeEventListener('visibilitychange', onVisibilityChange)
   readingPlan.stopClock()
 })
 
@@ -168,7 +178,7 @@ watch(
   (userId) => {
     invalidateAccountRequests()
     personalLoadGeneration += 1
-    notes.resetPersonalData()
+    notes.activateUser(userId)
     library.resetPersonalData()
     settings.activateUser(userId)
     reader.activateUser(userId)
@@ -213,6 +223,7 @@ watch(
           </button>
         </div>
       </div>
+      <p v-if="notes.draftError" class="feature-error" role="alert">{{ notes.draftError }}</p>
       <component :is="activeScreen" />
     </main>
   </div>

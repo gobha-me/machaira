@@ -14,6 +14,15 @@ function fragmentedResponse(parts: string[]): Response {
 }
 
 describe('API request content type', () => {
+  it('uses keepalive for lifecycle saves and propagates rejected requests', async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError('Keepalive payload too large'))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(api.updateNote('note-1', { body: 'Unsaved draft' }, true)).rejects.toThrow('Keepalive payload too large')
+    expect(fetchMock).toHaveBeenCalledWith('/api/notes/note-1', expect.objectContaining({
+      keepalive: true, method: 'PATCH', body: JSON.stringify({ body: 'Unsaved draft' })
+    }))
+  })
+
   it.each([
     { url: '/api/ai/conversations', method: 'POST', send: () => api.createChatConversation() },
     { url: '/api/auth/logout', method: 'POST', send: () => api.logout() },
