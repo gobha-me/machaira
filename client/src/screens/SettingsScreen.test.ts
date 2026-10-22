@@ -4,8 +4,9 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { createSSRApp, h } from 'vue'
 import { renderToString } from '@vue/server-renderer'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { api, type DiscoveredModel, type ProviderDiscoveryResult } from '../services/api'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { api, ApiError, type DiscoveredModel, type ProviderDiscoveryResult, type TtsConfig } from '../services/api'
+import { useTtsProvider } from '../stores/ttsProvider'
 import SettingsScreen from './SettingsScreen.vue'
 
 vi.mock('../services/db', () => ({
@@ -110,8 +111,9 @@ function deferred<T>() {
   return { promise, resolve }
 }
 
-async function mountSettings(): Promise<VueWrapper> {
+async function mountSettings(ttsConfig?: TtsConfig): Promise<VueWrapper> {
   const pinia = createPinia()
+  if (ttsConfig) useTtsProvider(pinia).config = ttsConfig
   const wrapper = mount(SettingsScreen, { global: { plugins: [pinia] } })
   await flushPromises()
   return wrapper
@@ -267,5 +269,108 @@ describe('Settings provider controls', () => {
     expect((cloudVoice.element as HTMLInputElement).value).toBe('manual-cloud-voice')
     expect(cloudVoice.element.closest('.discovery-combobox')?.querySelector('.stale')?.textContent)
       .toContain('will be preserved')
+  })
+})
+
+const savedLocalVoice: TtsConfig = {
+  order: ['local'], remoteAudioCacheSize: 4,
+  local: {
+    provider: 'openai-compatible', baseUrl: 'http://tts.local/v1',
+    model: 'kokoro', voice: 'af_heart', hasApiKey: false
+  },
+  cloud: null
+}
+
+function stubVoiceAudio() {
+  const play = vi.fn(async () => undefined)
+  const pause = vi.fn()
+  const load = vi.fn()
+  const removeAttribute = vi.fn()
+  const audio = { src: '', play, pause, load, removeAttribute, onended: null as (() => void) | null, onerror: null }
+  const Audio = vi.fn(function () { return audio })
+  vi.stubGlobal('Audio', Audio)
+  const createUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:voice-test')
+  const revokeUrl = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+  return { audio, Audio, createUrl, revokeUrl }
+}
+
+describe('Settings voice sample', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    localStorage.clear()
+    vi.spyOn(api, 'deploymentProviders').mockResolvedValue({})
+  })
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('unlocks during Test voice, synthesizes a short sample, and retries blocked playback through the recovery button', async () => {
+    const { audio, Audio, createUrl, revokeUrl } = stubVoiceAudio()
+    const pending = deferred<Blob>()
+    const speech = vi.spyOn(api, 'ttsSpeech').mockReturnValue(pending.promise)
+    const wrapper = await mountSettings(savedLocalVoice)
+    try {
+      await wrapper.get('#tts-test-voice').trigger('click')
+      expect(Audio).toHaveBeenCalledOnce()
+      expect(audio.play).toHaveBeenCalledOnce()
+      expect(audio.src).toMatch(/^data:audio\/wav;base64,/)
+      expect(createUrl).not.toHaveBeenCalled()
+      expect(wrapper.text()).toContain('Preparing voice sample…')
+      expect(speech).toHaveBeenCalledWith('local', 'In the beginning God created the heaven and the earth.', expect.any(AbortSignal))
+      expect(wrapper.find('#tts-test-voice').exists()).toBe(false)
+
+      audio.play.mockRejectedValueOnce(new DOMException('private diagnostic', 'NotAllowedError'))
+      pending.resolve(new Blob(['audio'], { type: 'audio/mpeg' }))
+      await flushPromises()
+      expect(audio.src).toBe('blob:voice-test')
+      const recovery = wrapper.findAll('button').find((button) => button.text() === 'Tap to start audio')
+      expect(recovery).toBeDefined()
+      expect(revokeUrl).not.toHaveBeenCalled()
+      await recovery!.trigger('click')
+      await flushPromises()
+      expect(audio.play).toHaveBeenCalledTimes(3)
+      expect(Audio).toHaveBeenCalledOnce()
+      expect(speech).toHaveBeenCalledOnce()
+      expect(wrapper.text()).not.toContain('Tap to start audio')
+      expect(wrapper.text()).not.toContain('private diagnostic')
+      audio.onended?.()
+      await flushPromises()
+      expect(wrapper.text()).toContain('Voice sample complete')
+      expect(wrapper.get('#tts-test-voice').attributes('disabled')).toBeUndefined()
+      expect(revokeUrl).toHaveBeenCalledExactlyOnceWith('blob:voice-test')
+    } finally {
+      wrapper.unmount()
+    }
+    expect(audio.removeAttribute).toHaveBeenCalledWith('src')
+    expect(audio.load).toHaveBeenCalledOnce()
+  })
+
+  it('shows a safe synthesis error and permits retry even when unlocking is denied', async () => {
+    const { audio } = stubVoiceAudio()
+    audio.play.mockRejectedValueOnce(new DOMException('blocked', 'NotAllowedError'))
+    vi.spyOn(api, 'ttsSpeech').mockRejectedValue(new ApiError(502, { error: 'secret API key' }))
+    const wrapper = await mountSettings(savedLocalVoice)
+    try {
+      await wrapper.get('#tts-test-voice').trigger('click')
+      await flushPromises()
+      expect(wrapper.text()).toContain('Local TTS failed at verse 1: request failed (HTTP 502)')
+      expect(wrapper.text()).not.toContain('secret API key')
+      expect(wrapper.get('#tts-test-voice').attributes('disabled')).toBeUndefined()
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('aborts a slow sample when leaving Settings and never plays its late response', async () => {
+    const { audio, createUrl } = stubVoiceAudio()
+    const pending = deferred<Blob>()
+    const speech = vi.spyOn(api, 'ttsSpeech').mockReturnValue(pending.promise)
+    const wrapper = await mountSettings(savedLocalVoice)
+    await wrapper.get('#tts-test-voice').trigger('click')
+    const signal = speech.mock.calls[0]![2]!
+    wrapper.unmount()
+    expect(signal.aborted).toBe(true)
+    pending.resolve(new Blob(['late audio']))
+    await flushPromises()
+    expect(audio.play).toHaveBeenCalledOnce()
+    expect(createUrl).not.toHaveBeenCalled()
   })
 })

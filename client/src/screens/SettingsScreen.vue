@@ -8,6 +8,7 @@ import { useAuth } from '../stores/auth'
 import { useAiProvider } from '../stores/aiProvider'
 import { useSemanticIndex } from '../stores/semanticIndex'
 import { useTtsProvider } from '../stores/ttsProvider'
+import { useReadAloud } from '../composables/useReadAloud'
 import { useSttProvider } from '../stores/sttProvider'
 import { ACCENTS } from '../theme'
 import {
@@ -55,6 +56,20 @@ const aiProvider = useAiProvider()
 const semanticIndex = useSemanticIndex()
 const ttsProvider = useTtsProvider()
 const sttProvider = useSttProvider()
+const {
+  supported: voiceTestSupported,
+  active: voiceTestActive,
+  preparing: voiceTestPreparing,
+  needsAudioGesture: voiceTestNeedsGesture,
+  completed: voiceTestComplete,
+  error: voiceTestError,
+  start: testVoice,
+  stop: stopVoiceTest,
+  recoverAudio: recoverVoiceTest
+} = useReadAloud({
+  verses: () => [{ n: 1, text: 'In the beginning God created the heaven and the earth.' }],
+  startVerse: () => null
+})
 const exporting = ref(false)
 const importing = ref(false)
 const importDone = ref(false)
@@ -1110,7 +1125,7 @@ async function rebuildSemanticIndex(): Promise<void> {
         <div class="row bordered">
           <div class="row-text">
             <label class="row-title" for="tts-remote-audio-cache-size">Remote audio buffer</label>
-            <div class="row-sub">Verses prepared before playback and retained around the current verse (3–8)</div>
+            <div class="row-sub">Verses buffered in the background and retained around the current verse (3–8)</div>
           </div>
           <div class="spacer"></div>
           <input
@@ -1132,6 +1147,16 @@ async function rebuildSemanticIndex(): Promise<void> {
             :disabled="ttsProvider.loading || discovery['tts-local'].loading || discovery['tts-cloud'].loading || !ttsReadyToSave"
             @click="saveTtsConfig"
           >{{ ttsProvider.loading ? 'Saving…' : 'Save read-aloud' }}</button>
+        </div>
+        <div class="row bordered provider-actions">
+          <div class="row-text">
+            <div class="row-title">Test voice</div>
+            <div class="row-sub" role="status" aria-live="polite">{{ voiceTestError || (voiceTestPreparing ? 'Preparing voice sample…' : voiceTestComplete ? 'Voice sample complete' : 'Uses the saved read-aloud providers. Save changes before testing.') }}</div>
+          </div>
+          <div class="spacer"></div>
+          <button v-if="voiceTestNeedsGesture" class="pill action" type="button" @click="recoverVoiceTest">Tap to start audio</button>
+          <button v-if="voiceTestActive && !voiceTestComplete && !voiceTestError" class="pill action" type="button" @click="stopVoiceTest">Stop sample</button>
+          <button v-else id="tts-test-voice" class="pill action" type="button" :disabled="!voiceTestSupported || ttsProvider.loading" @click="testVoice">Test voice</button>
         </div>
         <div class="row">
           <div class="row-text">
