@@ -3,6 +3,7 @@ import { buildApp } from './app.js'
 import { parseSecretKey } from './secrets.js'
 import { ensureRepoConfig } from './sword.js'
 import { parseDeploymentProviders } from './deployment-providers.js'
+import { parseHsts } from './security.js'
 
 const PORT = Number(process.env.PORT ?? 5274)
 const HOST = process.env.HOST ?? '127.0.0.1'
@@ -18,6 +19,7 @@ const app = await buildApp({
   secretKey: parseSecretKey(encodedKey),
   origin: process.env.MACHAIRA_ORIGIN,
   production,
+  hsts: parseHsts(process.env.MACHAIRA_HSTS, production),
   clientPath: production ? clientPath : undefined,
   deploymentProviders: parseDeploymentProviders(process.env.MACHAIRA_DEPLOYMENT_PROVIDERS_JSON)
 })
