@@ -8,6 +8,7 @@ const props = defineProps<{
   refLabel: string
   highlighted: boolean
   pos: { x: number; y: number }
+  connections?: boolean
   crossReferencesAvailable: boolean
   crossReferencesReason: string
 }>()
@@ -89,15 +90,15 @@ const style = computed<CSSProperties>(() => {
       <button
         class="pa-act hover-soft"
         :disabled="!crossReferencesAvailable"
-        :title="crossReferencesAvailable ? 'Show cross-references' : crossReferencesReason"
+        :title="connections ? 'Show connections' : crossReferencesAvailable ? 'Show cross-references' : crossReferencesReason"
         :aria-label="
-          crossReferencesAvailable
+          connections ? 'Connections' : crossReferencesAvailable
             ? 'Cross-references'
             : `Cross-references unavailable. ${crossReferencesReason}`
         "
         @click="$emit('cross-refs')"
       >
-        Cross-references
+        {{ connections ? 'Connections' : 'Cross-references' }}
       </button>
       <button
         class="pa-act hover-soft"

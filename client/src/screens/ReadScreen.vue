@@ -16,7 +16,7 @@ import PassageActions from '../components/PassageActions.vue'
 import StrongsCard from '../components/StrongsCard.vue'
 import CommentaryPanel from '../components/CommentaryPanel.vue'
 import ComparePanel from '../components/ComparePanel.vue'
-import CrossReferencesPanel from '../components/CrossReferencesPanel.vue'
+import ConnectionsPanel from '../components/ConnectionsPanel.vue'
 
 const reader = useReader()
 const ui = useUi()
@@ -163,6 +163,9 @@ const chapterNotes = computed(() => {
 // words for the current chapter even when the global Strong's-display setting is off.
 const wordStudyOn = ref(false)
 const toolsOpen = ref(false)
+const connectionsOpen = ref(false)
+const readingEl = ref<HTMLElement | null>(null)
+const connectionsPanel = ref<InstanceType<typeof ConnectionsPanel> | null>(null)
 const toolsToggleEl = ref<HTMLButtonElement | null>(null)
 const toolsCloseEl = ref<HTMLButtonElement | null>(null)
 
@@ -181,7 +184,7 @@ async function closeTools() {
 function onReadEscape() {
   bookOpen.value = false
   transOpen.value = false
-  if (toolsOpen.value) void closeTools()
+  toolsOpen.value = false
 }
 const {
   strongsKey,
@@ -233,7 +236,7 @@ watch(
   () => [reader.moduleName, reader.book, reader.chapter],
   () => {
     stopListening()
-    toolsOpen.value = false
+    if (!connectionsOpen.value) toolsOpen.value = false
     bookOpen.value = false
     transOpen.value = false
     if (wordStudyOn.value) closeWordStudy()
@@ -271,14 +274,30 @@ function closeCommentary() {
   commentaryOpen.value = false
 }
 
-// ── Cross-references: real embedded SWORD notes for the selected passage ──
-const crossReferencesOpen = ref(false)
-function openCrossReferences() {
-  crossReferencesOpen.value = true
-  void openTools()
+// Selection opens connections without moving keyboard focus away from the verse.
+watch(() => reader.selectedVerses.join(','), (selection) => {
+  if (selection) {
+    connectionsOpen.value = true
+    toolsOpen.value = true
+  }
+})
+async function openConnections() {
+  connectionsOpen.value = true
+  toolsOpen.value = true
+  await nextTick()
+  connectionsPanel.value?.focus()
 }
-function closeCrossReferences() {
-  crossReferencesOpen.value = false
+async function closeConnections() {
+  connectionsOpen.value = false
+  toolsOpen.value = false
+  await nextTick()
+  const selector = reader.selectedVerse === null ? 'button.vnum' : `[aria-label="Select verse ${reader.selectedVerse}"]`
+  readingEl.value?.querySelector<HTMLButtonElement>(selector)?.focus()
+}
+function scrollToConnection(verse: number | null) {
+  void nextTick(() => {
+    if (verse !== null) readingEl.value?.querySelector(`[aria-label="Select verse ${verse}"]`)?.scrollIntoView?.({ block: 'nearest' })
+  })
 }
 
 // ── Notes: shared quick-capture capability, anchored to the current passage ──
@@ -304,9 +323,6 @@ const {
   menuOpen,
   selectionLabel,
   selectionHighlighted,
-  selectionCrossReferences,
-  crossReferencesAvailable,
-  crossReferencesReason,
   verseOpacity,
   verseBg: baseVerseBg,
   onVerseClick,
@@ -333,7 +349,7 @@ function menuCommentary() {
   dismiss()
 }
 function menuCrossReferences() {
-  openCrossReferences()
+  void openConnections()
   dismiss()
 }
 function menuHighlight() {
@@ -501,7 +517,10 @@ async function menuNote() {
     <!-- body -->
     <div class="body">
       <div class="cols">
-        <div class="reading">
+        <div
+          ref="readingEl"
+          class="reading"
+        >
           <div
             v-if="reader.loadingChapter"
             class="loading"
@@ -651,15 +670,11 @@ async function menuNote() {
             @close="closeCommentary"
           />
 
-          <CrossReferencesPanel
-            v-if="crossReferencesOpen"
-            :entries="selectionCrossReferences"
-            :module-name="reader.moduleName ?? ''"
-            :ref-label="selectionLabel"
-            :empty-reason="crossReferencesReason"
-            closable
-            @open-reference="(target) => reader.moduleName && reader.openRef(reader.moduleName, target.book, target.chapter, target.verseStart ?? undefined, target.verseEnd ?? undefined)"
-            @close="closeCrossReferences"
+          <ConnectionsPanel
+            v-if="connectionsOpen"
+            ref="connectionsPanel"
+            @navigated="scrollToConnection"
+            @close="closeConnections"
           />
 
           <div
@@ -841,8 +856,9 @@ async function menuNote() {
       :ref-label="selectionLabel"
       :highlighted="selectionHighlighted"
       :pos="menuPos"
-      :cross-references-available="crossReferencesAvailable"
-      :cross-references-reason="crossReferencesReason"
+      :cross-references-available="true"
+      connections
+      cross-references-reason=""
       @word-study="menuWordStudy"
       @compare="menuCompare"
       @commentary="menuCommentary"
