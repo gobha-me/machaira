@@ -111,8 +111,11 @@ function openWord(verse: number, keys: string[], target: HTMLElement) {
 }
 defineExpose({ openWord })
 function note() {
-  if (chosen.value) emit('note', reference.value, chosen.value.text)
+  const selected = chosen.value
+  const ref = reference.value
+  // Dismiss before the Note handler moves focus and collapses the native range.
   dismiss()
+  if (selected) emit('note', ref, selected.text)
 }
 function related() {
   if (chosen.value) ui.findRelated(chosen.value.text)

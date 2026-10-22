@@ -76,7 +76,11 @@ export function useNotes() {
   }
 
   function focusComposer() {
-    bodyEl.value?.focus()
+    if (!bodyEl.value) return
+    // A selection quote may have been added in this click, before v-model updates.
+    bodyEl.value.value = body.value
+    bodyEl.value.focus()
+    bodyEl.value.setSelectionRange(body.value.length, body.value.length)
   }
 
   function anchorSelection(reference: string, quote: string): void {
