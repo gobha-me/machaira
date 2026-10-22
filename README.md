@@ -147,6 +147,89 @@ the server verifies the real duration and converts it to mono 16-kHz WAV. Record
 mode-0600 files, and are deleted immediately after the provider request. They are never stored in SQLite or logged.
 This path supplies reliable Linux/KDE voice input even when `SpeechRecognition` is absent.
 
+### Kokoro CPU sizing and benchmark
+
+Bundled Kokoro can take longer to generate a verse than to play it. The following is **one
+production sample, possibly cold**, supplied for issue #118 on **2026-10-22**, not a repeated
+benchmark or a steady-state latency claim:
+
+| Runtime | CPU request / limit | Memory limit | Request | Result | Wall time |
+| --- | --- | --- | --- | --- | --- |
+| `ghcr.io/remsky/kokoro-fastapi-cpu:v0.8.0` | 500m / 2 CPU | 4 GiB | `POST /v1/audio/speech`, Genesis 1:1 KJV (~56 characters), model `kokoro`, voice `af_heart`, `response_format: mp3` | HTTP 200, `audio/mpeg`, 49,964 bytes | 14.8 s |
+
+The reported audio length was approximately 3 s, implying an **estimated** realtime factor (RTF)
+of `14.8 / 3 ≈ 4.9`. Its exact duration was not measured. RTF is request wall time divided by
+generated audio duration; below 1 means faster than realtime. CPU model, contention, throttling,
+thread settings and warm-up state were not recorded, so this sample cannot establish CPU scaling.
+No additional Kokoro measurements were possible in the issue workspace because Docker was absent.
+
+For latency-sensitive CPU deployments, start evaluation with **at least four available CPU cores
+for TTS**, and reserve additional capacity for Machaira and other inference services. This is an
+unmeasured sizing recommendation; validate it on the target hardware. The chart retains its
+small-cluster defaults of 500m/1 GiB requested and 2 CPU/4 GiB limited. To reserve four cores in an
+evaluation values file, use:
+
+```yaml
+inference:
+  tts:
+    mode: bundled
+    resources:
+      requests:
+        cpu: "4"
+        memory: 1Gi
+      limits:
+        cpu: "4"
+        memory: 4Gi
+```
+
+These are `inference.tts.resources` settings; legacy `tts.sidecar.resources` applies only when
+using the deprecated `tts.sidecar.enabled` alias without `inference.tts.mode=bundled`. A larger
+request requires enough schedulable node capacity. A larger limit alone does not reserve CPU.
+For an NVIDIA-equipped linux/amd64 node with the container runtime and device plugin configured,
+an alternative is `inference.tts.mode=bundled` plus `inference.tts.gpu.enabled=true`: the chart
+selects `ghcr.io/remsky/kokoro-fastapi-gpu:v0.8.0` and adds a limit of one `nvidia.com/gpu` by
+default (`inference.tts.gpu.resourceName` / `count`). GPU latency has not been measured here.
+These examples are opt-in operator guidance; this issue changes no active resource defaults or
+production configuration.
+
+To reproduce the CPU comparison, use an isolated, nonproduction host with at least eight available
+cores. Install Node 22, `curl` and `ffprobe` (from FFmpeg). For each CPU limit **1, 2, 4, 8**, start
+a fresh instance of the same pinned image, keeping memory at 4 GiB, the host and thread settings
+fixed, and other inference traffic stopped. For example, for the two-core configuration:
+
+```sh
+docker run --rm -d --name kokoro-benchmark --cpus=2 --memory=4g \
+  -p 127.0.0.1:8880:8880 ghcr.io/remsky/kokoro-fastapi-cpu:v0.8.0
+curl --fail --max-time 10 http://127.0.0.1:8880/health
+# Wait for health to succeed before running; loading models can take several minutes.
+node scripts/benchmark-tts.mjs http://127.0.0.1:8880/v1 31 120 > kokoro-cpu-2.tsv
+docker stop kokoro-benchmark
+```
+
+Repeat with `--cpus=1`, `4`, and `8` and matching output filenames; restart between runs. The
+script accepts a base URL (including `/v1`; a root URL automatically gets `/v1`), a request count
+`N` (1–10000, default 10), and a per-request timeout in seconds (1–3600, default 120). It sends
+**N sequential requests**, cycling Genesis 1:1, Psalm 23:1 and John 11:35 from the KJV, using
+`kokoro` / `af_heart` / MP3. It contacts the provider directly, excluding Machaira's buffering and
+concurrent requests. No authentication headers are sent; use a private, keyless evaluation endpoint.
+
+Each TSV row includes the request number, curl's total latency in seconds (through full download),
+`ffprobe` audio duration, RTF, response bytes and the exact input text. Keep request 1 as the
+potentially cold sample; there is no hidden warm-up. Compare warm samples by identical sentence
+(requests 4/7/10, for example, repeat Genesis 1:1), recording median and p95 across repetitions
+separately from request 1. Repeat fresh-instance runs to check cold-start variability. Record the
+date, host CPU/architecture, available cores, request/limit settings, image digest, thread settings,
+and any throttling alongside results. HTTP/transport failures, non-MP3 content or invalid audio
+stop the run with a nonzero exit code; partial TSV output is not a complete benchmark.
+
+The only recorded result remains the single two-core sample above; **1/4/8-core and GPU results
+are pending operator measurement**. Do not infer them from the sizing recommendation. The script's
+protocol and error-path tests run locally without Kokoro or Docker (FFmpeg tools required):
+
+```sh
+node --test scripts/benchmark-tts.test.mjs
+```
+
 ### Study partner providers
 
 Open **Settings → Study partner** after signing in and choose one of:
@@ -292,6 +375,8 @@ Compose and Helm share this tested provider matrix:
 
 The final column is Helm's request/limit pair; Compose applies the upper bound as its service
 limit. Model-loader helpers are separately capped and exit after readiness is established.
+For TTS latency evidence, CPU sizing recommendations and the reproducible CPU-limit comparison,
+see [Kokoro CPU sizing and benchmark](#kokoro-cpu-sizing-and-benchmark).
 
 The complete CPU stack needs roughly four cores and 8 GiB of memory for practical startup
 headroom. The CPU images support linux/amd64 and linux/arm64. Initial Ollama and Speaches model
@@ -356,7 +441,9 @@ silently enables cloud processing. Inference ports are not added to the Service 
 
 The shared provider matrix is documented in the Compose section above. The complete Helm CPU
 profile requests roughly 2.1 CPU and 3.75 GiB of memory including Machaira; a 4-core, 8-GiB node
-leaves practical startup and filesystem headroom. Initial Ollama and Speaches downloads persist in
+leaves practical startup and filesystem headroom. These startup figures do not guarantee realtime
+TTS; see [Kokoro CPU sizing and benchmark](#kokoro-cpu-sizing-and-benchmark) for resource overrides.
+Initial Ollama and Speaches downloads persist in
 PVC cache subpaths. Set a capability's `persistence.enabled=false` for an intentionally ephemeral
 cache.
 

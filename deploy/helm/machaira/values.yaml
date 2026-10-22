@@ -111,6 +111,14 @@ inference:
       pullPolicy: IfNotPresent
       gpuRepository: ghcr.io/remsky/kokoro-fastapi-gpu
       gpuTag: v0.8.0
+    # Small-cluster defaults below are not a realtime performance target: one possibly
+    # cold CPU sample at a 2-core limit took 14.8s for ~3s of audio (2026-10-22).
+    # See README.md "Kokoro CPU sizing and benchmark" for evidence and the CPU sweep.
+    # For latency-sensitive CPU use, start evaluation at >=4 available cores;
+    # unmeasured recommendation: resources.requests.cpu: "4", resources.limits.cpu: "4".
+    # Reserve node capacity for Machaira and other sidecars as well.
+    # Alternatively set inference.tts.gpu.enabled=true on an NVIDIA-capable node;
+    # this selects image.gpuRepository/gpuTag above and requests gpu.count devices.
     resources:
       requests:
         cpu: 500m
