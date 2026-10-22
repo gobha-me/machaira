@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch, watchEffect } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch, watchEffect } from 'vue'
 import { useAuth } from './stores/auth'
 import { useSettings } from './stores/settings'
 import { useUi } from './stores/ui'
@@ -41,6 +41,19 @@ const personalReady = ref(false)
 const personalError = ref<string | null>(null)
 let personalLoadGeneration = 0
 
+const optionalFeatures = reactive([
+  { label: 'Notes', load: () => notes.load() },
+  { label: 'Highlights', load: () => reader.loadHighlights() },
+  { label: 'Reading plan', load: () => readingPlan.load() },
+  { label: 'Study partner', load: () => aiProvider.load() },
+  { label: 'Meaning search', load: () => semanticIndex.load() },
+  { label: 'Read aloud', load: () => ttsProvider.load() },
+  { label: 'Voice input', load: () => sttProvider.load() },
+  { label: 'Chat history', load: () => chatConversations.load() }
+].map((feature) => ({ ...feature, loading: false, error: null as string | null })))
+type OptionalFeature = typeof optionalFeatures[number]
+const degradedFeatures = computed(() => optionalFeatures.filter((feature) => feature.error !== null))
+
 const screens = {
   read: ReadScreen,
   plan: PlanScreen,
@@ -78,9 +91,29 @@ onMounted(() => {
   auth.initialize()
 })
 onUnmounted(() => {
+  personalLoadGeneration += 1
   window.removeEventListener('keydown', onKey)
   readingPlan.stopClock()
 })
+
+async function loadOptionalData(features: OptionalFeature[] = optionalFeatures): Promise<void> {
+  const generation = personalLoadGeneration
+  const userId = auth.user?.id
+  const current = () => generation === personalLoadGeneration && auth.user?.id === userId
+  await Promise.allSettled(features.map(async (feature) => {
+    feature.loading = true
+    try {
+      await feature.load()
+      if (current()) feature.error = null
+    } catch (error) {
+      // Report each failure immediately, even if another optional request is still pending.
+      if (current()) feature.error = error instanceof Error ? error.message : 'Could not load this feature.'
+      throw error
+    } finally {
+      if (current()) feature.loading = false
+    }
+  }))
+}
 
 async function loadPersonalData(userId: string): Promise<void> {
   const generation = ++personalLoadGeneration
@@ -88,23 +121,17 @@ async function loadPersonalData(userId: string): Promise<void> {
   personalReady.value = false
   personalError.value = null
   try {
-    await Promise.all([
-      notes.load(),
-      reader.init(),
-      reader.loadHighlights(),
-      readingPlan.load(),
-      aiProvider.load(),
-      semanticIndex.load(),
-      ttsProvider.load(),
-      sttProvider.load(),
-      chatConversations.load()
-    ])
+    await reader.init()
     if (generation === personalLoadGeneration && auth.user?.id === userId) {
+      // These stores expose failures as state instead of rejecting their load promises.
+      const essentialError = library.error ?? reader.error
+      if (essentialError !== null) throw new Error(essentialError)
       personalReady.value = true
+      void loadOptionalData()
     }
   } catch (error) {
     if (generation === personalLoadGeneration && auth.user?.id === userId) {
-      personalError.value = (error as Error).message
+      personalError.value = error instanceof Error ? error.message : 'Could not load the reader.'
     }
   } finally {
     if (generation === personalLoadGeneration) personalLoading.value = false
@@ -112,6 +139,10 @@ async function loadPersonalData(userId: string): Promise<void> {
 }
 
 function retryPersonalData(): void {
+  if (auth.state === 'error') {
+    void auth.initialize()
+    return
+  }
   if (auth.user) void loadPersonalData(auth.user.id)
 }
 
@@ -137,6 +168,10 @@ watch(
     chatConversations.reset()
     personalReady.value = false
     personalError.value = null
+    for (const feature of optionalFeatures) {
+      feature.loading = false
+      feature.error = null
+    }
     if (userId) void loadPersonalData(userId)
     else personalLoading.value = false
   },
@@ -148,17 +183,25 @@ watch(
   <div v-if="auth.state === 'loading' || (auth.authenticated && personalLoading)" class="loading-page">
     <div class="loading-mark"></div>
   </div>
-  <AuthScreen v-else-if="!auth.authenticated" />
-  <div v-else-if="personalError || !personalReady" class="personal-error-page">
+  <div v-else-if="auth.state === 'error' || (auth.authenticated && (personalError || !personalReady))" class="personal-error-page">
     <div class="personal-error-card">
-      <h1>Couldn’t load your account data</h1>
-      <p>{{ personalError ?? 'Personal data is not ready yet.' }}</p>
+      <h1>{{ auth.state === 'error' ? 'Couldn’t load your session' : 'Couldn’t load your account data' }}</h1>
+      <p>{{ auth.error ?? personalError ?? 'Personal data is not ready yet.' }}</p>
       <button @click="retryPersonalData">Try again</button>
     </div>
   </div>
+  <AuthScreen v-else-if="!auth.authenticated" />
   <div v-else class="app-root">
     <RailNav />
     <main class="app-main">
+      <div v-if="degradedFeatures.length" class="feature-errors" aria-label="Unavailable features">
+        <div v-for="feature in degradedFeatures" :key="feature.label" class="feature-error" role="status">
+          <span>{{ feature.label }} unavailable: {{ feature.error }}</span>
+          <button :disabled="feature.loading" @click="loadOptionalData([feature])">
+            {{ feature.loading ? 'Retrying…' : `Retry ${feature.label}` }}
+          </button>
+        </div>
+      </div>
       <component :is="activeScreen" />
     </main>
   </div>
@@ -180,6 +223,33 @@ watch(
   flex-direction: column;
   overflow: hidden;
 }
+.feature-errors {
+  flex-shrink: 0;
+  max-height: 30dvh;
+  overflow: auto;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--card);
+  font-size: 13px;
+}
+.feature-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+}
+.feature-error span { overflow-wrap: anywhere; }
+.feature-error button {
+  flex-shrink: 0;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 6px 10px;
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+}
+.feature-error button:disabled { opacity: 0.65; cursor: default; }
 @media (max-width: 768px) {
   .app-root {
     flex-direction: column-reverse;
