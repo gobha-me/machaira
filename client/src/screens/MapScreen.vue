@@ -98,48 +98,66 @@ async function open(reference: string) {
       </p>
     </header>
     <div class="controls">
-      <label>Book
+      <div class="field">
+        <label for="map-book">Book</label>
         <select
+          id="map-book"
           v-model="book"
           @change="changeBook"
         >
-          <option value="">All books</option>
+          <option value="">
+            All books
+          </option>
           <option
             v-for="node in books"
             :key="node.id"
             :value="node.book"
-          >{{ node.label }}</option>
+          >
+            {{ node.label }}
+          </option>
         </select>
-      </label>
-      <label>Chapter
+      </div>
+      <div class="field">
+        <label for="map-chapter">Chapter</label>
         <select
+          id="map-chapter"
           v-model="chapter"
           :disabled="!book || loading"
         >
-          <option value="">All chapters</option>
+          <option value="">
+            All chapters
+          </option>
           <option
             v-for="number in chapters"
             :key="number"
             :value="String(number)"
-          >{{ number }}</option>
+          >
+            {{ number }}
+          </option>
         </select>
-      </label>
-      <label>Open passages in
+      </div>
+      <div class="field">
+        <label for="map-translation">Open passages in</label>
         <select
+          id="map-translation"
           v-model="moduleName"
           :disabled="!library.installedBibles.length"
         >
           <option
             v-if="!library.installedBibles.length"
             value=""
-          >Install a Bible in Library</option>
+          >
+            Install a Bible in Library
+          </option>
           <option
             v-for="module in library.installedBibles"
             :key="module.name"
             :value="module.name"
-          >{{ module.name }}</option>
+          >
+            {{ module.name }}
+          </option>
         </select>
-      </label>
+      </div>
       <button
         class="view-toggle"
         :aria-pressed="list"
@@ -296,6 +314,7 @@ async function open(reference: string) {
 h1 { font-size: 40px; font-weight: 500; margin: 8px 0 10px; line-height: 1.1; }
 .intro { color: var(--muted); font-size: 14px; line-height: 1.6; margin: 0; }
 .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+.field { display: flex; flex-direction: column; gap: 6px; }
 label { display: flex; flex-direction: column; gap: 6px; font-size: 11px; color: var(--muted); }
 select, button { font: inherit; font-size: 12px; color: var(--ink); border: 1px solid var(--line); border-radius: 6px; background: var(--card); padding: 8px 12px; min-height: 40px; }
 select { max-width: 210px; }
@@ -328,7 +347,7 @@ a { color: inherit; }
   h1 { font-size: 32px; }
   .map-header { margin-bottom: 18px; }
   .controls { gap: 10px; }
-  .controls label { flex: 1 1 40%; min-width: 0; }
+  .controls .field { flex: 1 1 40%; min-width: 0; }
   select { width: 100%; max-width: 100%; min-height: 44px; }
   .view-toggle { flex: 1 1 40%; margin: 0; }
   button { min-height: 44px; }

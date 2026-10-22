@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createMemoryHistory } from 'vue-router'
 import userEvent from '@testing-library/user-event'
+import { getByRole } from '@testing-library/dom'
 import type { CrossReferenceMapPayload } from '@machaira/scripture'
 import { api } from '../services/api'
 import { useLibrary } from '../stores/library'
@@ -73,10 +74,11 @@ describe('cross-reference map failure paths and keyboard alternative', () => {
       { id: 'Gen.1', book: 'Gen', chapter: 1, verse: null, label: 'Genesis 1' },
       { id: 'Gen.2', book: 'Gen', chapter: 2, verse: null, label: 'Genesis 2' }, graph.nodes[1]
     ] })
-    await wrapper.findAll('select')[0].setValue('Gen')
+    const user = userEvent.setup()
+    await user.selectOptions(getByRole(document.body, 'combobox', { name: 'Book' }), 'Gen')
     await flushPromises()
     expect(wrapper.findAll('select')[1].attributes('disabled')).toBeUndefined()
-    await wrapper.findAll('select')[1].setValue('2')
+    await user.selectOptions(getByRole(document.body, 'combobox', { name: 'Chapter' }), '2')
     await flushPromises()
     expect(api.crossReferenceMap).toHaveBeenLastCalledWith({ book: 'Gen', chapter: 2 }, expect.any(AbortSignal))
     button('Show accessible list').click()
