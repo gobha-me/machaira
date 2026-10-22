@@ -202,3 +202,5 @@ export function parseCrossReferenceTargets(markup: string, label: string): Scrip
   const structured = unique(osisValues.flatMap(parseOsisTargets))
   return structured.length > 0 ? structured : parseDisplayTargets(label)
 }
+
+export * from './reader-state.js'

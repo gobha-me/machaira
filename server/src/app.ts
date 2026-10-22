@@ -8,6 +8,7 @@ import { AuthService, SESSION_COOKIE } from './auth.js'
 import { openDatabase } from './database.js'
 import { registerAuth } from './routes/auth.js'
 import { registerSources } from './routes/sources.js'
+import { registerReaderState } from './routes/reader-state.js'
 import { registerRead } from './routes/read.js'
 import { registerStudy } from './routes/study.js'
 import { registerCommentary } from './routes/commentary.js'
@@ -92,6 +93,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   app.get('/api/health', async () => ({ ok: true }))
   await registerAuth(app, auth, options.production ?? false)
   await registerPersonalData(app, personalData)
+  await registerReaderState(app, db)
   await registerAi(app, ai, chats)
   await registerSemantic(app, embeddingProviders, semanticIndex)
   await registerConnections(app, connections)
