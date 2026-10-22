@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue'
+import { computed, onScopeDispose, ref } from 'vue'
 import { useReader } from '../stores/reader'
 import { useNotes as useNotesStore } from '../stores/notes'
 import { useUi } from '../stores/ui'
@@ -16,7 +16,10 @@ export function useNotes() {
   const body = ref('')
   const bodyEl = ref<HTMLTextAreaElement | null>(null)
   const saved = ref(false)
+  const error = ref<string | null>(null)
+  const saving = ref(false)
   let savedTimer: ReturnType<typeof setTimeout> | undefined
+  onScopeDispose(() => clearTimeout(savedTimer))
 
   // Notes anchored to the current passage: any selected verse (range-aware) or, when nothing
   // is selected, every note in the current chapter.
@@ -35,17 +38,28 @@ export function useNotes() {
 
   async function save() {
     const text = body.value.trim()
-    if (!text) return
-    await notes.create({
-      title: title.value.trim() || reader.currentRef,
-      body: text,
-      refs: [reader.currentRef]
-    })
-    title.value = ''
-    body.value = ''
-    saved.value = true
+    if (!text || saving.value) return
+    const originalTitle = title.value
+    const originalBody = body.value
+    error.value = null
+    saved.value = false
     clearTimeout(savedTimer)
-    savedTimer = setTimeout(() => (saved.value = false), 1800)
+    saving.value = true
+    try {
+      await notes.create({
+        title: originalTitle.trim() || reader.currentRef,
+        body: text,
+        refs: [reader.currentRef]
+      })
+      if (title.value === originalTitle) title.value = ''
+      if (body.value === originalBody) body.value = ''
+      saved.value = true
+      savedTimer = setTimeout(() => (saved.value = false), 1800)
+    } catch (cause) {
+      error.value = `Could not create note: ${(cause as Error).message}`
+    } finally {
+      saving.value = false
+    }
   }
 
   function openNote(id: string) {
@@ -61,5 +75,5 @@ export function useNotes() {
     return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
   }
 
-  return { title, body, bodyEl, saved, passageNotes, save, openNote, focusComposer, relDate }
+  return { title, body, bodyEl, saved, error, saving, passageNotes, save, openNote, focusComposer, relDate }
 }
