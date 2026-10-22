@@ -121,8 +121,8 @@ function endKey(event: KeyboardEvent): void {
   flex-shrink: 0;
 }
 .voice-button {
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   border: 1px solid var(--line);
   border-radius: 9px;
   background: var(--paper);
