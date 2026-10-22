@@ -272,7 +272,7 @@ describe('TTS schema migration', () => {
     const db = openDatabase(filename)
     try {
       const version = db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get() as { version: number }
-      assert.equal(version.version, 10)
+      assert.equal(version.version, 11)
       const columns = db.prepare('PRAGMA table_info(tts_configs)').all() as Array<{
         name: string; dflt_value: string | null
       }>

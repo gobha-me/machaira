@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { api, type BookEntry, type ChapterPayload, type ModuleInfo } from '../services/api'
 import { useLibrary } from './library'
@@ -116,6 +116,8 @@ function deferred<T>() {
 }
 
 describe('reader position', () => {
+  afterEach(() => useReader().activateUser(null))
+
   it('recovers after installing the first translation into a ready empty reader', async () => {
     setActivePinia(createPinia())
     vi.restoreAllMocks()
@@ -178,6 +180,8 @@ describe('reader position', () => {
     setActivePinia(createPinia())
     vi.restoreAllMocks()
     vi.stubGlobal('localStorage', new MemoryStorage())
+    vi.spyOn(api, 'readingCursor').mockResolvedValue(null)
+    vi.spyOn(api, 'saveReadingCursor').mockImplementation(async (value) => value)
   })
 
   it('opens Genesis 1 for a fresh user even when Genesis is not listed first', async () => {
@@ -190,9 +194,9 @@ describe('reader position', () => {
 
     expect(reader.ready).toBe(true)
     expect([reader.moduleName, reader.book, reader.chapter]).toEqual(['WEB', 'Gen', 1])
-    expect(localStorage.getItem('sword.reader.pos.v2:user-a')).toBe(
-      JSON.stringify({ moduleName: 'WEB', book: 'Gen', chapter: 1 })
-    )
+    expect(JSON.parse(localStorage.getItem('sword.reader.pos.v2:user-a')!)).toEqual({
+      moduleName: 'WEB', book: 'Gen', chapter: 1, updated_at: expect.any(Number)
+    })
   })
 
   it('restores a valid saved module, book, and chapter', async () => {

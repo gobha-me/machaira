@@ -1,4 +1,7 @@
 import { defineStore } from 'pinia'
+import { parseUserPreferences, parsePreferences, type ReaderPreferences, type UserPreferences } from '@machaira/scripture'
+import { api } from '../services/api'
+import { AccountCache } from '../services/accountCache'
 import {
   DEFAULT_ACCENT_DARK,
   DEFAULT_ACCENT_LIGHT,
@@ -10,31 +13,11 @@ import {
 
 const KEY = 'sword.settings.v1'
 
-interface SettingsState {
-  theme: ThemeId
-  accent: string
-  textScale: number
-  extraSpacing: boolean
-  followAlong: boolean
-  drawApocrypha: boolean
-  alwaysCite: boolean
-  showFootnotes: boolean
-  showStrongs: boolean
-  defaultModuleName: string | null
-  compareModuleNames: string[] | null
-  commentaryModuleName: string | null
-}
+const settingsKey = (userId: string) => `${KEY}:${encodeURIComponent(userId)}`
+const syncs = new WeakMap<object, AccountCache<UserPreferences>>()
 
-function load(): Partial<SettingsState> {
-  try {
-    return JSON.parse(localStorage.getItem(KEY) ?? '{}')
-  } catch {
-    return {}
-  }
-}
-
-export const useSettings = defineStore('settings', {
-  state: (): SettingsState => ({
+function defaults(): ReaderPreferences {
+  return {
     theme: 'paper',
     accent: DEFAULT_ACCENT_LIGHT,
     textScale: 1,
@@ -46,9 +29,12 @@ export const useSettings = defineStore('settings', {
     showStrongs: false,
     defaultModuleName: null,
     compareModuleNames: null,
-    commentaryModuleName: null,
-    ...load()
-  }),
+    commentaryModuleName: null
+  }
+}
+
+export const useSettings = defineStore('settings', {
+  state: defaults,
   getters: {
     // The effective accent (prototype falls back to a warmer accent in dark mode).
     effectiveAccent(state): string {
@@ -60,8 +46,38 @@ export const useSettings = defineStore('settings', {
     }
   },
   actions: {
+    activateUser(userId: string | null) {
+      syncs.get(this)?.activate(null)
+      this.$reset()
+      if (!userId) return
+      try {
+        const legacy = localStorage.getItem(KEY)
+        if (legacy !== null) {
+          if (localStorage.getItem(settingsKey(userId)) === null) {
+            const preferences = parsePreferences(JSON.parse(legacy))
+            if (preferences) localStorage.setItem(settingsKey(userId), JSON.stringify({ preferences, updated_at: 0 }))
+          }
+          // Consume the global value only once, even if this account already has server prefs.
+          localStorage.removeItem(KEY)
+        }
+      } catch {
+        // Migration and cache access are best effort when storage is corrupt or unavailable.
+      }
+      const sync = new AccountCache<UserPreferences>({
+        key: settingsKey,
+        parse: parseUserPreferences,
+        get: () => api.preferences(),
+        put: (value) => api.savePreferences(value),
+        apply: (value) => this.$patch({ ...defaults(), ...value.preferences })
+      })
+      syncs.set(this, sync)
+      sync.activate(userId)
+    },
+    async restore(): Promise<void> {
+      await syncs.get(this)?.restore()
+    },
     persist() {
-      localStorage.setItem(KEY, JSON.stringify(this.$state))
+      syncs.get(this)?.update({ preferences: { ...this.$state } })
     },
     setTheme(theme: ThemeId) {
       this.theme = theme

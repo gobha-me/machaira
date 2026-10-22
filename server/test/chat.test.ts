@@ -178,7 +178,7 @@ describe('chat conversation storage', () => {
     const db = openDatabase(filename)
     try {
       assert.equal((db.prepare('SELECT MAX(version) AS version FROM schema_migrations')
-        .get() as { version: number }).version, 10)
+        .get() as { version: number }).version, 11)
       const chats = new ChatConversationService(db)
       const conversation = chats.create('user-1')
       const started = chats.startTurn('user-1', conversation.id, turn('Persist me'))
