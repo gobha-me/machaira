@@ -5,10 +5,14 @@ import { useUi } from '../stores/ui'
 import { useSettings } from '../stores/settings'
 import { useReadingPlan } from '../stores/readingPlan'
 import { PLAN_DAYS } from '../services/plan'
-import { type BookEntry } from '../services/api'
+import type { BookEntry, Note } from '../services/api'
 import { useCompare } from '../composables/useCompare'
 import { useWordStudy } from '../composables/useWordStudy'
 import { useNotes } from '../composables/useNotes'
+import { useNotes as useNotesStore } from '../stores/notes'
+import { inlineNoteVerses } from '../utils/inlineNotes'
+import InlineNote from '../components/InlineNote.vue'
+import NoteComposer from '../components/NoteComposer.vue'
 import { usePassageMenu } from '../composables/usePassageMenu'
 import { useReadAloud } from '../composables/useReadAloud'
 import { segLead } from '../utils/text'
@@ -311,27 +315,73 @@ function scrollToConnection(verse: number | null) {
   })
 }
 
-// ── Notes: shared quick-capture capability, anchored to the current passage ──
+// Notes keep the shared outbox and undo history; only their presentation is inline.
+const notes = useNotesStore()
 const {
-  anchor: noteAnchor,
-  anchorSelection: anchorNoteSelection,
-  title: noteTitle,
-  body: noteBody,
-  bodyEl: noteBodyEl,
-  saved: noteSaved,
-  error: noteError,
-  saving: noteSaving,
-  passageNotes,
-  save: saveNote,
-  openNote,
-  focusComposer: focusNoteComposer,
-  relDate: noteRelDate
+  anchor: noteAnchor, anchorPassage, anchorSelection: anchorNoteSelection,
+  title: noteTitle, body: noteBody, savedNote, error: noteError, saving: noteSaving,
+  save: saveNote, openNote
 } = useNotes()
+const composerOpen = ref(false)
+const composer = ref<InstanceType<typeof NoteComposer> | null>(null)
+const expandedNotes = ref<string[]>([])
+const inlineError = ref<string | null>(null)
+const verseNumbers = computed(() => reader.data?.verses.map((verse) => verse.n) ?? [])
+const filedNote = computed(() => notes.list.find((note) => note.id === savedNote.value?.id))
+function noteVerses(note: Pick<Note, 'refs'>) {
+  return inlineNoteVerses(note.refs, reader.bookName, reader.chapter, verseNumbers.value)
+}
+const noteLocations = computed(() => new Map(
+  [...notes.list, ...notes.deleted].map((note) => [note.id, noteVerses(note)])
+))
+const composerVerse = computed(() => {
+  // Keep an unfinished draft reachable after navigation, with its original reference
+  // visibly labelled, rather than silently filing it under the new chapter.
+  return noteVerses({ refs: [noteAnchor.value] }).at(-1) ?? verseNumbers.value.at(-1)
+})
+function notesOnVerse(verse: number) {
+  return notes.list.filter((note) => noteLocations.value.get(note.id)?.includes(verse))
+}
+function expandedAt(verse: number) {
+  return notes.list.filter((note) => expandedNotes.value.includes(note.id) && noteLocations.value.get(note.id)?.at(-1) === verse)
+}
+function deletedAt(verse: number) {
+  return notes.deleted.filter((note) => noteLocations.value.get(note.id)?.at(-1) === verse)
+}
+async function revealNotes(verse: number) {
+  const ids = notesOnVerse(verse).map((note) => note.id)
+  expandedNotes.value = [...new Set([...expandedNotes.value, ...ids])]
+  await nextTick()
+  const entry = [...(readingEl.value?.querySelectorAll<HTMLElement>('[data-note-id]') ?? [])]
+    .find((element) => element.dataset.noteId === ids[0])
+  entry?.querySelector('button')?.focus()
+  entry?.scrollIntoView?.({ block: 'nearest' })
+}
+async function undoNote(id: string) {
+  inlineError.value = null
+  try {
+    await notes.undoRemove(id)
+    if (notes.currentId) expandedNotes.value.push(notes.currentId)
+  } catch (cause) {
+    inlineError.value = `Could not restore note: ${(cause as Error).message}`
+  }
+}
+watch(savedNote, (note) => {
+  if (note) expandedNotes.value.push(note.id)
+  if (!noteBody.value && !noteTitle.value) composerOpen.value = false
+})
 
 const selectionRoot = ref<HTMLElement | null>(null)
 async function selectionNote(reference: string, quote: string) {
   anchorNoteSelection(reference, quote)
-  await menuNote()
+  await showNoteComposer()
+}
+async function showNoteComposer() {
+  composerOpen.value = true
+  toolsOpen.value = false
+  dismiss()
+  await nextTick()
+  composer.value?.focus()
 }
 
 // ── Passage action menu: floating keystone entry (shared PassageActions component) ──
@@ -376,10 +426,8 @@ function menuHighlight() {
   dismiss()
 }
 async function menuNote() {
-  void openTools()
-  dismiss()
-  await nextTick()
-  focusNoteComposer()
+  anchorPassage(reader.currentRef)
+  await showNoteComposer()
 }
 </script>
 
@@ -567,59 +615,116 @@ async function menuNote() {
               {{ reader.data.verses.length }} verses · {{ reader.moduleName }}
             </div>
 
+            <p
+              v-if="filedNote"
+              class="inline-confirmation"
+              role="status"
+            >
+              Note filed under {{ filedNote.refs[0] }}.
+              <a
+                href="#/journal"
+                @click.prevent="openNote(filedNote.id)"
+              >Open in Journal</a>
+            </p>
+            <p
+              v-if="inlineError"
+              class="error"
+              role="alert"
+            >
+              {{ inlineError }}
+            </p>
+
             <div
               ref="selectionRoot"
               class="verses serif"
               :style="versesStyle"
             >
-              <!-- eslint-disable-next-line vuejs-accessibility/click-events-have-key-events, vuejs-accessibility/no-static-element-interactions -- Prose gestures supplement the native verse-number and word buttons. -->
-              <span
+              <template
                 v-for="v in reader.data.verses"
                 :key="v.n"
-                class="verse"
-                :data-verse="v.n"
-                :style="{ background: verseBg(v.n), opacity: verseOpacity(v.n) }"
-                @mousedown="onVerseMouseDown"
-                @pointerdown="onVersePointerDown(v.n, $event)"
-                @pointermove="onVersePointerMove"
-                @pointerup="onVersePointerEnd"
-                @pointercancel="onVersePointerEnd"
-                @click="onVerseClick(v.n, $event)"
-                @contextmenu="onVerseContext(v.n, $event)"
-              ><!-- Keep prose selectable and avoid nesting word controls inside a verse button. -->
-                <button
-                  type="button"
-                  class="vnum"
-                  :aria-label="`Select verse ${v.n}`"
-                  :aria-pressed="reader.selectedVerses.includes(v.n)"
-                  aria-keyshortcuts="Shift+F10"
-                  title="Select verse; Shift+F10 opens passage actions"
-                  @click.stop="onVerseClick(v.n, $event)"
-                  @keydown="onVerseKeydown(v.n, $event)"
-                >{{ v.n }}</button><span data-selection-text><template
-                  v-if="v.segments.length"
-                ><template
-                  v-for="(seg, i) in v.segments"
-                  :key="i"
-                ><template
-                  v-if="seg.kind === 'word' && wordsTappableIn(v.n)"
-                >{{ segLead(v.segments, i) }}<button
-                  type="button"
-                  class="wtap"
-                  :data-strongs="seg.strongs.join(' ')"
-                  :aria-label="`Study ${seg.text} (${seg.strongs.join(', ')})`"
-                  @click.stop="onWordClick(v.n, seg.strongs, $event)"
-                >{{ seg.text }}</button></template><sup
-                  v-else-if="seg.kind === 'note' && settings.showFootnotes"
-                  class="noteref"
-                  data-selection-ignore
-                  :title="seg.text"
-                >{{ seg.label }}</sup><template
-                  v-else-if="seg.kind === 'note'"
-                /><span
-                  v-else
-                  :data-strongs="seg.kind === 'word' ? seg.strongs.join(' ') : undefined"
-                >{{ segLead(v.segments, i) + seg.text }}</span></template></template><template v-else>{{ v.text }}</template></span>{{ ' ' }}</span>
+              >
+                <!-- eslint-disable-next-line vuejs-accessibility/click-events-have-key-events, vuejs-accessibility/no-static-element-interactions -- Prose gestures supplement the native verse-number and word buttons. -->
+                <span
+                  class="verse"
+                  :data-verse="v.n"
+                  :style="{ background: verseBg(v.n), opacity: verseOpacity(v.n) }"
+                  @mousedown="onVerseMouseDown"
+                  @pointerdown="onVersePointerDown(v.n, $event)"
+                  @pointermove="onVersePointerMove"
+                  @pointerup="onVersePointerEnd"
+                  @pointercancel="onVersePointerEnd"
+                  @click="onVerseClick(v.n, $event)"
+                  @contextmenu="onVerseContext(v.n, $event)"
+                ><!-- Keep prose selectable and avoid nesting word controls inside a verse button. -->
+                  <button
+                    type="button"
+                    class="vnum"
+                    :aria-label="`Select verse ${v.n}`"
+                    :aria-pressed="reader.selectedVerses.includes(v.n)"
+                    aria-keyshortcuts="Shift+F10"
+                    title="Select verse; Shift+F10 opens passage actions"
+                    @click.stop="onVerseClick(v.n, $event)"
+                    @keydown="onVerseKeydown(v.n, $event)"
+                  >{{ v.n }}</button><span data-selection-text><template
+                    v-if="v.segments.length"
+                  ><template
+                    v-for="(seg, i) in v.segments"
+                    :key="i"
+                  ><template
+                    v-if="seg.kind === 'word' && wordsTappableIn(v.n)"
+                  >{{ segLead(v.segments, i) }}<button
+                    type="button"
+                    class="wtap"
+                    :data-strongs="seg.strongs.join(' ')"
+                    :aria-label="`Study ${seg.text} (${seg.strongs.join(', ')})`"
+                    @click.stop="onWordClick(v.n, seg.strongs, $event)"
+                  >{{ seg.text }}</button></template><sup
+                    v-else-if="seg.kind === 'note' && settings.showFootnotes"
+                    class="noteref"
+                    data-selection-ignore
+                    :title="seg.text"
+                  >{{ seg.label }}</sup><template
+                    v-else-if="seg.kind === 'note'"
+                  /><span
+                    v-else
+                    :data-strongs="seg.kind === 'word' ? seg.strongs.join(' ') : undefined"
+                  >{{ segLead(v.segments, i) + seg.text }}</span></template></template><template v-else>{{ v.text }}</template></span><button
+                    v-if="notesOnVerse(v.n).length"
+                    class="verse-note-marker"
+                    data-selection-ignore
+                    :aria-label="`Show ${notesOnVerse(v.n).length} notes on verse ${v.n}`"
+                    @click.stop="revealNotes(v.n)"
+                  >✎</button>{{ ' ' }}</span>
+                <InlineNote
+                  v-for="note in expandedAt(v.n)"
+                  :key="note.id"
+                  :note="note"
+                />
+                <NoteComposer
+                  v-if="composerOpen && composerVerse === v.n"
+                  :ref="(element) => { composer = element as InstanceType<typeof NoteComposer> | null }"
+                  v-model:title="noteTitle"
+                  v-model:body="noteBody"
+                  :anchor="noteAnchor"
+                  :saving="noteSaving"
+                  :error="noteError"
+                  @save="saveNote"
+                />
+                <div
+                  v-for="note in deletedAt(v.n)"
+                  :key="note.id"
+                  class="inline-undo"
+                  role="status"
+                >
+                  Deleted “{{ note.title || 'Untitled note' }}”.
+                  <button
+                    :disabled="notes.restoring[note.id]"
+                    @click="undoNote(note.id)"
+                  >
+                    Undo
+                  </button>
+                </div>
+              </template>
             </div>
 
             <div
@@ -743,70 +848,6 @@ async function menuNote() {
             >
               Tap a highlighted word in the passage to open its Greek or Hebrew entry.
             </p>
-          </div>
-
-          <div class="note-card">
-            <div class="note-card-head">
-              <span class="note-card-label">Notes</span>
-              <span
-                v-if="noteSaved"
-                class="note-saved"
-              >Saved ✓</span>
-            </div>
-            <div
-              v-if="noteAnchor"
-              class="note-anchor"
-            >
-              {{ noteAnchor }}
-            </div>
-            <input
-              v-model="noteTitle"
-              aria-label="Note title"
-              class="note-title-input"
-              type="text"
-              placeholder="Title (optional)"
-            >
-            <textarea
-              ref="noteBodyEl"
-              v-model="noteBody"
-              aria-label="Note body"
-              class="note-input"
-              placeholder="Jot a note on this passage…"
-            />
-            <p
-              v-if="noteError"
-              class="error"
-              role="alert"
-            >
-              {{ noteError }}
-            </p>
-            <button
-              class="note-save"
-              :disabled="!noteBody.trim() || noteSaving"
-              @click="saveNote"
-            >
-              Save note
-            </button>
-
-            <div
-              v-if="passageNotes.length"
-              class="note-list"
-            >
-              <div class="note-list-label">
-                On this passage
-              </div>
-              <div class="note-list-scroll">
-                <button
-                  v-for="n in passageNotes"
-                  :key="n.id"
-                  class="note-list-item hover-soft"
-                  @click="openNote(n.id)"
-                >
-                  <span class="note-list-title">{{ n.title }}</span>
-                  <span class="note-list-date">{{ noteRelDate(n.updatedAt) }}</span>
-                </button>
-              </div>
-            </div>
           </div>
 
           <div class="hint-card">
@@ -1372,118 +1413,10 @@ h1 {
   color: var(--accent);
   margin: 0;
 }
-.note-card {
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--accent);
-  border-radius: 8px;
-  padding: 12px 14px;
-}
-.note-card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-}
-.note-card-label {
-  font-size: 10.5px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-.note-saved {
-  font-size: 10.5px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--gold);
-}
-.note-anchor {
-  font-size: 11.5px;
-  color: var(--muted);
-  margin-bottom: 8px;
-}
-.note-title-input,
-.note-input {
-  width: 100%;
-  box-sizing: border-box;
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 6px 8px;
-  font-size: 12.5px;
-  color: var(--ink);
-  font-family: inherit;
-}
-.note-title-input {
-  margin-bottom: 6px;
-}
-.note-input {
-  min-height: 68px;
-  line-height: 1.5;
-  resize: vertical;
-}
-.note-title-input:focus,
-.note-input:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-.note-save {
-  width: 100%;
-  margin-top: 8px;
-  background: var(--accent);
-  color: var(--on-accent);
-  border: none;
-  border-radius: 6px;
-  padding: 7px 8px;
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.note-save:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.note-list {
-  margin-top: 12px;
-  border-top: 1px solid var(--line);
-  padding-top: 10px;
-}
-.note-list-label {
-  font-size: 10.5px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--muted);
-  margin-bottom: 6px;
-}
-.note-list-scroll {
-  max-height: 132px;
-  overflow-y: auto;
-}
-.note-list-item {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  width: 100%;
-  background: none;
-  border: none;
-  border-radius: 4px;
-  padding: 4px 4px;
-  text-align: left;
-  cursor: pointer;
-  color: var(--ink);
-}
-.note-list-title {
-  font-size: 12.5px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.note-list-date {
-  font-size: 11px;
-  color: var(--muted);
-  flex-shrink: 0;
-}
+.verse-note-marker { border: 0; background: transparent; color: var(--muted); font: 13px sans-serif; cursor: pointer; padding: 3px 5px; vertical-align: super; }
+.verse-note-marker:focus-visible { outline: 2px solid var(--accent); }
+.inline-confirmation, .inline-undo { font: 13px/1.5 'Instrument Sans', sans-serif; color: var(--muted); }
+.inline-confirmation a, .inline-undo button { color: var(--accent); }
 .hint-card {
   background: var(--card);
   border: 1px solid var(--line);

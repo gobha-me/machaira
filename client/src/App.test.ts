@@ -411,14 +411,21 @@ describe('startup failure isolation', () => {
 
   it('renders passage note creation failures without losing the composer input', async () => {
     vi.spyOn(api, 'createNote').mockRejectedValue(new Error('Note creation unavailable'))
+    vi.mocked(api.chapter).mockResolvedValue(passage(1))
     const app = await startApp()
-    await app.get('.note-title-input').setValue('Keep the title')
-    await app.get('.note-input').setValue('Keep the body')
-    await app.get('.note-save').trigger('click')
+    await app.get('button.vnum').trigger('keydown', { key: 'F10', shiftKey: true })
+    await flushPromises()
+    const note = [...document.querySelectorAll<HTMLButtonElement>('.passage-actions button')]
+      .find((button) => button.textContent?.trim() === 'Note')!
+    note.click()
+    await flushPromises()
+    await app.get('[aria-label="Note title"]').setValue('Keep the title')
+    await app.get('[aria-label="Note body"]').setValue('Keep the body')
+    await app.get('.note-composer').trigger('submit')
     await flushPromises()
     expect(app.get('[role="alert"]').text()).toContain('Note creation unavailable')
-    expect(app.get('.note-input').element).toHaveProperty('value', 'Keep the body')
-    expect(app.find('.note-saved').exists()).toBe(false)
+    expect(app.get('[aria-label="Note body"]').element).toHaveProperty('value', 'Keep the body')
+    expect(app.find('.inline-confirmation').exists()).toBe(false)
   })
 
   it('flushes drafts on hidden/pagehide and removes lifecycle listeners on unmount', async () => {

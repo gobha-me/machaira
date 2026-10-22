@@ -115,7 +115,7 @@ export const useNotes = defineStore('notes', {
         if (activeGeneration === generation) this.loading = false
       }
     },
-    async create(seed?: Partial<Note>): Promise<void> {
+    async create(seed?: Partial<Note>): Promise<Note | undefined> {
       const activeGeneration = generation
       this.error = null
       try {
@@ -128,6 +128,7 @@ export const useNotes = defineStore('notes', {
         if (activeGeneration !== generation) return
         this.list = [note, ...this.list]
         this.currentId = note.id
+        return note
       } catch (error) {
         if (activeGeneration !== generation) return
         this.error = (error as Error).message
@@ -138,7 +139,10 @@ export const useNotes = defineStore('notes', {
       this.currentId = id
     },
     save(patch: Partial<Note>): void {
-      const note = this.current
+      if (this.currentId) this.saveFor(this.currentId, patch)
+    },
+    saveFor(id: string, patch: Partial<Note>): void {
+      const note = this.list.find((item) => item.id === id)
       if (!note) return
       const raw = toRaw(note)
       const updated: Note = {
@@ -203,7 +207,10 @@ export const useNotes = defineStore('notes', {
     },
     retrySave(): void {
       const id = this.saveErrorId ?? this.currentId
-      if (id) this.scheduleSave(id, 0)
+      if (id) this.retrySaveFor(id)
+    },
+    retrySaveFor(id: string): void {
+      if (this.dirty[id]) this.scheduleSave(id, 0)
     },
     flushPending(): void {
       if (Object.keys(this.dirty).length) this.persistDrafts()

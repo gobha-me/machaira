@@ -3,6 +3,7 @@ import { useReader } from '../stores/reader'
 import { useNotes as useNotesStore } from '../stores/notes'
 import { useUi } from '../stores/ui'
 import { passageRefMatchesSelection } from '../utils/passageRef'
+import type { Note } from '../services/api'
 
 // Note-taking capability shared by Read and Study: a quick-capture composer anchored to the
 // current passage (verse, range, or chapter) plus the list of notes on that passage. Extracted
@@ -16,6 +17,7 @@ export function useNotes() {
   const body = ref('')
   const bodyEl = ref<HTMLTextAreaElement | null>(null)
   const saved = ref(false)
+  const savedNote = ref<Note | null>(null)
   const error = ref<string | null>(null)
   const saving = ref(false)
   const selectedAnchor = ref<string | null>(null)
@@ -49,11 +51,13 @@ export function useNotes() {
     clearTimeout(savedTimer)
     saving.value = true
     try {
-      await notes.create({
+      const created = await notes.create({
         title: originalTitle.trim() || originalAnchor,
         body: text,
         refs: [originalAnchor]
       })
+      if (!created) return
+      savedNote.value = created
       if (title.value === originalTitle) title.value = ''
       if (body.value === originalBody) body.value = ''
       if (!body.value && !title.value && selectedAnchor.value === originalAnchor) selectedAnchor.value = null
@@ -77,21 +81,26 @@ export function useNotes() {
 
   function anchorSelection(reference: string, quote: string): void {
     if (!reference.trim() || !quote.trim()) return
-    // Do not silently attach an existing draft to a different passage.
-    if ((body.value.trim() || title.value.trim()) && anchor.value !== reference) {
-      error.value = 'Save the current note before starting a note on another selection.'
-      return
-    }
-    selectedAnchor.value = reference
+    if (!anchorPassage(reference)) return
     // The existing note contract stores verse ranges; a quote preserves the selected
     // word/phrase boundaries without introducing a second reference storage format.
     if (!body.value.trim()) body.value = `> ${quote.trim().replace(/\n/g, '\n> ')}\n\n`
+  }
+
+  function anchorPassage(reference: string): boolean {
+    // Do not silently attach an existing draft to a different passage.
+    if ((body.value.trim() || title.value.trim()) && anchor.value !== reference) {
+      error.value = 'Save the current note before starting a note on another selection.'
+      return false
+    }
+    selectedAnchor.value = reference
     error.value = null
+    return true
   }
 
   function relDate(ts: number): string {
     return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
   }
 
-  return { title, body, bodyEl, saved, error, saving, anchor, anchorSelection, passageNotes, save, openNote, focusComposer, relDate }
+  return { title, body, bodyEl, saved, savedNote, error, saving, anchor, anchorPassage, anchorSelection, passageNotes, save, openNote, focusComposer, relDate }
 }
