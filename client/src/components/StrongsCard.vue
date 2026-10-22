@@ -11,7 +11,9 @@ defineProps<{ entry: StrongsPayload }>()
       <span class="strongs-phon">{{ entry.phonetic }}</span>
       <span class="strongs-key">{{ entry.key }}</span>
     </div>
-    <div class="strongs-def">{{ entry.definition }}</div>
+    <div class="strongs-def">
+      {{ entry.definition }}
+    </div>
   </div>
 </template>
 

@@ -220,10 +220,10 @@ export function useCompare(opts: UseCompareOptions = {}) {
     if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return
     if (e.key === 'ArrowRight') {
       e.preventDefault()
-      stepVerse(1)
+      void stepVerse(1)
     } else if (e.key === 'ArrowLeft') {
       e.preventDefault()
-      stepVerse(-1)
+      void stepVerse(-1)
     }
   }
 

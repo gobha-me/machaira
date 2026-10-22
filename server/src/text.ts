@@ -28,7 +28,7 @@ function decodeEntities(input: string): string {
 // spaces after opening brackets/quotes. Never joins two word characters, so it can't
 // glue words the way SWORD's own strip filter does.
 function tighten(input: string): string {
-  return input.replace(/\s+([,.;:!?)\]”’])/g, '$1').replace(/([(\[“‘])\s+/g, '$1')
+  return input.replace(/\s+([,.;:!?)\]”’])/g, '$1').replace(/([([“‘])\s+/g, '$1')
 }
 
 function stripInline(input: string): string {

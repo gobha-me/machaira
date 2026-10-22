@@ -1,4 +1,6 @@
 <script setup lang="ts">
+// Keep the existing import path while giving the component a descriptive multiword name.
+defineOptions({ name: 'ToggleSwitch' })
 const props = defineProps<{ modelValue: boolean; disabled?: boolean }>()
 const emit = defineEmits<{ (e: 'update:modelValue', v: boolean): void }>()
 
@@ -8,19 +10,23 @@ function toggle() {
 </script>
 
 <template>
-  <span
+  <button
+    type="button"
     class="toggle"
     :class="{ on: modelValue, disabled }"
     role="switch"
     :aria-checked="modelValue"
+    :disabled="disabled"
     @click="toggle"
   >
-    <span class="knob"></span>
-  </span>
+    <span class="knob" />
+  </button>
 </template>
 
 <style scoped>
 .toggle {
+  border: 0;
+  padding: 0;
   width: 36px;
   height: 21px;
   border-radius: 11px;

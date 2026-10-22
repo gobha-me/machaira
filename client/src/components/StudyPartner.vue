@@ -154,9 +154,9 @@ async function openScripture(messageId: string, target: ScriptureTarget): Promis
 <template>
   <aside class="partner">
     <div class="partner-topbar">
-      <div class="mark"></div>
+      <div class="mark" />
       <span class="ptitle">Study partner</span>
-      <div class="spacer"></div>
+      <div class="spacer" />
       <div class="history-wrap">
         <button
           class="history-toggle"
@@ -164,10 +164,28 @@ async function openScripture(messageId: string, target: ScriptureTarget): Promis
           :aria-expanded="historyOpen"
           aria-haspopup="menu"
           @click="historyOpen = !historyOpen"
-        >History</button>
-        <div v-if="historyOpen" class="history-menu" role="menu" aria-label="Conversation history">
-          <button class="new-chat" role="menuitem" @click="newConversation">＋ New Chat</button>
-          <div v-if="!chats.list.length" class="history-empty">No saved conversations yet.</div>
+        >
+          History
+        </button>
+        <div
+          v-if="historyOpen"
+          class="history-menu"
+          role="menu"
+          aria-label="Conversation history"
+        >
+          <button
+            class="new-chat"
+            role="menuitem"
+            @click="newConversation"
+          >
+            ＋ New Chat
+          </button>
+          <div
+            v-if="!chats.list.length"
+            class="history-empty"
+          >
+            No saved conversations yet.
+          </div>
           <div
             v-for="conversation in chats.list"
             :key="conversation.id"
@@ -179,12 +197,30 @@ async function openScripture(messageId: string, target: ScriptureTarget): Promis
               class="rename-form"
               @submit.prevent="saveRename(conversation.id)"
             >
-              <input v-model="renameDraft" maxlength="120" aria-label="Conversation title" />
-              <button type="submit" :disabled="!renameDraft.trim()">Save</button>
-              <button type="button" @click="renamingId = null">Cancel</button>
+              <input
+                v-model="renameDraft"
+                maxlength="120"
+                aria-label="Conversation title"
+              >
+              <button
+                type="submit"
+                :disabled="!renameDraft.trim()"
+              >
+                Save
+              </button>
+              <button
+                type="button"
+                @click="renamingId = null"
+              >
+                Cancel
+              </button>
             </form>
             <template v-else>
-              <button class="history-select" role="menuitem" @click="selectConversation(conversation.id)">
+              <button
+                class="history-select"
+                role="menuitem"
+                @click="selectConversation(conversation.id)"
+              >
                 <span>{{ conversation.title }}</span>
                 <small>{{ relativeDate(conversation.updatedAt) }}</small>
               </button>
@@ -193,13 +229,17 @@ async function openScripture(messageId: string, target: ScriptureTarget): Promis
                 title="Rename conversation"
                 :aria-label="`Rename ${conversation.title}`"
                 @click="beginRename(conversation.id, conversation.title)"
-              >✎</button>
+              >
+                ✎
+              </button>
               <button
                 class="history-action danger"
                 title="Delete conversation"
                 :aria-label="`Delete ${conversation.title}`"
                 @click="removeConversation(conversation.id, conversation.title)"
-              >×</button>
+              >
+                ×
+              </button>
             </template>
           </div>
         </div>
@@ -207,39 +247,89 @@ async function openScripture(messageId: string, target: ScriptureTarget): Promis
       <span class="model">{{ aiProvider.provider?.model ?? 'not connected' }}</span>
     </div>
 
-    <div ref="bodyEl" class="partner-body" :class="{ chatting: messages.length }" @scroll="trackScroll">
-      <div v-if="aiProvider.loading && !aiProvider.ready" class="disabled-note">
-        <div class="dn-title serif">Connecting…</div>
+    <div
+      ref="bodyEl"
+      class="partner-body"
+      :class="{ chatting: messages.length }"
+      @scroll="trackScroll"
+    >
+      <div
+        v-if="aiProvider.loading && !aiProvider.ready"
+        class="disabled-note"
+      >
+        <div class="dn-title serif">
+          Connecting…
+        </div>
       </div>
-      <div v-else-if="!aiProvider.provider" class="disabled-note">
-        <div class="dn-title serif">Bring your own model</div>
+      <div
+        v-else-if="!aiProvider.provider"
+        class="disabled-note"
+      >
+        <div class="dn-title serif">
+          Bring your own model
+        </div>
         <p>
           The study partner talks to an LLM — any OpenAI-compatible endpoint, Claude, or a local
           model. Connect a provider in Settings to enable chat about this passage.
         </p>
-        <button class="dn-btn" @click="ui.go('settings')">Open Settings →</button>
+        <button
+          class="dn-btn"
+          @click="ui.go('settings')"
+        >
+          Open Settings →
+        </button>
       </div>
-      <div v-else-if="chats.loading" class="disabled-note">
-        <div class="dn-title serif">Loading conversation…</div>
+      <div
+        v-else-if="chats.loading"
+        class="disabled-note"
+      >
+        <div class="dn-title serif">
+          Loading conversation…
+        </div>
       </div>
-      <div v-else-if="!messages.length" class="disabled-note">
-        <div class="dn-title serif">Ask about this passage</div>
+      <div
+        v-else-if="!messages.length"
+        class="disabled-note"
+      >
+        <div class="dn-title serif">
+          Ask about this passage
+        </div>
         <p :title="`${passage.reference} · ${passage.module}`">
           {{ passage.reference }} from {{ passage.module }} is included as context.
           Conversations are saved to your account.
         </p>
-        <p v-if="chats.error" class="chat-error" role="alert">{{ chats.error }}</p>
+        <p
+          v-if="chats.error"
+          class="chat-error"
+          role="alert"
+        >
+          {{ chats.error }}
+        </p>
       </div>
-      <div v-else class="messages" aria-live="polite">
-        <template v-for="(message, index) in messages" :key="message.id">
+      <div
+        v-else
+        class="messages"
+        aria-live="polite"
+      >
+        <template
+          v-for="(message, index) in messages"
+          :key="message.id"
+        >
           <div
             v-if="contextBefore(index)"
             class="context-chip"
             :title="`Context · ${contextBefore(index)!.reference} · ${contextBefore(index)!.module}`"
-          >Context · {{ contextBefore(index)!.reference }} · {{ contextBefore(index)!.module }}</div>
-          <div class="message" :class="message.role">
+          >
+            Context · {{ contextBefore(index)!.reference }} · {{ contextBefore(index)!.module }}
+          </div>
+          <div
+            class="message"
+            :class="message.role"
+          >
             <div class="message-head">
-              <div class="message-role">{{ message.role === 'user' ? 'You' : 'Study partner' }}</div>
+              <div class="message-role">
+                {{ message.role === 'user' ? 'You' : 'Study partner' }}
+              </div>
               <template v-if="message.role === 'assistant'">
                 <button
                   class="copy-response"
@@ -247,7 +337,9 @@ async function openScripture(messageId: string, target: ScriptureTarget): Promis
                   :disabled="!message.content"
                   :aria-label="`Copy response from ${message.createdAt ? new Date(message.createdAt).toLocaleString() : 'study partner'}`"
                   @click="copyResponse(message)"
-                >Copy</button>
+                >
+                  Copy
+                </button>
                 <span
                   v-if="copyFeedback[message.id]"
                   class="copy-feedback"
@@ -256,45 +348,94 @@ async function openScripture(messageId: string, target: ScriptureTarget): Promis
                 >{{ copyFeedback[message.id].text }}</span>
               </template>
             </div>
-            <div v-if="message.role === 'user'" class="message-content plain-message">
+            <div
+              v-if="message.role === 'user'"
+              class="message-content plain-message"
+            >
               {{ message.content }}
             </div>
-            <div v-else class="message-content assistant-message">
+            <div
+              v-else
+              class="message-content assistant-message"
+            >
               <MarkdownContent
                 v-if="message.content"
                 :source="message.content"
                 scripture-links
                 @open-scripture="openScripture(message.id, $event)"
               />
-              <span v-if="message.status === 'streaming'" class="stream-cursor"></span>
-              <div v-if="referenceErrors[message.id]" class="reference-error" role="alert">
+              <span
+                v-if="message.status === 'streaming'"
+                class="stream-cursor"
+              />
+              <div
+                v-if="referenceErrors[message.id]"
+                class="reference-error"
+                role="alert"
+              >
                 {{ referenceErrors[message.id] }}
               </div>
-              <div v-if="message.status === 'failed' || message.status === 'interrupted'" class="message-status" role="status">
+              <div
+                v-if="message.status === 'failed' || message.status === 'interrupted'"
+                class="message-status"
+                role="status"
+              >
                 <span>{{ message.status === 'interrupted' ? 'Response interrupted.' : (message.error || 'Response failed.') }}</span>
-                <button v-if="retryable(message, index)" :disabled="chats.sending || chats.loading" @click="retry(message)">Retry</button>
+                <button
+                  v-if="retryable(message, index)"
+                  :disabled="chats.sending || chats.loading"
+                  @click="retry(message)"
+                >
+                  Retry
+                </button>
               </div>
             </div>
           </div>
         </template>
-        <div v-if="chats.error" class="chat-error" role="alert">{{ chats.error }}</div>
+        <div
+          v-if="chats.error"
+          class="chat-error"
+          role="alert"
+        >
+          {{ chats.error }}
+        </div>
       </div>
     </div>
 
-    <form class="composer" @submit.prevent="send">
+    <form
+      class="composer"
+      @submit.prevent="send"
+    >
       <input
         v-model="chats.draft"
         aria-label="Ask the study partner"
         :disabled="!aiProvider.provider || chats.sending || chats.loading"
         :placeholder="aiProvider.provider ? `Ask about ${passage.reference}` : 'Connect a provider in Settings to chat'"
-      />
+      >
       <VoiceInputButton
         v-model="chats.draft"
         label="study question"
         :disabled="!aiProvider.provider || chats.sending || chats.loading"
       />
-      <button v-if="chats.sending" type="button" class="send cancel" title="Stop response" aria-label="Stop response" @click="chats.stop">■</button>
-      <button v-else type="submit" class="send" aria-label="Send question" :disabled="!aiProvider.provider || chats.loading || !chats.draft.trim() || !passage.content">→</button>
+      <button
+        v-if="chats.sending"
+        type="button"
+        class="send cancel"
+        title="Stop response"
+        aria-label="Stop response"
+        @click="chats.stop"
+      >
+        ■
+      </button>
+      <button
+        v-else
+        type="submit"
+        class="send"
+        aria-label="Send question"
+        :disabled="!aiProvider.provider || chats.loading || !chats.draft.trim() || !passage.content"
+      >
+        →
+      </button>
     </form>
   </aside>
 </template>

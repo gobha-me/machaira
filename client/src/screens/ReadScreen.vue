@@ -25,7 +25,7 @@ const plan = useReadingPlan()
 
 function openTodayReading() {
   const first = plan.firstUnreadToday
-  if (first && reader.moduleName) reader.openRef(reader.moduleName, first.book, first.chapter)
+  if (first && reader.moduleName) void reader.openRef(reader.moduleName, first.book, first.chapter)
 }
 
 const versesStyle = computed(() => ({
@@ -50,7 +50,7 @@ onMounted(() => {
   // Guard the init like Study already does. Screens are swapped, not kept alive, so a bare
   // init() re-ran loadChapter on every visit to Read — which nulls the selection and refetches
   // the chapter, so a range built in Study evaporated on the way back.
-  if (!reader.ready) reader.init()
+  if (!reader.ready) void reader.init()
 })
 
 const sectionLabels: Record<BookEntry['section'], string> = {
@@ -193,7 +193,7 @@ const {
 } = useWordStudy()
 
 async function tapReaderWord(keys: string[]) {
-  openTools()
+  void openTools()
   await tapWord(keys)
 }
 
@@ -219,7 +219,7 @@ const chapterHasStrongs = computed(
 
 function openWordStudy() {
   wordStudyOn.value = true
-  openTools()
+  void openTools()
 }
 
 function closeWordStudy() {
@@ -253,7 +253,7 @@ const {
 function openCompare() {
   // Set active first — loadCompare reads it synchronously.
   compareOpen.value = true
-  openTools()
+  void openTools()
   syncCompare()
 }
 
@@ -265,7 +265,7 @@ function closeCompare() {
 const commentaryOpen = ref(false)
 function openCommentary() {
   commentaryOpen.value = true
-  openTools()
+  void openTools()
 }
 function closeCommentary() {
   commentaryOpen.value = false
@@ -275,7 +275,7 @@ function closeCommentary() {
 const crossReferencesOpen = ref(false)
 function openCrossReferences() {
   crossReferencesOpen.value = true
-  openTools()
+  void openTools()
 }
 function closeCrossReferences() {
   crossReferencesOpen.value = false
@@ -337,11 +337,11 @@ function menuCrossReferences() {
   dismiss()
 }
 function menuHighlight() {
-  reader.toggleHighlightRange(reader.selectedVerses)
+  void reader.toggleHighlightRange(reader.selectedVerses)
   dismiss()
 }
 async function menuNote() {
-  openTools()
+  void openTools()
   dismiss()
   await nextTick()
   focusNoteComposer()
@@ -350,16 +350,31 @@ async function menuNote() {
 
 <template>
   <!-- Empty state: nothing installed -->
-  <div v-if="reader.ready && reader.installedBibles.length === 0" class="empty-screen">
+  <div
+    v-if="reader.ready && reader.installedBibles.length === 0"
+    class="empty-screen"
+  >
     <div class="empty-card">
-      <div class="empty-mark"></div>
-      <h2 class="serif">No translations yet</h2>
+      <div class="empty-mark" />
+      <h2 class="serif">
+        No translations yet
+      </h2>
       <p>Download a translation in the Library to start reading.</p>
-      <button class="empty-btn" @click="ui.go('library')">Open the Library →</button>
+      <button
+        class="empty-btn"
+        @click="ui.go('library')"
+      >
+        Open the Library →
+      </button>
     </div>
   </div>
 
-  <div v-else class="read" @keydown.esc="onReadEscape">
+  <!-- eslint-disable-next-line vuejs-accessibility/no-static-element-interactions -- Handle Escape bubbling from reader controls without making the container a focus target. -->
+  <div
+    v-else
+    class="read"
+    @keydown.esc="onReadEscape"
+  >
     <!-- top bar -->
     <div class="topbar">
       <div class="pick">
@@ -373,11 +388,20 @@ async function menuNote() {
           <span class="chip-label">{{ reader.bookName }} {{ reader.chapter }}</span>
           <span class="caret">▾</span>
         </button>
-        <div v-if="bookOpen" id="reader-book-picker" class="panel book-panel">
+        <div
+          v-if="bookOpen"
+          id="reader-book-picker"
+          class="panel book-panel"
+        >
           <div class="book-cols">
             <div class="book-list">
-              <template v-for="g in grouped" :key="g.key">
-                <div class="book-group-label">{{ g.label }}</div>
+              <template
+                v-for="g in grouped"
+                :key="g.key"
+              >
+                <div class="book-group-label">
+                  {{ g.label }}
+                </div>
                 <button
                   v-for="b in g.books"
                   :key="b.code"
@@ -415,7 +439,11 @@ async function menuNote() {
         >
           <span class="chip-label">{{ reader.moduleName }}</span><span class="caret">▾</span>
         </button>
-        <div v-if="transOpen" id="reader-translation-picker" class="panel trans-panel">
+        <div
+          v-if="transOpen"
+          id="reader-translation-picker"
+          class="panel trans-panel"
+        >
           <button
             v-for="m in reader.installedBibles"
             :key="m.name"
@@ -424,25 +452,40 @@ async function menuNote() {
             :aria-label="`${m.name}: ${m.description}`"
             @click="pickModule(m.name)"
           >
-            <span class="trans-mark" :style="{ background: reader.moduleName === m.name ? 'var(--accent)' : 'transparent' }"></span>
+            <span
+              class="trans-mark"
+              :style="{ background: reader.moduleName === m.name ? 'var(--accent)' : 'transparent' }"
+            />
             <span class="trans-tag">{{ m.name }}</span>
             <span class="trans-name">{{ m.description }}</span>
           </button>
           <div class="trans-foot">
-            <button class="link" @click="transOpen = false; ui.go('study')">Compare translations side by side →</button>
+            <button
+              class="link"
+              @click="transOpen = false; ui.go('study')"
+            >
+              Compare translations side by side →
+            </button>
           </div>
         </div>
       </div>
 
-      <div class="spacer"></div>
-      <button class="ghost hover-ink" @click="ui.go('study')">Study this chapter</button>
+      <div class="spacer" />
+      <button
+        class="ghost hover-ink"
+        @click="ui.go('study')"
+      >
+        Study this chapter
+      </button>
       <button
         ref="toolsToggleEl"
         class="tools-toggle hover-line"
         aria-controls="passage-tools"
         :aria-expanded="toolsOpen"
         @click="toolsOpen ? closeTools() : openTools()"
-      >Tools</button>
+      >
+        Tools
+      </button>
       <button
         class="listen"
         :class="{ disabled: !hasTTS }"
@@ -459,14 +502,38 @@ async function menuNote() {
     <div class="body">
       <div class="cols">
         <div class="reading">
-          <div v-if="reader.loadingChapter" class="loading">Loading…</div>
-          <p v-else-if="reader.error" class="error" role="alert">{{ reader.error }}</p>
+          <div
+            v-if="reader.loadingChapter"
+            class="loading"
+          >
+            Loading…
+          </div>
+          <p
+            v-else-if="reader.error"
+            class="error"
+            role="alert"
+          >
+            {{ reader.error }}
+          </p>
           <template v-else-if="reader.data">
-            <div class="eyebrow">{{ sectionLabels[reader.currentBook?.section ?? 'nt'] }}</div>
-            <h1 class="serif">{{ reader.bookName }} <span class="accent">{{ reader.chapter }}</span></h1>
-            <div class="meta" :title="activeTranslationLabel">{{ reader.data.verses.length }} verses · {{ reader.moduleName }}</div>
+            <div class="eyebrow">
+              {{ sectionLabels[reader.currentBook?.section ?? 'nt'] }}
+            </div>
+            <h1 class="serif">
+              {{ reader.bookName }} <span class="accent">{{ reader.chapter }}</span>
+            </h1>
+            <div
+              class="meta"
+              :title="activeTranslationLabel"
+            >
+              {{ reader.data.verses.length }} verses · {{ reader.moduleName }}
+            </div>
 
-            <div class="verses serif" :style="versesStyle">
+            <div
+              class="verses serif"
+              :style="versesStyle"
+            >
+              <!-- eslint-disable-next-line vuejs-accessibility/click-events-have-key-events, vuejs-accessibility/no-static-element-interactions -- Prose gestures supplement the native verse-number and word buttons. -->
               <span
                 v-for="v in reader.data.verses"
                 :key="v.n"
@@ -491,32 +558,43 @@ async function menuNote() {
                   @keydown="onVerseKeydown(v.n, $event)"
                 >{{ v.n }}</button><template
                   v-if="(settings.showFootnotes && v.notes.length) || wordsRevealed"
-                ><template v-for="(seg, i) in v.segments" :key="i"><template
-                    v-if="seg.kind === 'word' && wordsTappableIn(v.n)"
-                  >{{ segLead(v.segments, i) }}<button
-                      type="button"
-                      class="wtap"
-                      :aria-label="`Study ${seg.text} (${seg.strongs.join(', ')})`"
-                      @click.stop="onWordClick(v.n, seg.strongs, $event)"
-                    >{{ seg.text }}</button></template><sup
-                    v-else-if="seg.kind === 'note' && settings.showFootnotes"
-                    class="noteref"
-                    :title="seg.text"
-                  >{{ seg.label }}</sup><template
-                    v-else-if="seg.kind === 'note'"
-                  ></template><template
-                    v-else
-                  >{{ segLead(v.segments, i) + seg.text }}</template></template></template><template v-else>{{ v.text }}</template>{{ ' ' }}</span>
+                ><template
+                  v-for="(seg, i) in v.segments"
+                  :key="i"
+                ><template
+                  v-if="seg.kind === 'word' && wordsTappableIn(v.n)"
+                >{{ segLead(v.segments, i) }}<button
+                  type="button"
+                  class="wtap"
+                  :aria-label="`Study ${seg.text} (${seg.strongs.join(', ')})`"
+                  @click.stop="onWordClick(v.n, seg.strongs, $event)"
+                >{{ seg.text }}</button></template><sup
+                  v-else-if="seg.kind === 'note' && settings.showFootnotes"
+                  class="noteref"
+                  :title="seg.text"
+                >{{ seg.label }}</sup><template
+                  v-else-if="seg.kind === 'note'"
+                /><template
+                  v-else
+                >{{ segLead(v.segments, i) + seg.text }}</template></template></template><template v-else>{{ v.text }}</template>{{ ' ' }}</span>
             </div>
 
-            <div v-if="settings.showFootnotes && chapterNotes.length" class="notes">
-              <div class="notes-label">Notes</div>
-              <div v-for="(note, i) in chapterNotes" :key="i" class="note-row">
+            <div
+              v-if="settings.showFootnotes && chapterNotes.length"
+              class="notes"
+            >
+              <div class="notes-label">
+                Notes
+              </div>
+              <div
+                v-for="(note, i) in chapterNotes"
+                :key="i"
+                class="note-row"
+              >
                 <span class="note-key">{{ note.verse }}<span class="note-mark">{{ note.label }}</span></span>
                 <span class="note-text">{{ note.text }}</span>
               </div>
             </div>
-
           </template>
         </div>
 
@@ -525,8 +603,9 @@ async function menuNote() {
           class="tools-backdrop"
           aria-hidden="true"
           @click="closeTools"
-        ></div>
+        />
 
+        <!-- eslint-disable-next-line vuejs-accessibility/no-static-element-interactions -- Handle Escape bubbling from passage-tool controls. -->
         <aside
           id="passage-tools"
           class="rail-side"
@@ -536,7 +615,14 @@ async function menuNote() {
         >
           <div class="tools-drawer-head">
             <span>Passage tools</span>
-            <button ref="toolsCloseEl" class="word-card-close hover-ink" aria-label="Close passage tools" @click="closeTools">✕</button>
+            <button
+              ref="toolsCloseEl"
+              class="word-card-close hover-ink"
+              aria-label="Close passage tools"
+              @click="closeTools"
+            >
+              ✕
+            </button>
           </div>
           <div
             v-if="compareOpen"
@@ -544,7 +630,12 @@ async function menuNote() {
           >
             <div class="word-card-head">
               <span class="word-card-label">Compare · {{ reader.bookName }} {{ reader.chapter }}:{{ compareFocusLabel }}</span>
-              <button class="word-card-close hover-ink" @click="closeCompare">✕</button>
+              <button
+                class="word-card-close hover-ink"
+                @click="closeCompare"
+              >
+                ✕
+              </button>
             </div>
             <ComparePanel
               variant="rail"
@@ -554,7 +645,11 @@ async function menuNote() {
             />
           </div>
 
-          <CommentaryPanel v-if="commentaryOpen" closable @close="closeCommentary" />
+          <CommentaryPanel
+            v-if="commentaryOpen"
+            closable
+            @close="closeCommentary"
+          />
 
           <CrossReferencesPanel
             v-if="crossReferencesOpen"
@@ -572,40 +667,94 @@ async function menuNote() {
           >
             <div class="word-card-head">
               <span class="word-card-label">Word study<template v-if="strongsKey"> · {{ strongsKey }}</template></span>
-              <button class="word-card-close hover-ink" @click="closeWordStudy">✕</button>
+              <button
+                class="word-card-close hover-ink"
+                @click="closeWordStudy"
+              >
+                ✕
+              </button>
             </div>
-            <div v-if="strongsLoading" class="word-card-state">Looking up…</div>
-            <p v-else-if="strongsError" class="word-card-error" role="alert">{{ strongsError }}</p>
-            <StrongsCard v-else-if="strongsEntry" :entry="strongsEntry" />
-            <p v-else-if="!chapterHasStrongs" class="word-card-state">
+            <div
+              v-if="strongsLoading"
+              class="word-card-state"
+            >
+              Looking up…
+            </div>
+            <p
+              v-else-if="strongsError"
+              class="word-card-error"
+              role="alert"
+            >
+              {{ strongsError }}
+            </p>
+            <StrongsCard
+              v-else-if="strongsEntry"
+              :entry="strongsEntry"
+            />
+            <p
+              v-else-if="!chapterHasStrongs"
+              class="word-card-state"
+            >
               This translation isn’t Strong’s-tagged. Switch to a tagged translation (e.g. KJVA) to study words.
             </p>
-            <p v-else class="word-card-state">Tap a highlighted word in the passage to open its Greek or Hebrew entry.</p>
+            <p
+              v-else
+              class="word-card-state"
+            >
+              Tap a highlighted word in the passage to open its Greek or Hebrew entry.
+            </p>
           </div>
 
           <div class="note-card">
             <div class="note-card-head">
               <span class="note-card-label">Notes</span>
-              <span v-if="noteSaved" class="note-saved">Saved ✓</span>
+              <span
+                v-if="noteSaved"
+                class="note-saved"
+              >Saved ✓</span>
             </div>
-            <div v-if="reader.currentRef" class="note-anchor">{{ reader.currentRef }}</div>
+            <div
+              v-if="reader.currentRef"
+              class="note-anchor"
+            >
+              {{ reader.currentRef }}
+            </div>
             <input
               v-model="noteTitle"
+              aria-label="Note title"
               class="note-title-input"
               type="text"
               placeholder="Title (optional)"
-            />
+            >
             <textarea
               ref="noteBodyEl"
               v-model="noteBody"
+              aria-label="Note body"
               class="note-input"
               placeholder="Jot a note on this passage…"
-            ></textarea>
-            <p v-if="noteError" class="error" role="alert">{{ noteError }}</p>
-            <button class="note-save" :disabled="!noteBody.trim() || noteSaving" @click="saveNote">Save note</button>
+            />
+            <p
+              v-if="noteError"
+              class="error"
+              role="alert"
+            >
+              {{ noteError }}
+            </p>
+            <button
+              class="note-save"
+              :disabled="!noteBody.trim() || noteSaving"
+              @click="saveNote"
+            >
+              Save note
+            </button>
 
-            <div v-if="passageNotes.length" class="note-list">
-              <div class="note-list-label">On this passage</div>
+            <div
+              v-if="passageNotes.length"
+              class="note-list"
+            >
+              <div class="note-list-label">
+                On this passage
+              </div>
               <div class="note-list-scroll">
                 <button
                   v-for="n in passageNotes"
@@ -621,33 +770,67 @@ async function menuNote() {
           </div>
 
           <div class="hint-card">
-            <div class="hint-label">Reading</div>
-            <div class="hint-body" :title="activeTranslationLabel">
+            <div class="hint-label">
+              Reading
+            </div>
+            <div
+              class="hint-body"
+              :title="activeTranslationLabel"
+            >
               {{ reader.moduleName }} · {{ reader.bookName }} {{ reader.chapter }}
             </div>
           </div>
 
-          <div v-if="plan.enabled" class="plan-card">
-            <div class="plan-label">Reading plan · Day {{ plan.currentDay }}/{{ PLAN_DAYS }}</div>
-            <div class="plan-today">{{ plan.todayLabel }}</div>
-            <div class="plan-track"><div class="plan-fill" :style="{ width: plan.percent + '%' }"></div></div>
+          <div
+            v-if="plan.enabled"
+            class="plan-card"
+          >
+            <div class="plan-label">
+              Reading plan · Day {{ plan.currentDay }}/{{ PLAN_DAYS }}
+            </div>
+            <div class="plan-today">
+              {{ plan.todayLabel }}
+            </div>
+            <div class="plan-track">
+              <div
+                class="plan-fill"
+                :style="{ width: plan.percent + '%' }"
+              />
+            </div>
             <div class="plan-meta">
               {{ plan.chaptersRead }}/{{ plan.totalChapters }} chapters
               <span :class="{ ok: plan.onTrack }">· {{ plan.onTrack ? 'on track' : `${plan.behindBy} behind` }}</span>
             </div>
             <div class="plan-actions">
-              <button class="plan-open" @click="openTodayReading">Open today</button>
+              <button
+                class="plan-open"
+                @click="openTodayReading"
+              >
+                Open today
+              </button>
               <button
                 class="plan-mark"
                 :class="{ done: plan.todayComplete }"
                 @click="plan.markDayRead(plan.currentDayIndex)"
-              >{{ plan.todayComplete ? 'Read ✓' : 'Mark read' }}</button>
+              >
+                {{ plan.todayComplete ? 'Read ✓' : 'Mark read' }}
+              </button>
             </div>
           </div>
 
-          <div v-if="reader.highlightError" class="error" role="alert">{{ reader.highlightError }}</div>
-          <div class="hint-text desktop-hint">Select any verse to compare, highlight, or start a note.</div>
-          <div class="hint-text mobile-hint">Tap a verse to select it. Long-press another verse to select a range and open its actions.</div>
+          <div
+            v-if="reader.highlightError"
+            class="error"
+            role="alert"
+          >
+            {{ reader.highlightError }}
+          </div>
+          <div class="hint-text desktop-hint">
+            Select any verse to compare, highlight, or start a note.
+          </div>
+          <div class="hint-text mobile-hint">
+            Tap a verse to select it. Long-press another verse to select a range and open its actions.
+          </div>
         </aside>
       </div>
     </div>
@@ -668,7 +851,10 @@ async function menuNote() {
     />
 
     <!-- listen bar -->
-    <div v-if="listening" class="listenbar">
+    <div
+      v-if="listening"
+      class="listenbar"
+    >
       <button
         class="seek"
         type="button"
@@ -676,7 +862,9 @@ async function menuNote() {
         aria-label="Previous verse"
         title="Previous verse"
         @click="playPrevious"
-      >←</button>
+      >
+        ←
+      </button>
       <button
         class="play"
         :class="{ recovery: needsAudioGesture || listeningError }"
@@ -686,8 +874,14 @@ async function menuNote() {
         :aria-label="playbackLabel"
         @click="togglePlay"
       >
-        <span v-if="preparingAudio" class="listen-spinner" aria-hidden="true"></span>
-        <template v-else>{{ needsAudioGesture ? 'Tap to start audio' : listeningError ? 'Retry' : playing ? '❚❚' : '▶' }}</template>
+        <span
+          v-if="preparingAudio"
+          class="listen-spinner"
+          aria-hidden="true"
+        />
+        <template v-else>
+          {{ needsAudioGesture ? 'Tap to start audio' : listeningError ? 'Retry' : playing ? '❚❚' : '▶' }}
+        </template>
       </button>
       <button
         class="seek"
@@ -696,10 +890,21 @@ async function menuNote() {
         aria-label="Next verse"
         title="Next verse"
         @click="playNext"
-      >→</button>
+      >
+        →
+      </button>
       <div class="listen-meta">
-        <div class="listen-title" :title="`${reader.bookName} ${reader.chapter} · ${activeTranslationLabel}`">{{ reader.bookName }} {{ reader.chapter }} · {{ reader.moduleName }}</div>
-        <div class="listen-sub" :class="{ error: listeningError }" aria-live="polite">
+        <div
+          class="listen-title"
+          :title="`${reader.bookName} ${reader.chapter} · ${activeTranslationLabel}`"
+        >
+          {{ reader.bookName }} {{ reader.chapter }} · {{ reader.moduleName }}
+        </div>
+        <div
+          class="listen-sub"
+          :class="{ error: listeningError }"
+          aria-live="polite"
+        >
           {{ listeningError
             ? listeningError
             : listeningComplete
@@ -721,8 +926,19 @@ async function menuNote() {
         :aria-valuenow="preparingAudio ? preparationProgress : progressPct"
         aria-valuemin="0"
         aria-valuemax="100"
-      ><div class="listen-fill" :style="{ width: (preparingAudio ? preparationProgress : progressPct) + '%' }"></div></div>
-      <button class="listen-close hover-ink" aria-label="Close read-aloud" @click="stopListening">Close</button>
+      >
+        <div
+          class="listen-fill"
+          :style="{ width: (preparingAudio ? preparationProgress : progressPct) + '%' }"
+        />
+      </div>
+      <button
+        class="listen-close hover-ink"
+        aria-label="Close read-aloud"
+        @click="stopListening"
+      >
+        Close
+      </button>
     </div>
   </div>
 </template>

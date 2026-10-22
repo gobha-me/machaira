@@ -78,6 +78,7 @@ onBeforeUnmount(() => {
 
 <template>
   <Teleport to="body">
+    <!-- eslint-disable-next-line vuejs-accessibility/click-events-have-key-events, vuejs-accessibility/no-static-element-interactions -- Backdrop dismissal supplements the dialog Escape handler and explicit close controls. -->
     <div
       ref="root"
       class="dialog-backdrop"
@@ -87,7 +88,9 @@ onBeforeUnmount(() => {
       :aria-labelledby="labelledby"
       tabindex="-1"
       @click.self="emit('close')"
-    ><slot /></div>
+    >
+      <slot />
+    </div>
   </Teleport>
 </template>
 

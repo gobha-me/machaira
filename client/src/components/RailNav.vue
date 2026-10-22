@@ -13,8 +13,10 @@ const visibleScreens = computed(() => SCREENS.filter((s) => s.id !== 'plan' || p
 <template>
   <nav class="rail">
     <div class="brand">
-      <div class="brand-mark"></div>
-      <div class="brand-name serif">Sword</div>
+      <div class="brand-mark" />
+      <div class="brand-name serif">
+        Sword
+      </div>
     </div>
     <div class="rail-items">
       <button
@@ -24,7 +26,10 @@ const visibleScreens = computed(() => SCREENS.filter((s) => s.id !== 'plan' || p
         :aria-current="ui.screen === s.id ? 'page' : undefined"
         @click="ui.go(s.id)"
       >
-        <span class="rail-dot" :style="{ background: ui.screen === s.id ? 'var(--accent)' : 'transparent' }"></span>
+        <span
+          class="rail-dot"
+          :style="{ background: ui.screen === s.id ? 'var(--accent)' : 'transparent' }"
+        />
         <span
           class="rail-label"
           :style="{
@@ -34,7 +39,9 @@ const visibleScreens = computed(() => SCREENS.filter((s) => s.id !== 'plan' || p
         >{{ s.label }}</span>
       </button>
     </div>
-    <div class="rail-foot">⌘K<br />search</div>
+    <div class="rail-foot">
+      ⌘K<br>search
+    </div>
   </nav>
 </template>
 

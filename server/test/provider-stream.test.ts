@@ -55,6 +55,7 @@ it('reports cancellation rather than a completed response', async (t) => {
   controller.abort()
   t.mock.method(globalThis, 'fetch', async () => { throw controller.signal.reason })
   await assert.rejects(async () => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Drain the stream to exercise completion and failure paths.
     for await (const _delta of streamProviderChat({
       config: { kind: 'local', baseUrl: 'https://provider.invalid/v1', model: 'test', hasApiKey: false }, apiKey: null
     }, input, controller.signal)) { /* no completed response */ }

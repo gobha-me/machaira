@@ -63,14 +63,14 @@ export function useCommentary(opts: UseCommentaryOptions = {}) {
 
   function setModule(name: string) {
     settings.setCommentaryModule(name)
-    load()
+    void load()
   }
 
   // Reload on module/chapter change (installing a commentary flips activeModule null→name).
   watch(
     () => [activeModule.value, reader.book, reader.chapter],
     () => {
-      if (active.value) load()
+      if (active.value) void load()
     }
   )
 

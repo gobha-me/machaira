@@ -31,10 +31,17 @@ async function submit() {
 
 <template>
   <main class="auth-page">
-    <form class="auth-card" @submit.prevent="submit">
-      <div class="brand-mark"></div>
-      <div class="eyebrow">Sword</div>
-      <h1 class="serif">{{ bootstrapping ? 'Create the owner account' : 'Welcome back' }}</h1>
+    <form
+      class="auth-card"
+      @submit.prevent="submit"
+    >
+      <div class="brand-mark" />
+      <div class="eyebrow">
+        Sword
+      </div>
+      <h1 class="serif">
+        {{ bootstrapping ? 'Create the owner account' : 'Welcome back' }}
+      </h1>
       <p>
         {{ bootstrapping
           ? 'This first account administers access to this Sword instance.'
@@ -43,7 +50,11 @@ async function submit() {
 
       <label>
         Username
-        <input v-model="username" required autocomplete="username" autofocus />
+        <input
+          v-model="username"
+          required
+          autocomplete="username"
+        >
       </label>
       <label>
         Password
@@ -53,15 +64,30 @@ async function submit() {
           type="password"
           :autocomplete="bootstrapping ? 'new-password' : 'current-password'"
           minlength="12"
-        />
+        >
       </label>
       <label v-if="bootstrapping">
         Confirm password
-        <input v-model="confirming" required type="password" autocomplete="new-password" minlength="12" />
+        <input
+          v-model="confirming"
+          required
+          type="password"
+          autocomplete="new-password"
+          minlength="12"
+        >
       </label>
 
-      <div v-if="error" class="error" role="alert">{{ error }}</div>
-      <button class="submit" :disabled="busy">
+      <div
+        v-if="error"
+        class="error"
+        role="alert"
+      >
+        {{ error }}
+      </div>
+      <button
+        class="submit"
+        :disabled="busy"
+      >
         {{ busy ? 'Please wait…' : bootstrapping ? 'Create owner' : 'Sign in' }}
       </button>
     </form>

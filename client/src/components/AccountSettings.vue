@@ -96,75 +96,199 @@ onMounted(loadUsers)
 </script>
 
 <template>
-  <div class="section-label">Account</div>
+  <div class="section-label">
+    Account
+  </div>
   <div class="card">
     <div class="row bordered">
       <div class="row-text">
-        <div class="row-title">{{ auth.user?.username }}</div>
-        <div class="row-sub">{{ auth.isAdmin ? 'Administrator' : 'Member' }}</div>
+        <div class="row-title">
+          {{ auth.user?.username }}
+        </div>
+        <div class="row-sub">
+          {{ auth.isAdmin ? 'Administrator' : 'Member' }}
+        </div>
       </div>
-      <div class="spacer"></div>
-      <button class="pill action hover-line" @click="auth.logout">Sign out</button>
+      <div class="spacer" />
+      <button
+        class="pill action hover-line"
+        @click="auth.logout"
+      >
+        Sign out
+      </button>
     </div>
-    <form class="password-form" @submit.prevent="changePassword">
+    <form
+      class="password-form"
+      @submit.prevent="changePassword"
+    >
       <div class="row-text">
-        <div class="row-title">Change password</div>
-        <div class="row-sub">At least 12 characters; all other sessions will be signed out</div>
+        <div class="row-title">
+          Change password
+        </div>
+        <div class="row-sub">
+          At least 12 characters; all other sessions will be signed out
+        </div>
       </div>
       <div class="fields">
-        <input v-model="currentPassword" required type="password" autocomplete="current-password" placeholder="Current password" />
-        <input v-model="newPassword" required type="password" autocomplete="new-password" minlength="12" placeholder="New password" />
-        <input v-model="confirmPassword" required type="password" autocomplete="new-password" minlength="12" placeholder="Confirm new password" />
-        <button class="pill action hover-line" :disabled="busy">Update password</button>
+        <input
+          v-model="currentPassword"
+          aria-label="Current password"
+          required
+          type="password"
+          autocomplete="current-password"
+          placeholder="Current password"
+        >
+        <input
+          v-model="newPassword"
+          aria-label="New password"
+          required
+          type="password"
+          autocomplete="new-password"
+          minlength="12"
+          placeholder="New password"
+        >
+        <input
+          v-model="confirmPassword"
+          aria-label="Confirm new password"
+          required
+          type="password"
+          autocomplete="new-password"
+          minlength="12"
+          placeholder="Confirm new password"
+        >
+        <button
+          class="pill action hover-line"
+          :disabled="busy"
+        >
+          Update password
+        </button>
       </div>
-      <div v-if="accountError" class="message error">{{ accountError }}</div>
-      <div v-if="accountMessage" class="message">{{ accountMessage }}</div>
+      <div
+        v-if="accountError"
+        class="message error"
+      >
+        {{ accountError }}
+      </div>
+      <div
+        v-if="accountMessage"
+        class="message"
+      >
+        {{ accountMessage }}
+      </div>
     </form>
   </div>
 
   <template v-if="auth.isAdmin">
-    <div class="section-label">Users</div>
+    <div class="section-label">
+      Users
+    </div>
     <div class="card">
-      <form class="create-form bordered" @submit.prevent="createUser">
-        <div class="row-title">Provision an account</div>
+      <form
+        class="create-form bordered"
+        @submit.prevent="createUser"
+      >
+        <div class="row-title">
+          Provision an account
+        </div>
         <div class="fields horizontal">
-          <input v-model="newUsername" required autocomplete="off" placeholder="Username" />
-          <input v-model="newUserPassword" required type="password" autocomplete="new-password" minlength="12" placeholder="Temporary password" />
-          <select v-model="newUserRole">
-            <option value="member">Member</option>
-            <option value="admin">Administrator</option>
+          <input
+            v-model="newUsername"
+            aria-label="Username"
+            required
+            autocomplete="off"
+            placeholder="Username"
+          >
+          <input
+            v-model="newUserPassword"
+            aria-label="Temporary password"
+            required
+            type="password"
+            autocomplete="new-password"
+            minlength="12"
+            placeholder="Temporary password"
+          >
+          <select
+            v-model="newUserRole"
+            aria-label="Account role"
+          >
+            <option value="member">
+              Member
+            </option>
+            <option value="admin">
+              Administrator
+            </option>
           </select>
-          <button class="pill action hover-line" :disabled="busy">Create</button>
+          <button
+            class="pill action hover-line"
+            :disabled="busy"
+          >
+            Create
+          </button>
         </div>
       </form>
-      <div v-for="user in users" :key="user.id" class="user-row bordered">
+      <div
+        v-for="user in users"
+        :key="user.id"
+        class="user-row bordered"
+      >
         <div class="row-text">
           <div class="row-title">
             {{ user.username }}
-            <span v-if="user.id === auth.user?.id" class="badge">You</span>
+            <span
+              v-if="user.id === auth.user?.id"
+              class="badge"
+            >You</span>
           </div>
-          <div class="row-sub">{{ user.role === 'admin' ? 'Administrator' : 'Member' }}{{ user.disabled ? ' · Disabled' : '' }}</div>
+          <div class="row-sub">
+            {{ user.role === 'admin' ? 'Administrator' : 'Member' }}{{ user.disabled ? ' · Disabled' : '' }}
+          </div>
         </div>
-        <div class="spacer"></div>
+        <div class="spacer" />
         <template v-if="resettingId === user.id">
-          <input v-model="resetPassword" class="reset-input" type="password" minlength="12" placeholder="New password" />
-          <button class="pill action hover-line" @click="resetUser(user)">Save</button>
-          <button class="pill action hover-line" @click="resettingId = null; resetPassword = ''">Cancel</button>
+          <input
+            v-model="resetPassword"
+            aria-label="New password"
+            class="reset-input"
+            type="password"
+            minlength="12"
+            placeholder="New password"
+          >
+          <button
+            class="pill action hover-line"
+            @click="resetUser(user)"
+          >
+            Save
+          </button>
+          <button
+            class="pill action hover-line"
+            @click="resettingId = null; resetPassword = ''"
+          >
+            Cancel
+          </button>
         </template>
         <template v-else>
           <button
             class="pill action hover-line"
             :disabled="user.id === auth.user?.id"
             @click="resettingId = user.id"
-          >Reset password</button>
+          >
+            Reset password
+          </button>
           <button
             class="pill action hover-line"
             :disabled="user.id === auth.user?.id"
             @click="setDisabled(user)"
-          >{{ user.disabled ? 'Enable' : 'Disable' }}</button>
+          >
+            {{ user.disabled ? 'Enable' : 'Disable' }}
+          </button>
         </template>
       </div>
-      <div v-if="usersError" class="message error users-error">{{ usersError }}</div>
+      <div
+        v-if="usersError"
+        class="message error users-error"
+      >
+        {{ usersError }}
+      </div>
     </div>
   </template>
 </template>

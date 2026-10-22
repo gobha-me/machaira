@@ -16,8 +16,10 @@ import {
   type SemanticSources
 } from '../src/semantic.ts'
 
-async function listen(handler: (request: IncomingMessage, response: ServerResponse) => void) {
-  const server = createServer(handler)
+async function listen(handler: (request: IncomingMessage, response: ServerResponse) => void | Promise<void>) {
+  const server = createServer((request, response) => {
+    void Promise.resolve(handler(request, response)).catch((error: Error) => response.destroy(error))
+  })
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   const address = server.address()
   assert.ok(address && typeof address === 'object')

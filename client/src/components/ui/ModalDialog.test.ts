@@ -1,7 +1,6 @@
 // @vitest-environment happy-dom
-// Focused behavioral a11y coverage avoids a repository-wide lint migration: existing
-// prose gesture templates need a separate semantic rewrite. Keyboard activation,
-// dynamic focus containment, and error recovery also require runtime assertions.
+// Keyboard activation, dynamic focus containment, and error recovery supplement
+// the static accessibility checks with runtime assertions.
 import { afterEach, describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { defineComponent, nextTick, ref } from 'vue'

@@ -172,7 +172,7 @@ export function usePassageMenu(opts: UsePassageMenuOptions = {}) {
       onVerseClick(n, e)
       return
     }
-    opts.onWordTap?.(n, strongs)
+    void opts.onWordTap?.(n, strongs)
   }
 
   function onSelectionKey(e: KeyboardEvent) {

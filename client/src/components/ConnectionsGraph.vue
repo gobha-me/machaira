@@ -36,21 +36,28 @@ function shortLabel(label: string): string {
 
 <template>
   <div class="graph-wrap">
-    <div class="filters" aria-label="Connection types">
+    <div
+      class="filters"
+      aria-label="Connection types"
+    >
       <button
         class="filter cross"
         :class="{ active: showCrossReferences }"
         :disabled="!hasCrossReferences"
         :aria-pressed="showCrossReferences"
         @click="showCrossReferences = !showCrossReferences"
-      ><span></span>References</button>
+      >
+        <span />References
+      </button>
       <button
         class="filter theme"
         :class="{ active: showThematic }"
         :disabled="!hasThematic"
         :aria-pressed="showThematic"
         @click="showThematic = !showThematic"
-      ><span></span>Thematic</button>
+      >
+        <span />Thematic
+      </button>
     </div>
 
     <svg
@@ -81,9 +88,23 @@ function shortLabel(label: string): string {
         @keydown.enter.prevent="emit('select', node)"
         @keydown.space.prevent="emit('select', node)"
       >
-        <circle :cx="node.x" :cy="node.y" :r="node.seed ? 12 : 9" />
-        <circle v-if="node.id === selectedId" class="focus-ring" :cx="node.x" :cy="node.y" :r="node.seed ? 17 : 14" />
-        <text :x="node.x" :y="node.y + (node.seed ? 27 : 23)" text-anchor="middle">
+        <circle
+          :cx="node.x"
+          :cy="node.y"
+          :r="node.seed ? 12 : 9"
+        />
+        <circle
+          v-if="node.id === selectedId"
+          class="focus-ring"
+          :cx="node.x"
+          :cy="node.y"
+          :r="node.seed ? 17 : 14"
+        />
+        <text
+          :x="node.x"
+          :y="node.y + (node.seed ? 27 : 23)"
+          text-anchor="middle"
+        >
           {{ shortLabel(node.label) }}
         </text>
       </g>

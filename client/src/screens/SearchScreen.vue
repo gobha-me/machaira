@@ -164,7 +164,7 @@ function openHit(h: SearchHit) {
     selectedGeneral.value = h
     return
   }
-  reader.openRef(h.module, h.book, h.chapter, h.verse)
+  void reader.openRef(h.module, h.book, h.chapter, h.verse)
   ui.go('read')
 }
 
@@ -194,7 +194,9 @@ const resultCount = computed(() => scriptureHits.value.length + (showNotes.value
 <template>
   <div class="scroll">
     <div class="wrap">
-      <h1 class="serif">Search your library</h1>
+      <h1 class="serif">
+        Search your library
+      </h1>
       <div class="subtitle">
         Search installed scripture and ancient writings by exact text or meaning. Notes and journal entries use exact text.
       </div>
@@ -206,17 +208,26 @@ const resultCount = computed(() => scriptureHits.value.length + (showNotes.value
           aria-label="Search words or phrases"
           placeholder="Search words or phrases…"
           @keydown.enter="run"
+        >
+        <VoiceInputButton
+          v-model="q"
+          label="search query"
         />
-        <VoiceInputButton v-model="q" label="search query" />
       </div>
 
-      <div class="modes" role="group" aria-label="Search mode">
+      <div
+        class="modes"
+        role="group"
+        aria-label="Search mode"
+      >
         <button
           class="mode"
           :class="{ active: mode === 'exact' }"
           :aria-pressed="mode === 'exact'"
           @click="mode = 'exact'; searched && run()"
-        >Exact words</button>
+        >
+          Exact words
+        </button>
         <button
           class="mode"
           :class="{ active: mode === 'meaning' }"
@@ -226,19 +237,43 @@ const resultCount = computed(() => scriptureHits.value.length + (showNotes.value
             ? 'Notes use exact-text search'
             : semantic.searchable ? 'Rank scripture by semantic similarity' : semantic.statusText"
           @click="mode = 'meaning'; searched && run()"
-        >By meaning</button>
+        >
+          By meaning
+        </button>
       </div>
 
-      <div v-if="!semantic.searchable || semantic.status.lastError || semantic.error" class="status" role="status">
-        <div v-if="!semantic.searchable">Semantic index: {{ semantic.status.state }} · {{ semantic.statusText }}</div>
-        <div v-else-if="semantic.status.lastError">The last rebuild failed; meaning search still uses the old index.</div>
-        <div v-if="semantic.status.lastError">Last rebuild error: {{ semantic.status.lastError }}</div>
-        <div v-if="semantic.error">{{ semantic.error }}</div>
+      <div
+        v-if="!semantic.searchable || semantic.status.lastError || semantic.error"
+        class="status"
+        role="status"
+      >
+        <div v-if="!semantic.searchable">
+          Semantic index: {{ semantic.status.state }} · {{ semantic.statusText }}
+        </div>
+        <div v-else-if="semantic.status.lastError">
+          The last rebuild failed; meaning search still uses the old index.
+        </div>
+        <div v-if="semantic.status.lastError">
+          Last rebuild error: {{ semantic.status.lastError }}
+        </div>
+        <div v-if="semantic.error">
+          {{ semantic.error }}
+        </div>
         <div>Exact-word search does not use the semantic index.</div>
-        <button class="mode" type="button" @click="ui.openSemanticSettings()">Settings → Semantic search</button>
+        <button
+          class="mode"
+          type="button"
+          @click="ui.openSemanticSettings()"
+        >
+          Settings → Semantic search
+        </button>
       </div>
 
-      <div class="scopes" role="group" aria-label="Search scope">
+      <div
+        class="scopes"
+        role="group"
+        aria-label="Search scope"
+      >
         <button
           v-for="s in SCOPES"
           :key="s"
@@ -250,30 +285,54 @@ const resultCount = computed(() => scriptureHits.value.length + (showNotes.value
             borderColor: scope === s ? 'var(--accent)' : 'var(--line)'
           }"
           @click="selectScope(s)"
-        >{{ s }}</button>
+        >
+          {{ s }}
+        </button>
       </div>
 
       <template v-if="loading">
-        <div class="status" role="status">{{ retrying ? 'The server is temporarily unavailable. Retrying…' : 'Searching…' }}</div>
+        <div
+          class="status"
+          role="status"
+        >
+          {{ retrying ? 'The server is temporarily unavailable. Retrying…' : 'Searching…' }}
+        </div>
       </template>
 
-      <div v-else-if="error" class="error" role="alert">
+      <div
+        v-else-if="error"
+        class="error"
+        role="alert"
+      >
         <p>{{ error }}</p>
-        <button class="mode" type="button" @click="run">Retry</button>
+        <button
+          class="mode"
+          type="button"
+          @click="run"
+        >
+          Retry
+        </button>
       </div>
 
       <template v-else-if="searched">
-        <div class="count" aria-live="polite">
+        <div
+          class="count"
+          aria-live="polite"
+        >
           Showing {{ resultCount }} result{{ resultCount === 1 ? '' : 's' }}
-          <template v-if="showScripture && installedNames.length"> · {{ mode === 'meaning' ? 'top 50 corpus matches' : 'up to 50 matches per Scripture module; 200 per ancient writing' }}</template>
-          <template v-if="showScripture && !installedNames.length"> · install a translation to search scripture</template>
+          <template v-if="showScripture && installedNames.length">
+            · {{ mode === 'meaning' ? 'top 50 corpus matches' : 'up to 50 matches per Scripture module; 200 per ancient writing' }}
+          </template>
+          <template v-if="showScripture && !installedNames.length">
+            · install a translation to search scripture
+          </template>
         </div>
 
         <div class="results">
           <button
-            type="button"
             v-for="(h, i) in scriptureHits"
             :key="'s' + i"
+            type="button"
             class="result hover-line"
             @click="openHit(h)"
           >
@@ -281,16 +340,14 @@ const resultCount = computed(() => scriptureHits.value.length + (showNotes.value
               <span class="rref">{{ h.kind === 'scripture' ? `${h.bookName} ${h.chapter}:${h.verse}` : h.title }}</span>
               <span class="badge">{{ h.module }}</span>
             </span>
-            <span
-              class="rtext serif"
-              v-html="mode === 'exact' ? highlight(h.content) : escapeHtml(h.content)"
-            ></span>
+            <!-- eslint-disable-next-line vue/no-v-html, vue/max-attributes-per-line -- highlight escapes content before adding mark tags; escapeHtml handles other results. Keep the tag on one line for a local suppression. -->
+            <span class="rtext serif" v-html="mode === 'exact' ? highlight(h.content) : escapeHtml(h.content)" />
           </button>
 
           <button
-            type="button"
             v-for="n in (showNotes ? noteHits : [])"
             :key="n.id"
+            type="button"
             class="result note-result hover-line"
             @click="openNote(n.id)"
           >
@@ -298,24 +355,53 @@ const resultCount = computed(() => scriptureHits.value.length + (showNotes.value
               <span class="rref">{{ n.title }}</span>
               <span class="badge">Your journal</span>
             </span>
-            <span class="rtext-note" v-html="highlight(n.body.slice(0, 200))"></span>
+            <!-- eslint-disable-next-line vue/no-v-html, vue/max-attributes-per-line -- highlight escapes note content before adding mark tags. Keep the tag on one line for a local suppression. -->
+            <span class="rtext-note" v-html="highlight(n.body.slice(0, 200))" />
           </button>
 
-          <div v-if="resultCount === 0" class="status">
+          <div
+            v-if="resultCount === 0"
+            class="status"
+          >
             No matches for “{{ q }}”. Try different words, or broaden the scope.
           </div>
         </div>
       </template>
 
-      <div v-else class="status hint">Type a word or phrase and press Enter.</div>
+      <div
+        v-else
+        class="status hint"
+      >
+        Type a word or phrase and press Enter.
+      </div>
 
-      <ModalDialog v-if="selectedGeneral?.kind === 'general-book'" labelledby="search-entry-title" @close="selectedGeneral = null">
+      <ModalDialog
+        v-if="selectedGeneral?.kind === 'general-book'"
+        labelledby="search-entry-title"
+        @close="selectedGeneral = null"
+      >
         <article class="entry-dialog">
-          <button aria-label="Close" @click="selectedGeneral = null">×</button>
-          <div class="badge">{{ selectedGeneral.module }}</div>
-          <h2 id="search-entry-title" class="serif">{{ selectedGeneral.title }}</h2>
-          <p class="entry-key">{{ selectedGeneral.key }}</p>
-          <div class="entry-text serif">{{ selectedGeneral.content }}</div>
+          <button
+            aria-label="Close"
+            @click="selectedGeneral = null"
+          >
+            ×
+          </button>
+          <div class="badge">
+            {{ selectedGeneral.module }}
+          </div>
+          <h2
+            id="search-entry-title"
+            class="serif"
+          >
+            {{ selectedGeneral.title }}
+          </h2>
+          <p class="entry-key">
+            {{ selectedGeneral.key }}
+          </p>
+          <div class="entry-text serif">
+            {{ selectedGeneral.content }}
+          </div>
         </article>
       </ModalDialog>
     </div>

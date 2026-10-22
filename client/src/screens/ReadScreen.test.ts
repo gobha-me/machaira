@@ -84,7 +84,7 @@ describe('reader keyboard accessibility', () => {
     expect(useReader().selectedVerses).toEqual([1])
     const toolbar = document.querySelector('[role="toolbar"]')!
     expect(toolbar.contains(document.activeElement)).toBe(true)
-    expect(document.activeElement?.textContent).toBe('Word study')
+    expect(document.activeElement?.textContent?.trim()).toBe('Word study')
     await user.keyboard('{Escape}')
     expect(document.querySelector('[role="toolbar"]')).toBeNull()
     expect(document.activeElement).toBe(number)

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
-import { createServer } from 'node:http'
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { describe, it } from 'node:test'
 import { buildApp } from '../src/app.ts'
 import { openDatabase } from '../src/database.ts'
@@ -26,7 +26,7 @@ describe('effective deployment defaults', () => {
       const bootstrap = await app.inject({ method: 'POST', url: '/api/auth/bootstrap', payload: {
         username: 'Owner', password: 'correct horse battery staple'
       } })
-      const headers = { cookie: String(bootstrap.headers['set-cookie']).split(';')[0]! }
+      const headers = { cookie: String(bootstrap.headers['set-cookie']).split(';')[0] }
       const get = async (url: string) => (await app.inject({ method: 'GET', url, headers })).json()
       const put = (url: string, payload: object) => app.inject({ method: 'PUT', url, headers, payload })
       assert.deepEqual((await get('/api/embeddings/provider')).provider, {
@@ -86,14 +86,18 @@ describe('effective deployment defaults', () => {
   it('uses defaults for real requests without leaking orphaned account keys and surfaces upstream failures', async () => {
     let failing = false
     const paths: string[] = []
-    const upstream = createServer(async (request, response) => {
+    async function respond(request: IncomingMessage, response: ServerResponse) {
       assert.equal(request.headers.authorization, undefined)
       paths.push(request.url!)
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Drain the stream to exercise completion and failure paths.
       for await (const _chunk of request) { /* Drain the provider request. */ }
       if (failing) { response.writeHead(400); response.end('provider unavailable'); return }
       if (request.url === '/v1/embeddings') response.end(JSON.stringify({ data: [{ index: 0, embedding: [1, 0] }] }))
       else if (request.url === '/v1/audio/transcriptions') response.end(JSON.stringify({ text: 'Love one another.' }))
       else { response.setHeader('content-type', 'audio/mpeg'); response.end('audio') }
+    }
+    const upstream = createServer((request, response) => {
+      void respond(request, response).catch((error: Error) => response.destroy(error))
     })
     await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve))
     const address = upstream.address()

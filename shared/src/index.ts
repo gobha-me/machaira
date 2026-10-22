@@ -70,7 +70,7 @@ function normalizedBook(value: string): string {
 
 const BY_NAME = new Map<string, BookInfo>()
 const REFERENCE_NAMES = new Set<string>()
-for (const [code, name, _section, aliases = []] of DEFINITIONS) {
+for (const [code, name, , aliases = []] of DEFINITIONS) {
   const book = BY_CODE.get(code)!
   for (const value of [code, name, ...aliases]) {
     BY_NAME.set(normalizedBook(value), book)

@@ -50,65 +50,200 @@ async function toggleAi(module: ModuleInfo, enabled: boolean): Promise<void> {
     <main class="wrap">
       <header class="header">
         <div>
-          <p class="eyebrow">Source library</p>
-          <h1 class="serif">Build your study corpus</h1>
-          <p class="intro">Install legally distributed SWORD texts for reading, search, and—when you allow it—local or hosted language tools.</p>
+          <p class="eyebrow">
+            Source library
+          </p>
+          <h1 class="serif">
+            Build your study corpus
+          </h1>
+          <p class="intro">
+            Install legally distributed SWORD texts for reading, search, and—when you allow it—local or hosted language tools.
+          </p>
         </div>
         <div class="header-actions">
-          <button v-if="auth.isAdmin" class="secondary" @click="fileInput?.click()">Import SWORD ZIP</button>
-          <input ref="fileInput" hidden type="file" accept=".zip,application/zip" @change="importFile" />
-          <button class="primary" :disabled="library.loading" @click="library.load(true)">{{ library.loading ? 'Refreshing…' : 'Refresh sources' }}</button>
+          <button
+            v-if="auth.isAdmin"
+            class="secondary"
+            @click="fileInput?.click()"
+          >
+            Import SWORD ZIP
+          </button>
+          <input
+            ref="fileInput"
+            aria-label="Import SWORD ZIP"
+            hidden
+            type="file"
+            accept=".zip,application/zip"
+            @change="importFile"
+          >
+          <button
+            class="primary"
+            :disabled="library.loading"
+            @click="library.load(true)"
+          >
+            {{ library.loading ? 'Refreshing…' : 'Refresh sources' }}
+          </button>
         </div>
       </header>
 
-      <button class="health" :class="{ warning: library.repositoryProblems.length }" @click="healthOpen = !healthOpen">
-        <span class="dot"></span>
+      <button
+        class="health"
+        :class="{ warning: library.repositoryProblems.length }"
+        @click="healthOpen = !healthOpen"
+      >
+        <span class="dot" />
         <span>{{ library.repositoryProblems.length ? `${library.repositoryProblems.length} source refresh failed; cached catalog in use` : `${library.diagnostics.length} repositories · ${library.modules.length.toLocaleString()} sources` }}</span>
         <span class="chevron">{{ healthOpen ? '−' : '+' }}</span>
       </button>
-      <div v-if="healthOpen" class="health-detail">
-        <div v-for="repo in library.diagnostics" :key="repo.name">
+      <div
+        v-if="healthOpen"
+        class="health-detail"
+      >
+        <div
+          v-for="repo in library.diagnostics"
+          :key="repo.name"
+        >
           <strong>{{ repo.name }}</strong><span>{{ repo.moduleCount.toLocaleString() }} modules · {{ repo.status }}</span>
         </div>
       </div>
 
-      <p v-if="library.error" class="error" role="alert">{{ library.error }}</p>
-      <p v-if="importMessage" class="success" role="status">{{ importMessage }}</p>
+      <p
+        v-if="library.error"
+        class="error"
+        role="alert"
+      >
+        {{ library.error }}
+      </p>
+      <p
+        v-if="importMessage"
+        class="success"
+        role="status"
+      >
+        {{ importMessage }}
+      </p>
 
-      <section v-if="library.loaded" class="canon-callout">
+      <section
+        v-if="library.loaded"
+        class="canon-callout"
+      >
         <div>
-          <p class="eyebrow">Canon collection</p>
-          <h2 class="serif">Beyond a single table of contents</h2>
+          <p class="eyebrow">
+            Canon collection
+          </p>
+          <h2 class="serif">
+            Beyond a single table of contents
+          </h2>
           <p>Compare editions with Deuterocanon and discover legally distributed ancient writings such as Enoch or Jubilees. Coverage is shown per exact module version—never inferred from a title.</p>
         </div>
-        <button @click="library.category = 'deuterocanon'">Explore {{ canonModules.length }} sources</button>
+        <button @click="library.category = 'deuterocanon'">
+          Explore {{ canonModules.length }} sources
+        </button>
       </section>
 
-      <section v-if="library.loaded" class="controls">
-        <div class="search"><span>⌕</span><input v-model="library.query" type="search" placeholder="Search title, language, repository, license, or book…" /></div>
-        <select v-model="library.language"><option value="">All languages</option><option v-for="language in library.languages" :key="language.code" :value="language.code">{{ language.label }} ({{ language.count }})</option></select>
+      <section
+        v-if="library.loaded"
+        class="controls"
+      >
+        <div class="search">
+          <span>⌕</span><input
+            v-model="library.query"
+            aria-label="Search sources"
+            type="search"
+            placeholder="Search title, language, repository, license, or book…"
+          >
+        </div>
+        <select
+          v-model="library.language"
+          aria-label="Source language"
+        >
+          <option value="">
+            All languages
+          </option><option
+            v-for="language in library.languages"
+            :key="language.code"
+            :value="language.code"
+          >
+            {{ language.label }} ({{ language.count }})
+          </option>
+        </select>
       </section>
-      <nav v-if="library.loaded" class="categories" aria-label="Library categories">
-        <button v-for="category in categories" :key="category.key" :class="{ active: library.category === category.key }" @click="library.category = category.key">{{ category.label }}</button>
+      <nav
+        v-if="library.loaded"
+        class="categories"
+        aria-label="Library categories"
+      >
+        <button
+          v-for="category in categories"
+          :key="category.key"
+          :class="{ active: library.category === category.key }"
+          @click="library.category = category.key"
+        >
+          {{ category.label }}
+        </button>
       </nav>
 
-      <div v-if="!library.loaded && library.loading" class="empty">Loading the official SWORD catalogs…</div>
+      <div
+        v-if="!library.loaded && library.loading"
+        class="empty"
+      >
+        Loading the official SWORD catalogs…
+      </div>
       <template v-else-if="library.loaded">
-        <div class="result-head"><span>{{ library.filteredModules.length.toLocaleString() }} sources</span><span>{{ library.installedCount }} installed</span></div>
-        <div class="grid">
-          <SourceRow v-for="module in library.filteredModules" :key="module.id" :module="module" :installing="library.installing.has(module.id)" :progress="library.progress[module.id] ?? 0" @install="library.install" @uninstall="library.uninstall" @details="selected = $event" />
+        <div class="result-head">
+          <span>{{ library.filteredModules.length.toLocaleString() }} sources</span><span>{{ library.installedCount }} installed</span>
         </div>
-        <div v-if="!library.filteredModules.length" class="empty">No sources match these filters.</div>
+        <div class="grid">
+          <SourceRow
+            v-for="module in library.filteredModules"
+            :key="module.id"
+            :module="module"
+            :installing="library.installing.has(module.id)"
+            :progress="library.progress[module.id] ?? 0"
+            @install="library.install"
+            @uninstall="library.uninstall"
+            @details="selected = $event"
+          />
+        </div>
+        <div
+          v-if="!library.filteredModules.length"
+          class="empty"
+        >
+          No sources match these filters.
+        </div>
       </template>
     </main>
 
-    <ModalDialog v-if="selected" labelledby="library-details-title" placement="end" @close="selected = null">
+    <ModalDialog
+      v-if="selected"
+      labelledby="library-details-title"
+      placement="end"
+      @close="selected = null"
+    >
       <aside class="drawer">
-        <button class="close" aria-label="Close details" @click="selected = null">×</button>
-        <p class="eyebrow">{{ selected.repository || 'Local import' }}</p>
-        <h2 id="library-details-title" class="serif">{{ selected.description || selected.name }}</h2>
-        <p class="muted">{{ selected.name }} · {{ selected.language.toUpperCase() }}<template v-if="selected.version"> · version {{ selected.version }}</template></p>
-        <p v-if="selected.about">{{ selected.about }}</p>
+        <button
+          class="close"
+          aria-label="Close details"
+          @click="selected = null"
+        >
+          ×
+        </button>
+        <p class="eyebrow">
+          {{ selected.repository || 'Local import' }}
+        </p>
+        <h2
+          id="library-details-title"
+          class="serif"
+        >
+          {{ selected.description || selected.name }}
+        </h2>
+        <p class="muted">
+          {{ selected.name }} · {{ selected.language.toUpperCase() }}<template v-if="selected.version">
+            · version {{ selected.version }}
+          </template>
+        </p>
+        <p v-if="selected.about">
+          {{ selected.about }}
+        </p>
         <dl>
           <div><dt>Kind</dt><dd>{{ selected.kind }}</dd></div>
           <div><dt>Tradition</dt><dd>{{ selected.tradition || 'Not audited' }}</dd></div>
@@ -117,14 +252,42 @@ async function toggleAi(module: ModuleInfo, enabled: boolean): Promise<void> {
           <div><dt>Coverage evidence</dt><dd>{{ selected.coverageSource === 'unknown' ? 'This exact version has not been audited yet' : selected.coverageSource }}</dd></div>
           <div><dt>Edition coverage</dt><dd>{{ selected.coverageSummary }}</dd></div>
         </dl>
-        <div v-if="selected.coverage.length" class="coverage"><span v-for="book in selected.coverage" :key="book">{{ book }}</span></div>
-        <label v-if="selected.installed && (selected.kind === 'scripture' || selected.kind === 'general-book')" class="ai-toggle">
-          <input type="checkbox" :checked="selected.aiEligibility === 'public-domain' || library.preferences[selected.name]" :disabled="selected.aiEligibility === 'public-domain'" @change="toggleAi(selected, ($event.target as HTMLInputElement).checked)" />
+        <div
+          v-if="selected.coverage.length"
+          class="coverage"
+        >
+          <span
+            v-for="book in selected.coverage"
+            :key="book"
+          >{{ book }}</span>
+        </div>
+        <label
+          v-if="selected.installed && (selected.kind === 'scripture' || selected.kind === 'general-book')"
+          class="ai-toggle"
+        >
+          <input
+            type="checkbox"
+            :checked="selected.aiEligibility === 'public-domain' || library.preferences[selected.name]"
+            :disabled="selected.aiEligibility === 'public-domain'"
+            @change="toggleAi(selected, ($event.target as HTMLInputElement).checked)"
+          >
           <span><strong>Allow AI and semantic indexing</strong><small>{{ selected.aiEligibility === 'public-domain' ? 'Automatically eligible: repository marks this public domain.' : 'Off until you review the license and opt in.' }}</small></span>
         </label>
         <div class="drawer-actions">
-          <button v-if="selected.installed" class="secondary" @click="library.uninstall(selected.name); selected = null">Remove</button>
-          <button v-else class="primary" @click="library.install(selected)">Install from {{ selected.repository }}</button>
+          <button
+            v-if="selected.installed"
+            class="secondary"
+            @click="library.uninstall(selected.name); selected = null"
+          >
+            Remove
+          </button>
+          <button
+            v-else
+            class="primary"
+            @click="library.install(selected)"
+          >
+            Install from {{ selected.repository }}
+          </button>
         </div>
       </aside>
     </ModalDialog>

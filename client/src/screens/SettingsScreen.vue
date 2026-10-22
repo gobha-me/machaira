@@ -800,19 +800,27 @@ async function rebuildSemanticIndex(): Promise<void> {
 <template>
   <div class="scroll">
     <div class="wrap">
-      <h1 class="serif">Settings</h1>
+      <h1 class="serif">
+        Settings
+      </h1>
 
       <AccountSettings />
 
       <!-- Appearance -->
-      <div class="section-label">Appearance</div>
+      <div class="section-label">
+        Appearance
+      </div>
       <div class="card">
         <div class="row bordered">
           <div class="row-text">
-            <div class="row-title">Theme</div>
-            <div class="row-sub">Paper for daylight, ink for evenings</div>
+            <div class="row-title">
+              Theme
+            </div>
+            <div class="row-sub">
+              Paper for daylight, ink for evenings
+            </div>
           </div>
-          <div class="spacer"></div>
+          <div class="spacer" />
           <div class="segmented">
             <button
               v-for="t in (['paper', 'ink'] as const)"
@@ -823,15 +831,21 @@ async function rebuildSemanticIndex(): Promise<void> {
                 color: settings.theme === t ? 'var(--on-accent)' : 'var(--muted)'
               }"
               @click="settings.setTheme(t)"
-            >{{ t === 'paper' ? 'Paper' : 'Ink' }}</button>
+            >
+              {{ t === 'paper' ? 'Paper' : 'Ink' }}
+            </button>
           </div>
         </div>
         <div class="row">
           <div class="row-text">
-            <div class="row-title">Accent</div>
-            <div class="row-sub">Verse numbers, highlights, and actions</div>
+            <div class="row-title">
+              Accent
+            </div>
+            <div class="row-sub">
+              Verse numbers, highlights, and actions
+            </div>
           </div>
-          <div class="spacer"></div>
+          <div class="spacer" />
           <div class="swatches">
             <button
               v-for="c in ACCENTS"
@@ -840,40 +854,67 @@ async function rebuildSemanticIndex(): Promise<void> {
               :title="c"
               :style="{ background: c, boxShadow: c === settings.accent ? '0 0 0 2px var(--card), 0 0 0 4px var(--ink)' : '0 0 0 1px var(--line)' }"
               @click="settings.setAccent(c)"
-            ></button>
+            />
           </div>
         </div>
       </div>
 
       <!-- Reading -->
-      <div class="section-label">Reading</div>
+      <div class="section-label">
+        Reading
+      </div>
       <div class="card">
         <div class="row bordered">
           <div class="row-text">
-            <div class="row-title">Scripture text size</div>
-            <div class="row-sub">Applies to the reader and study panes</div>
+            <div class="row-title">
+              Scripture text size
+            </div>
+            <div class="row-sub">
+              Applies to the reader and study panes
+            </div>
           </div>
-          <div class="spacer"></div>
+          <div class="spacer" />
           <div class="stepper">
-            <button class="step hover-soft" @click="settings.bumpTextScale(-0.05)">–</button>
+            <button
+              class="step hover-soft"
+              @click="settings.bumpTextScale(-0.05)"
+            >
+              –
+            </button>
             <span class="step-val">{{ settings.textScalePct }}</span>
-            <button class="step hover-soft" @click="settings.bumpTextScale(0.05)">+</button>
+            <button
+              class="step hover-soft"
+              @click="settings.bumpTextScale(0.05)"
+            >
+              +
+            </button>
           </div>
         </div>
         <div class="row bordered">
           <div class="row-text">
-            <div class="row-title">Extra letter &amp; word spacing</div>
-            <div class="row-sub">Easier tracking for tired or dyslexic eyes</div>
+            <div class="row-title">
+              Extra letter &amp; word spacing
+            </div>
+            <div class="row-sub">
+              Easier tracking for tired or dyslexic eyes
+            </div>
           </div>
-          <div class="spacer"></div>
-          <Toggle :model-value="settings.extraSpacing" @update:model-value="settings.toggle('extraSpacing')" />
+          <div class="spacer" />
+          <Toggle
+            :model-value="settings.extraSpacing"
+            @update:model-value="settings.toggle('extraSpacing')"
+          />
         </div>
         <div class="row bordered translation-default-row">
           <div class="row-text">
-            <div class="row-title">Default translation</div>
-            <div class="row-sub">Opens on a fresh start when no reading position is saved</div>
+            <div class="row-title">
+              Default translation
+            </div>
+            <div class="row-sub">
+              Opens on a fresh start when no reading position is saved
+            </div>
           </div>
-          <div class="spacer"></div>
+          <div class="spacer" />
           <select
             class="setting-select"
             :value="settings.defaultModuleName ?? ''"
@@ -881,36 +922,60 @@ async function rebuildSemanticIndex(): Promise<void> {
             aria-label="Default translation"
             @change="settings.setDefaultModule(($event.target as HTMLSelectElement).value || null)"
           >
-            <option value="">Automatic (WEB)</option>
-            <option v-for="m in reader.installedBibles" :key="m.name" :value="m.name">
+            <option value="">
+              Automatic (WEB)
+            </option>
+            <option
+              v-for="m in reader.installedBibles"
+              :key="m.name"
+              :value="m.name"
+            >
               {{ m.name }} — {{ m.description }}
             </option>
           </select>
         </div>
         <div class="row">
           <div class="row-text">
-            <div class="row-title">Footnotes</div>
-            <div class="row-sub">Show translators’ notes inline and collected under each chapter</div>
+            <div class="row-title">
+              Footnotes
+            </div>
+            <div class="row-sub">
+              Show translators’ notes inline and collected under each chapter
+            </div>
           </div>
-          <div class="spacer"></div>
-          <Toggle :model-value="settings.showFootnotes" @update:model-value="settings.toggle('showFootnotes')" />
+          <div class="spacer" />
+          <Toggle
+            :model-value="settings.showFootnotes"
+            @update:model-value="settings.toggle('showFootnotes')"
+          />
         </div>
         <div class="row">
           <div class="row-text">
-            <div class="row-title">Strong’s numbers</div>
-            <div class="row-sub">Tap a word to open its lexicon entry — on tagged translations (e.g. KJVA)</div>
+            <div class="row-title">
+              Strong’s numbers
+            </div>
+            <div class="row-sub">
+              Tap a word to open its lexicon entry — on tagged translations (e.g. KJVA)
+            </div>
           </div>
-          <div class="spacer"></div>
-          <Toggle :model-value="settings.showStrongs" @update:model-value="settings.toggle('showStrongs')" />
+          <div class="spacer" />
+          <Toggle
+            :model-value="settings.showStrongs"
+            @update:model-value="settings.toggle('showStrongs')"
+          />
         </div>
       </div>
 
       <!-- Compare -->
-      <div class="section-label">Compare</div>
+      <div class="section-label">
+        Compare
+      </div>
       <div class="card">
         <div class="row bordered">
           <div class="row-text">
-            <div class="row-title">Translations to compare</div>
+            <div class="row-title">
+              Translations to compare
+            </div>
             <div class="row-sub">
               Which translations appear side-by-side in Compare. Your reading translation is
               always included.
@@ -923,14 +988,22 @@ async function rebuildSemanticIndex(): Promise<void> {
           class="row"
           :class="{ bordered: i < reader.installedBibles.length - 1 }"
         >
-          <div class="row-text" :title="`${m.name} — ${m.description}`">
+          <div
+            class="row-text"
+            :title="`${m.name} — ${m.description}`"
+          >
             <div class="row-title">
               {{ m.name }}
-              <span v-if="m.name === reader.effectiveDefaultModule" class="badge">Primary</span>
+              <span
+                v-if="m.name === reader.effectiveDefaultModule"
+                class="badge"
+              >Primary</span>
             </div>
-            <div class="row-sub">{{ m.description }}</div>
+            <div class="row-sub">
+              {{ m.description }}
+            </div>
           </div>
-          <div class="spacer"></div>
+          <div class="spacer" />
           <Toggle
             :model-value="inCompare(m.name)"
             :disabled="m.name === reader.effectiveDefaultModule"
@@ -945,59 +1018,125 @@ async function rebuildSemanticIndex(): Promise<void> {
         <span class="soon">{{ ttsOrder.length ? ttsOrder.join(' → ') : 'disabled' }}</span>
       </div>
       <div class="card">
-        <div v-if="deploymentProviders.tts" class="row bordered deployment-provider-row">
+        <div
+          v-if="deploymentProviders.tts"
+          class="row bordered deployment-provider-row"
+        >
           <div class="row-text">
             <div class="row-title">
               {{ providerTitle(deploymentProviders.tts) }}
               <span class="badge">Deployment default{{ ttsProvider.config.deploymentDefault ? ' · active' : '' }}</span>
-              <span class="badge" :class="`readiness-${deploymentProviders.tts.readiness.state}`">
+              <span
+                class="badge"
+                :class="`readiness-${deploymentProviders.tts.readiness.state}`"
+              >
                 {{ deploymentProviders.tts.readiness.state }}
               </span>
             </div>
-            <div class="row-sub">{{ deploymentProviderDetail(deploymentProviders.tts) }}</div>
+            <div class="row-sub">
+              {{ deploymentProviderDetail(deploymentProviders.tts) }}
+            </div>
           </div>
-          <div class="spacer"></div>
-          <button class="pill action" type="button" @click="applyDeploymentProvider('tts')">Use provider</button>
+          <div class="spacer" />
+          <button
+            class="pill action"
+            type="button"
+            @click="applyDeploymentProvider('tts')"
+          >
+            Use provider
+          </button>
         </div>
-        <div v-else-if="deploymentProviderError" class="row bordered provider-warning" role="alert">
+        <div
+          v-else-if="deploymentProviderError"
+          class="row bordered provider-warning"
+          role="alert"
+        >
           Deployment providers unavailable: {{ deploymentProviderError }}
         </div>
         <div class="row bordered">
           <div class="row-text">
-            <div class="row-title">Browser voice</div>
-            <div class="row-sub">Uses the browser or operating system speech service when available</div>
+            <div class="row-title">
+              Browser voice
+            </div>
+            <div class="row-sub">
+              Uses the browser or operating system speech service when available
+            </div>
           </div>
-          <div class="spacer"></div>
+          <div class="spacer" />
           <div class="priority-control">
             <label for="tts-browser-priority">Priority</label>
-            <select id="tts-browser-priority" v-model.number="browserTtsPriority" name="tts-browser-priority" class="setting-select priority-select" autocomplete="off">
-              <option :value="0">Disabled</option>
-              <option :value="1">First</option>
-              <option :value="2">Second</option>
-              <option :value="3">Third</option>
+            <select
+              id="tts-browser-priority"
+              v-model.number="browserTtsPriority"
+              name="tts-browser-priority"
+              class="setting-select priority-select"
+              autocomplete="off"
+            >
+              <option :value="0">
+                Disabled
+              </option>
+              <option :value="1">
+                First
+              </option>
+              <option :value="2">
+                Second
+              </option>
+              <option :value="3">
+                Third
+              </option>
             </select>
           </div>
         </div>
         <div class="row bordered provider-heading">
           <div class="row-text">
-            <div class="row-title">Local TTS</div>
-            <div class="row-sub">Text stays on the configured local network or Kubernetes sidecar</div>
+            <div class="row-title">
+              Local TTS
+            </div>
+            <div class="row-sub">
+              Text stays on the configured local network or Kubernetes sidecar
+            </div>
           </div>
-          <div class="spacer"></div>
+          <div class="spacer" />
           <div class="priority-control">
             <label for="tts-local-priority">Priority</label>
-            <select id="tts-local-priority" v-model.number="localTtsPriority" name="tts-local-priority" class="setting-select priority-select" autocomplete="off" @change="localTtsRemoved = false">
-              <option :value="0">Disabled</option>
-              <option :value="1">First</option>
-              <option :value="2">Second</option>
-              <option :value="3">Third</option>
+            <select
+              id="tts-local-priority"
+              v-model.number="localTtsPriority"
+              name="tts-local-priority"
+              class="setting-select priority-select"
+              autocomplete="off"
+              @change="localTtsRemoved = false"
+            >
+              <option :value="0">
+                Disabled
+              </option>
+              <option :value="1">
+                First
+              </option>
+              <option :value="2">
+                Second
+              </option>
+              <option :value="3">
+                Third
+              </option>
             </select>
           </div>
         </div>
         <div class="row bordered compact-provider-row">
           <div class="provider-field provider-url-field">
             <label for="tts-local-base-url">Base URL</label>
-            <input id="tts-local-base-url" v-model="localTtsBaseUrl" name="tts-local-base-url" class="provider-input provider-url" type="url" autocomplete="off" data-1p-ignore="true" data-bwignore="true" data-lpignore="true" @input="clearDiscovery('tts-local')" />
+            <input
+              id="tts-local-base-url"
+              v-model="localTtsBaseUrl"
+              name="tts-local-base-url"
+              class="provider-input provider-url"
+              type="url"
+              autocomplete="off"
+              data-1p-ignore="true"
+              data-bwignore="true"
+              data-lpignore="true"
+              @input="clearDiscovery('tts-local')"
+            >
           </div>
           <div class="provider-field">
             <label for="tts-local-model">Model</label>
@@ -1023,7 +1162,9 @@ async function rebuildSemanticIndex(): Promise<void> {
               label="Local TTS voice"
               placeholder="Voice ID"
             />
-            <div class="voice-discovery-note">{{ voiceDiscoveryMessage('tts-local') }}</div>
+            <div class="voice-discovery-note">
+              {{ voiceDiscoveryMessage('tts-local') }}
+            </div>
           </div>
         </div>
         <div class="row bordered compact-provider-row">
@@ -1038,7 +1179,13 @@ async function rebuildSemanticIndex(): Promise<void> {
               @update:model-value="clearDiscovery('tts-local')"
             />
           </div>
-          <button id="tts-local-discovery" class="pill action" type="button" :disabled="discovery['tts-local'].loading || !localTtsBaseUrl.trim()" @click="loadTtsModels('local')">
+          <button
+            id="tts-local-discovery"
+            class="pill action"
+            type="button"
+            :disabled="discovery['tts-local'].loading || !localTtsBaseUrl.trim()"
+            @click="loadTtsModels('local')"
+          >
             {{ discovery['tts-local'].loading ? 'Loading…' : discovery['tts-local'].loaded ? 'Refresh models' : 'Test & load models' }}
           </button>
           <button
@@ -1046,35 +1193,78 @@ async function rebuildSemanticIndex(): Promise<void> {
             class="pill action danger"
             type="button"
             @click="removeLocalTts"
-          >Remove local</button>
+          >
+            Remove local
+          </button>
         </div>
         <div class="row bordered provider-heading">
           <div class="row-text">
-            <div class="row-title">Cloud TTS</div>
-            <div class="row-sub">Enabled only through this explicit priority list; verse text is sent to the selected provider</div>
+            <div class="row-title">
+              Cloud TTS
+            </div>
+            <div class="row-sub">
+              Enabled only through this explicit priority list; verse text is sent to the selected provider
+            </div>
           </div>
-          <div class="spacer"></div>
+          <div class="spacer" />
           <div class="priority-control">
             <label for="tts-cloud-priority">Priority</label>
-            <select id="tts-cloud-priority" v-model.number="cloudTtsPriority" name="tts-cloud-priority" class="setting-select priority-select" autocomplete="off" @change="cloudTtsRemoved = false">
-              <option :value="0">Disabled</option>
-              <option :value="1">First</option>
-              <option :value="2">Second</option>
-              <option :value="3">Third</option>
+            <select
+              id="tts-cloud-priority"
+              v-model.number="cloudTtsPriority"
+              name="tts-cloud-priority"
+              class="setting-select priority-select"
+              autocomplete="off"
+              @change="cloudTtsRemoved = false"
+            >
+              <option :value="0">
+                Disabled
+              </option>
+              <option :value="1">
+                First
+              </option>
+              <option :value="2">
+                Second
+              </option>
+              <option :value="3">
+                Third
+              </option>
             </select>
           </div>
         </div>
         <div class="row bordered compact-provider-row">
           <div class="provider-field">
             <label for="tts-cloud-provider">Provider</label>
-            <select id="tts-cloud-provider" v-model="cloudTtsProvider" name="tts-cloud-provider" class="setting-select" autocomplete="off" @change="resetCloudTtsEndpoint">
-              <option value="venice">Venice</option>
-              <option value="openai-compatible">OpenAI-compatible</option>
+            <select
+              id="tts-cloud-provider"
+              v-model="cloudTtsProvider"
+              name="tts-cloud-provider"
+              class="setting-select"
+              autocomplete="off"
+              @change="resetCloudTtsEndpoint"
+            >
+              <option value="venice">
+                Venice
+              </option>
+              <option value="openai-compatible">
+                OpenAI-compatible
+              </option>
             </select>
           </div>
           <div class="provider-field provider-url-field">
             <label for="tts-cloud-base-url">Base URL</label>
-            <input id="tts-cloud-base-url" v-model="cloudTtsBaseUrl" name="tts-cloud-base-url" class="provider-input provider-url" type="url" autocomplete="off" data-1p-ignore="true" data-bwignore="true" data-lpignore="true" @input="clearDiscovery('tts-cloud')" />
+            <input
+              id="tts-cloud-base-url"
+              v-model="cloudTtsBaseUrl"
+              name="tts-cloud-base-url"
+              class="provider-input provider-url"
+              type="url"
+              autocomplete="off"
+              data-1p-ignore="true"
+              data-bwignore="true"
+              data-lpignore="true"
+              @input="clearDiscovery('tts-cloud')"
+            >
           </div>
         </div>
         <div class="row bordered compact-provider-row">
@@ -1104,7 +1294,12 @@ async function rebuildSemanticIndex(): Promise<void> {
               label="Cloud TTS voice"
               placeholder="Voice ID"
             />
-            <div v-if="voiceDiscoveryMessage('tts-cloud')" class="voice-discovery-note">{{ voiceDiscoveryMessage('tts-cloud') }}</div>
+            <div
+              v-if="voiceDiscoveryMessage('tts-cloud')"
+              class="voice-discovery-note"
+            >
+              {{ voiceDiscoveryMessage('tts-cloud') }}
+            </div>
           </div>
           <div class="provider-field provider-key-field">
             <label for="tts-cloud-api-key">API key</label>
@@ -1117,7 +1312,13 @@ async function rebuildSemanticIndex(): Promise<void> {
               @update:model-value="clearDiscovery('tts-cloud')"
             />
           </div>
-          <button id="tts-cloud-discovery" class="pill action" type="button" :disabled="discovery['tts-cloud'].loading || !cloudTtsBaseUrl.trim()" @click="loadTtsModels('cloud')">
+          <button
+            id="tts-cloud-discovery"
+            class="pill action"
+            type="button"
+            :disabled="discovery['tts-cloud'].loading || !cloudTtsBaseUrl.trim()"
+            @click="loadTtsModels('cloud')"
+          >
             {{ discovery['tts-cloud'].loading ? 'Loading…' : discovery['tts-cloud'].loaded ? 'Refresh models' : 'Test & load models' }}
           </button>
           <button
@@ -1125,17 +1326,28 @@ async function rebuildSemanticIndex(): Promise<void> {
             class="pill action danger"
             type="button"
             @click="removeCloudTts"
-          >Remove cloud</button>
+          >
+            Remove cloud
+          </button>
         </div>
-        <div v-if="!ttsOrderValid" class="row bordered provider-warning" role="alert">
+        <div
+          v-if="!ttsOrderValid"
+          class="row bordered provider-warning"
+          role="alert"
+        >
           Enabled providers need unique, consecutive priorities beginning with First.
         </div>
         <div class="row bordered">
           <div class="row-text">
-            <label class="row-title" for="tts-remote-audio-cache-size">Remote audio buffer</label>
-            <div class="row-sub">Verses buffered in the background and retained around the current verse (3–8)</div>
+            <label
+              class="row-title"
+              for="tts-remote-audio-cache-size"
+            >Remote audio buffer</label>
+            <div class="row-sub">
+              Verses buffered in the background and retained around the current verse (3–8)
+            </div>
           </div>
-          <div class="spacer"></div>
+          <div class="spacer" />
           <input
             id="tts-remote-audio-cache-size"
             v-model.number="remoteAudioCacheSize"
@@ -1145,34 +1357,77 @@ async function rebuildSemanticIndex(): Promise<void> {
             min="3"
             max="8"
             step="1"
-          />
+          >
         </div>
         <div class="row bordered provider-actions">
-          <span class="provider-message" :class="{ failed: ttsProvider.error || discovery['tts-local'].error || discovery['tts-cloud'].error || !ttsOrderValid }">{{ ttsMessage }}</span>
-          <div class="spacer"></div>
+          <span
+            class="provider-message"
+            :class="{ failed: ttsProvider.error || discovery['tts-local'].error || discovery['tts-cloud'].error || !ttsOrderValid }"
+          >{{ ttsMessage }}</span>
+          <div class="spacer" />
           <button
             class="pill action save-provider"
             :disabled="ttsProvider.loading || discovery['tts-local'].loading || discovery['tts-cloud'].loading || !ttsReadyToSave"
             @click="saveTtsConfig"
-          >{{ ttsProvider.loading ? 'Saving…' : 'Save read-aloud' }}</button>
+          >
+            {{ ttsProvider.loading ? 'Saving…' : 'Save read-aloud' }}
+          </button>
         </div>
         <div class="row bordered provider-actions">
           <div class="row-text">
-            <div class="row-title">Test voice</div>
-            <div class="row-sub" role="status" aria-live="polite">{{ voiceTestError || (voiceTestPreparing ? 'Preparing voice sample…' : voiceTestComplete ? 'Voice sample complete' : 'Uses the saved read-aloud providers. Save changes before testing.') }}</div>
+            <div class="row-title">
+              Test voice
+            </div>
+            <div
+              class="row-sub"
+              role="status"
+              aria-live="polite"
+            >
+              {{ voiceTestError || (voiceTestPreparing ? 'Preparing voice sample…' : voiceTestComplete ? 'Voice sample complete' : 'Uses the saved read-aloud providers. Save changes before testing.') }}
+            </div>
           </div>
-          <div class="spacer"></div>
-          <button v-if="voiceTestNeedsGesture" class="pill action" type="button" @click="recoverVoiceTest">Tap to start audio</button>
-          <button v-if="voiceTestActive && !voiceTestComplete && !voiceTestError" class="pill action" type="button" @click="stopVoiceTest">Stop sample</button>
-          <button v-else id="tts-test-voice" class="pill action" type="button" :disabled="!voiceTestSupported || ttsProvider.loading" @click="testVoice">Test voice</button>
+          <div class="spacer" />
+          <button
+            v-if="voiceTestNeedsGesture"
+            class="pill action"
+            type="button"
+            @click="recoverVoiceTest"
+          >
+            Tap to start audio
+          </button>
+          <button
+            v-if="voiceTestActive && !voiceTestComplete && !voiceTestError"
+            class="pill action"
+            type="button"
+            @click="stopVoiceTest"
+          >
+            Stop sample
+          </button>
+          <button
+            v-else
+            id="tts-test-voice"
+            class="pill action"
+            type="button"
+            :disabled="!voiceTestSupported || ttsProvider.loading"
+            @click="testVoice"
+          >
+            Test voice
+          </button>
         </div>
         <div class="row">
           <div class="row-text">
-            <div class="row-title">Follow along</div>
-            <div class="row-sub">Highlight each verse as it’s read aloud</div>
+            <div class="row-title">
+              Follow along
+            </div>
+            <div class="row-sub">
+              Highlight each verse as it’s read aloud
+            </div>
           </div>
-          <div class="spacer"></div>
-          <Toggle :model-value="settings.followAlong" @update:model-value="settings.toggle('followAlong')" />
+          <div class="spacer" />
+          <Toggle
+            :model-value="settings.followAlong"
+            @update:model-value="settings.toggle('followAlong')"
+          />
         </div>
       </div>
 
@@ -1182,56 +1437,118 @@ async function rebuildSemanticIndex(): Promise<void> {
         <span class="soon">{{ sttOrder.length ? sttOrder.join(' → ') : 'disabled' }}</span>
       </div>
       <div class="card">
-        <div v-if="deploymentProviders.stt" class="row bordered deployment-provider-row">
+        <div
+          v-if="deploymentProviders.stt"
+          class="row bordered deployment-provider-row"
+        >
           <div class="row-text">
             <div class="row-title">
               {{ providerTitle(deploymentProviders.stt) }}
               <span class="badge">Deployment default{{ sttProvider.config.deploymentDefault ? ' · active' : '' }}</span>
-              <span class="badge" :class="`readiness-${deploymentProviders.stt.readiness.state}`">
+              <span
+                class="badge"
+                :class="`readiness-${deploymentProviders.stt.readiness.state}`"
+              >
                 {{ deploymentProviders.stt.readiness.state }}
               </span>
             </div>
-            <div class="row-sub">{{ deploymentProviderDetail(deploymentProviders.stt) }}</div>
+            <div class="row-sub">
+              {{ deploymentProviderDetail(deploymentProviders.stt) }}
+            </div>
           </div>
-          <div class="spacer"></div>
-          <button class="pill action" type="button" @click="applyDeploymentProvider('stt')">Use provider</button>
+          <div class="spacer" />
+          <button
+            class="pill action"
+            type="button"
+            @click="applyDeploymentProvider('stt')"
+          >
+            Use provider
+          </button>
         </div>
         <div class="row bordered">
           <div class="row-text">
-            <div class="row-title">Browser recognition</div>
-            <div class="row-sub">Uses the browser’s recognition service when genuinely available; the browser vendor may process audio remotely</div>
+            <div class="row-title">
+              Browser recognition
+            </div>
+            <div class="row-sub">
+              Uses the browser’s recognition service when genuinely available; the browser vendor may process audio remotely
+            </div>
           </div>
-          <div class="spacer"></div>
+          <div class="spacer" />
           <div class="priority-control">
             <label for="stt-browser-priority">Priority</label>
-            <select id="stt-browser-priority" v-model.number="browserSttPriority" name="stt-browser-priority" class="setting-select priority-select" autocomplete="off">
-              <option :value="0">Disabled</option>
-              <option :value="1">First</option>
-              <option :value="2">Second</option>
-              <option :value="3">Third</option>
+            <select
+              id="stt-browser-priority"
+              v-model.number="browserSttPriority"
+              name="stt-browser-priority"
+              class="setting-select priority-select"
+              autocomplete="off"
+            >
+              <option :value="0">
+                Disabled
+              </option>
+              <option :value="1">
+                First
+              </option>
+              <option :value="2">
+                Second
+              </option>
+              <option :value="3">
+                Third
+              </option>
             </select>
           </div>
         </div>
         <div class="row bordered provider-heading">
           <div class="row-text">
-            <div class="row-title">Local STT</div>
-            <div class="row-sub">Records in this browser, then sends audio only to the configured local network or private sidecar</div>
+            <div class="row-title">
+              Local STT
+            </div>
+            <div class="row-sub">
+              Records in this browser, then sends audio only to the configured local network or private sidecar
+            </div>
           </div>
-          <div class="spacer"></div>
+          <div class="spacer" />
           <div class="priority-control">
             <label for="stt-local-priority">Priority</label>
-            <select id="stt-local-priority" v-model.number="localSttPriority" name="stt-local-priority" class="setting-select priority-select" autocomplete="off" @change="localSttRemoved = false">
-              <option :value="0">Disabled</option>
-              <option :value="1">First</option>
-              <option :value="2">Second</option>
-              <option :value="3">Third</option>
+            <select
+              id="stt-local-priority"
+              v-model.number="localSttPriority"
+              name="stt-local-priority"
+              class="setting-select priority-select"
+              autocomplete="off"
+              @change="localSttRemoved = false"
+            >
+              <option :value="0">
+                Disabled
+              </option>
+              <option :value="1">
+                First
+              </option>
+              <option :value="2">
+                Second
+              </option>
+              <option :value="3">
+                Third
+              </option>
             </select>
           </div>
         </div>
         <div class="row bordered compact-provider-row">
           <div class="provider-field provider-url-field">
             <label for="stt-local-base-url">Base URL</label>
-            <input id="stt-local-base-url" v-model="localSttBaseUrl" name="stt-local-base-url" class="provider-input provider-url" type="url" autocomplete="off" data-1p-ignore="true" data-bwignore="true" data-lpignore="true" @input="clearDiscovery('stt-local')" />
+            <input
+              id="stt-local-base-url"
+              v-model="localSttBaseUrl"
+              name="stt-local-base-url"
+              class="provider-input provider-url"
+              type="url"
+              autocomplete="off"
+              data-1p-ignore="true"
+              data-bwignore="true"
+              data-lpignore="true"
+              @input="clearDiscovery('stt-local')"
+            >
           </div>
           <div class="provider-field">
             <label for="stt-local-model">Model</label>
@@ -1258,7 +1575,12 @@ async function rebuildSemanticIndex(): Promise<void> {
               @update:model-value="clearDiscovery('stt-local')"
             />
           </div>
-          <button class="pill action" type="button" :disabled="discovery['stt-local'].loading || !localSttBaseUrl.trim()" @click="loadSttModels('local')">
+          <button
+            class="pill action"
+            type="button"
+            :disabled="discovery['stt-local'].loading || !localSttBaseUrl.trim()"
+            @click="loadSttModels('local')"
+          >
             {{ discovery['stt-local'].loading ? 'Loading…' : discovery['stt-local'].loaded ? 'Refresh models' : 'Test & load models' }}
           </button>
           <button
@@ -1266,35 +1588,78 @@ async function rebuildSemanticIndex(): Promise<void> {
             class="pill action danger"
             type="button"
             @click="removeLocalStt"
-          >Remove local</button>
+          >
+            Remove local
+          </button>
         </div>
         <div class="row bordered provider-heading">
           <div class="row-text">
-            <div class="row-title">Cloud STT</div>
-            <div class="row-sub">Microphone audio leaves this deployment only when this tier is explicitly present in the saved order</div>
+            <div class="row-title">
+              Cloud STT
+            </div>
+            <div class="row-sub">
+              Microphone audio leaves this deployment only when this tier is explicitly present in the saved order
+            </div>
           </div>
-          <div class="spacer"></div>
+          <div class="spacer" />
           <div class="priority-control">
             <label for="stt-cloud-priority">Priority</label>
-            <select id="stt-cloud-priority" v-model.number="cloudSttPriority" name="stt-cloud-priority" class="setting-select priority-select" autocomplete="off" @change="cloudSttRemoved = false">
-              <option :value="0">Disabled</option>
-              <option :value="1">First</option>
-              <option :value="2">Second</option>
-              <option :value="3">Third</option>
+            <select
+              id="stt-cloud-priority"
+              v-model.number="cloudSttPriority"
+              name="stt-cloud-priority"
+              class="setting-select priority-select"
+              autocomplete="off"
+              @change="cloudSttRemoved = false"
+            >
+              <option :value="0">
+                Disabled
+              </option>
+              <option :value="1">
+                First
+              </option>
+              <option :value="2">
+                Second
+              </option>
+              <option :value="3">
+                Third
+              </option>
             </select>
           </div>
         </div>
         <div class="row bordered compact-provider-row">
           <div class="provider-field">
             <label for="stt-cloud-provider">Provider</label>
-            <select id="stt-cloud-provider" v-model="cloudSttProvider" name="stt-cloud-provider" class="setting-select" autocomplete="off" @change="resetCloudSttEndpoint">
-              <option value="venice">Venice</option>
-              <option value="openai-compatible">OpenAI-compatible</option>
+            <select
+              id="stt-cloud-provider"
+              v-model="cloudSttProvider"
+              name="stt-cloud-provider"
+              class="setting-select"
+              autocomplete="off"
+              @change="resetCloudSttEndpoint"
+            >
+              <option value="venice">
+                Venice
+              </option>
+              <option value="openai-compatible">
+                OpenAI-compatible
+              </option>
             </select>
           </div>
           <div class="provider-field provider-url-field">
             <label for="stt-cloud-base-url">Base URL</label>
-            <input id="stt-cloud-base-url" v-model="cloudSttBaseUrl" name="stt-cloud-base-url" class="provider-input provider-url" type="url" autocomplete="off" data-1p-ignore="true" data-bwignore="true" data-lpignore="true" @input="clearDiscovery('stt-cloud')" />
+            <input
+              id="stt-cloud-base-url"
+              v-model="cloudSttBaseUrl"
+              name="stt-cloud-base-url"
+              class="provider-input provider-url"
+              type="url"
+              autocomplete="off"
+              data-1p-ignore="true"
+              data-bwignore="true"
+              data-lpignore="true"
+              @input="clearDiscovery('stt-cloud')"
+            >
           </div>
         </div>
         <div class="row bordered compact-provider-row">
@@ -1321,7 +1686,12 @@ async function rebuildSemanticIndex(): Promise<void> {
               @update:model-value="clearDiscovery('stt-cloud')"
             />
           </div>
-          <button class="pill action" type="button" :disabled="discovery['stt-cloud'].loading || !cloudSttBaseUrl.trim()" @click="loadSttModels('cloud')">
+          <button
+            class="pill action"
+            type="button"
+            :disabled="discovery['stt-cloud'].loading || !cloudSttBaseUrl.trim()"
+            @click="loadSttModels('cloud')"
+          >
             {{ discovery['stt-cloud'].loading ? 'Loading…' : discovery['stt-cloud'].loaded ? 'Refresh models' : 'Test & load models' }}
           </button>
           <button
@@ -1329,43 +1699,76 @@ async function rebuildSemanticIndex(): Promise<void> {
             class="pill action danger"
             type="button"
             @click="removeCloudStt"
-          >Remove cloud</button>
+          >
+            Remove cloud
+          </button>
         </div>
-        <div v-if="!sttOrderValid" class="row bordered provider-warning" role="alert">
+        <div
+          v-if="!sttOrderValid"
+          class="row bordered provider-warning"
+          role="alert"
+        >
           Enabled providers need unique, consecutive priorities beginning with First.
         </div>
         <div class="row provider-actions">
-          <span class="provider-message" :class="{ failed: sttProvider.error || discovery['stt-local'].error || discovery['stt-cloud'].error || !sttOrderValid }">{{ sttMessage }}</span>
-          <div class="spacer"></div>
+          <span
+            class="provider-message"
+            :class="{ failed: sttProvider.error || discovery['stt-local'].error || discovery['stt-cloud'].error || !sttOrderValid }"
+          >{{ sttMessage }}</span>
+          <div class="spacer" />
           <button
             class="pill action save-provider"
             :disabled="sttProvider.loading || discovery['stt-local'].loading || discovery['stt-cloud'].loading || !sttReadyToSave"
             @click="saveSttConfig"
-          >{{ sttProvider.loading ? 'Saving…' : 'Save voice input' }}</button>
+          >
+            {{ sttProvider.loading ? 'Saving…' : 'Save voice input' }}
+          </button>
         </div>
       </div>
 
       <!-- Reading plan -->
-      <div class="section-label">Reading plan</div>
+      <div class="section-label">
+        Reading plan
+      </div>
       <div class="card">
-        <div class="row" :class="{ bordered: readingPlan.enabled }">
+        <div
+          class="row"
+          :class="{ bordered: readingPlan.enabled }"
+        >
           <div class="row-text">
-            <div class="row-title">Bible in a year</div>
-            <div class="row-sub">Read Genesis to Revelation over 365 days — adds a Plan tab and a card in Read</div>
+            <div class="row-title">
+              Bible in a year
+            </div>
+            <div class="row-sub">
+              Read Genesis to Revelation over 365 days — adds a Plan tab and a card in Read
+            </div>
           </div>
-          <div class="spacer"></div>
-          <Toggle :model-value="readingPlan.enabled" @update:model-value="readingPlan.toggle()" />
+          <div class="spacer" />
+          <Toggle
+            :model-value="readingPlan.enabled"
+            @update:model-value="readingPlan.toggle()"
+          />
         </div>
-        <div v-if="readingPlan.enabled" class="row">
+        <div
+          v-if="readingPlan.enabled"
+          class="row"
+        >
           <div class="row-text">
-            <div class="row-title">Progress</div>
+            <div class="row-title">
+              Progress
+            </div>
             <div class="row-sub">
               Day {{ readingPlan.currentDay }} of 365 · {{ readingPlan.chaptersRead }} of
               {{ readingPlan.totalChapters }} chapters read
             </div>
           </div>
-          <div class="spacer"></div>
-          <button class="pill action hover-line" @click="resetPlan">Reset</button>
+          <div class="spacer" />
+          <button
+            class="pill action hover-line"
+            @click="resetPlan"
+          >
+            Reset
+          </button>
         </div>
       </div>
 
@@ -1377,30 +1780,69 @@ async function rebuildSemanticIndex(): Promise<void> {
       <div class="card">
         <div class="row bordered">
           <div class="row-text">
-            <label class="row-title" for="study-provider-kind">Provider</label>
-            <div class="row-sub">Any OpenAI-compatible endpoint, Claude, or local Llama</div>
+            <label
+              class="row-title"
+              for="study-provider-kind"
+            >Provider</label>
+            <div class="row-sub">
+              Any OpenAI-compatible endpoint, Claude, or local Llama
+            </div>
           </div>
-          <div class="spacer"></div>
-          <select id="study-provider-kind" v-model="providerKind" name="study-provider-kind" class="setting-select" autocomplete="off" @change="resetProviderEndpoint">
-            <option value="openai-compatible">OpenAI-compatible</option>
-            <option value="anthropic">Anthropic</option>
-            <option value="local">Local</option>
+          <div class="spacer" />
+          <select
+            id="study-provider-kind"
+            v-model="providerKind"
+            name="study-provider-kind"
+            class="setting-select"
+            autocomplete="off"
+            @change="resetProviderEndpoint"
+          >
+            <option value="openai-compatible">
+              OpenAI-compatible
+            </option>
+            <option value="anthropic">
+              Anthropic
+            </option>
+            <option value="local">
+              Local
+            </option>
           </select>
         </div>
         <div class="row bordered">
           <div class="row-text">
-            <label class="row-title" for="study-provider-base-url">Base URL</label>
-            <div class="row-sub">Resolved by the Sword server, including inside containers</div>
+            <label
+              class="row-title"
+              for="study-provider-base-url"
+            >Base URL</label>
+            <div class="row-sub">
+              Resolved by the Sword server, including inside containers
+            </div>
           </div>
-          <div class="spacer"></div>
-          <input id="study-provider-base-url" v-model="providerBaseUrl" name="study-provider-base-url" class="provider-input provider-url" type="url" autocomplete="off" data-1p-ignore="true" data-bwignore="true" data-lpignore="true" @input="clearDiscovery('chat')" />
+          <div class="spacer" />
+          <input
+            id="study-provider-base-url"
+            v-model="providerBaseUrl"
+            name="study-provider-base-url"
+            class="provider-input provider-url"
+            type="url"
+            autocomplete="off"
+            data-1p-ignore="true"
+            data-bwignore="true"
+            data-lpignore="true"
+            @input="clearDiscovery('chat')"
+          >
         </div>
         <div class="row bordered">
           <div class="row-text">
-            <label class="row-title" for="study-provider-model">Model</label>
-            <div class="row-sub">Exact model identifier expected by this provider</div>
+            <label
+              class="row-title"
+              for="study-provider-model"
+            >Model</label>
+            <div class="row-sub">
+              Exact model identifier expected by this provider
+            </div>
           </div>
-          <div class="spacer"></div>
+          <div class="spacer" />
           <div class="discovery-controls">
             <DiscoveryCombobox
               id="study-provider-model"
@@ -1411,21 +1853,35 @@ async function rebuildSemanticIndex(): Promise<void> {
               label="Study partner model"
               placeholder="Model ID"
             />
-            <button class="pill action" type="button" :disabled="discovery.chat.loading || !providerBaseUrl.trim()" @click="loadChatModels">
+            <button
+              class="pill action"
+              type="button"
+              :disabled="discovery.chat.loading || !providerBaseUrl.trim()"
+              @click="loadChatModels"
+            >
               {{ discovery.chat.loading ? 'Loading…' : discovery.chat.loaded ? 'Refresh' : 'Test & load' }}
             </button>
           </div>
         </div>
         <div class="row bordered">
           <div class="row-text">
-            <label class="row-title" for="study-provider-api-key">API key</label>
+            <label
+              class="row-title"
+              for="study-provider-api-key"
+            >API key</label>
             <div class="row-sub">
-              <template v-if="aiProvider.provider?.hasApiKey">Encrypted key stored — leave blank to keep it</template>
-              <template v-else-if="providerKind === 'local'">Optional for a local endpoint</template>
-              <template v-else>Stored encrypted on the server</template>
+              <template v-if="aiProvider.provider?.hasApiKey">
+                Encrypted key stored — leave blank to keep it
+              </template>
+              <template v-else-if="providerKind === 'local'">
+                Optional for a local endpoint
+              </template>
+              <template v-else>
+                Stored encrypted on the server
+              </template>
             </div>
           </div>
-          <div class="spacer"></div>
+          <div class="spacer" />
           <ProviderSecretInput
             id="study-provider-api-key"
             v-model="providerApiKey"
@@ -1435,98 +1891,181 @@ async function rebuildSemanticIndex(): Promise<void> {
           />
         </div>
         <div class="row bordered provider-actions">
-          <span class="provider-message" :class="{ failed: aiProvider.error || discovery.chat.error }">{{ providerMessage }}</span>
-          <div class="spacer"></div>
+          <span
+            class="provider-message"
+            :class="{ failed: aiProvider.error || discovery.chat.error }"
+          >{{ providerMessage }}</span>
+          <div class="spacer" />
           <button
             v-if="aiProvider.provider"
             class="pill action danger"
             :disabled="aiProvider.loading"
             @click="removeProvider"
-          >Disconnect</button>
+          >
+            Disconnect
+          </button>
           <button
             class="pill action save-provider"
             :disabled="aiProvider.loading || discovery.chat.loading || !providerModel.trim() || !providerBaseUrl.trim()"
             @click="saveProvider"
-          >{{ aiProvider.loading ? 'Saving…' : 'Save provider' }}</button>
+          >
+            {{ aiProvider.loading ? 'Saving…' : 'Save provider' }}
+          </button>
         </div>
         <div class="row bordered">
           <div class="row-text">
-            <div class="row-title">Draw on the apocrypha</div>
-            <div class="row-sub">Include non-canonical sources in answers, always labeled</div>
+            <div class="row-title">
+              Draw on the apocrypha
+            </div>
+            <div class="row-sub">
+              Include non-canonical sources in answers, always labeled
+            </div>
           </div>
-          <div class="spacer"></div>
-          <Toggle :model-value="settings.drawApocrypha" @update:model-value="settings.toggle('drawApocrypha')" />
+          <div class="spacer" />
+          <Toggle
+            :model-value="settings.drawApocrypha"
+            @update:model-value="settings.toggle('drawApocrypha')"
+          />
         </div>
         <div class="row">
           <div class="row-text">
-            <div class="row-title">Always cite</div>
-            <div class="row-sub">Every claim links to a passage in your library</div>
+            <div class="row-title">
+              Always cite
+            </div>
+            <div class="row-sub">
+              Every claim links to a passage in your library
+            </div>
           </div>
-          <div class="spacer"></div>
-          <Toggle :model-value="settings.alwaysCite" @update:model-value="settings.toggle('alwaysCite')" />
+          <div class="spacer" />
+          <Toggle
+            :model-value="settings.alwaysCite"
+            @update:model-value="settings.toggle('alwaysCite')"
+          />
         </div>
       </div>
 
       <!-- Semantic search -->
-      <div id="semantic-search" ref="semanticSection" class="section-label" tabindex="-1">
+      <div
+        id="semantic-search"
+        ref="semanticSection"
+        class="section-label"
+        tabindex="-1"
+      >
         Semantic search
         <span class="soon">{{ semanticIndex.status.state }}</span>
       </div>
       <div class="card">
-        <div v-if="deploymentProviders.embeddings" class="row bordered deployment-provider-row">
+        <div
+          v-if="deploymentProviders.embeddings"
+          class="row bordered deployment-provider-row"
+        >
           <div class="row-text">
             <div class="row-title">
               {{ providerTitle(deploymentProviders.embeddings) }}
               <span class="badge">Deployment default{{ semanticIndex.provider?.deploymentDefault ? ' · active' : '' }}</span>
-              <span class="badge" :class="`readiness-${deploymentProviders.embeddings.readiness.state}`">
+              <span
+                class="badge"
+                :class="`readiness-${deploymentProviders.embeddings.readiness.state}`"
+              >
                 {{ deploymentProviders.embeddings.readiness.state }}
               </span>
             </div>
-            <div class="row-sub">{{ deploymentProviderDetail(deploymentProviders.embeddings) }}</div>
+            <div class="row-sub">
+              {{ deploymentProviderDetail(deploymentProviders.embeddings) }}
+            </div>
           </div>
-          <div class="spacer"></div>
-          <button class="pill action" type="button" @click="applyDeploymentProvider('embeddings')">Use provider</button>
+          <div class="spacer" />
+          <button
+            class="pill action"
+            type="button"
+            @click="applyDeploymentProvider('embeddings')"
+          >
+            Use provider
+          </button>
         </div>
         <div class="row bordered">
           <div class="row-text">
-            <div class="row-title">Vector index</div>
+            <div class="row-title">
+              Vector index
+            </div>
             <div class="row-sub">
               {{ semanticIndex.statusText }}
-              <template v-if="semanticIndex.status.model"> · {{ semanticIndex.status.model }}</template>
+              <template v-if="semanticIndex.status.model">
+                · {{ semanticIndex.status.model }}
+              </template>
             </div>
           </div>
-          <div class="spacer"></div>
+          <div class="spacer" />
           <button
             class="pill action hover-line"
             :disabled="semanticIndex.building || !semanticIndex.provider"
             @click="rebuildSemanticIndex"
-          >{{ semanticIndex.building ? 'Rebuilding…' : semanticIndex.status.chunkCount ? 'Rebuild' : 'Build index' }}</button>
+          >
+            {{ semanticIndex.building ? 'Rebuilding…' : semanticIndex.status.chunkCount ? 'Rebuild' : 'Build index' }}
+          </button>
         </div>
         <div class="row bordered">
           <div class="row-text">
-            <label class="row-title" for="embedding-provider-kind">Embedding provider</label>
-            <div class="row-sub">OpenAI-compatible API or a local embeddings server</div>
+            <label
+              class="row-title"
+              for="embedding-provider-kind"
+            >Embedding provider</label>
+            <div class="row-sub">
+              OpenAI-compatible API or a local embeddings server
+            </div>
           </div>
-          <div class="spacer"></div>
-          <select id="embedding-provider-kind" v-model="embeddingKind" name="embedding-provider-kind" class="setting-select" autocomplete="off" @change="resetEmbeddingEndpoint">
-            <option value="openai-compatible">OpenAI-compatible</option>
-            <option value="local">Local</option>
+          <div class="spacer" />
+          <select
+            id="embedding-provider-kind"
+            v-model="embeddingKind"
+            name="embedding-provider-kind"
+            class="setting-select"
+            autocomplete="off"
+            @change="resetEmbeddingEndpoint"
+          >
+            <option value="openai-compatible">
+              OpenAI-compatible
+            </option>
+            <option value="local">
+              Local
+            </option>
           </select>
         </div>
         <div class="row bordered">
           <div class="row-text">
-            <label class="row-title" for="embedding-provider-base-url">Embedding base URL</label>
-            <div class="row-sub">The Sword server calls its /embeddings endpoint</div>
+            <label
+              class="row-title"
+              for="embedding-provider-base-url"
+            >Embedding base URL</label>
+            <div class="row-sub">
+              The Sword server calls its /embeddings endpoint
+            </div>
           </div>
-          <div class="spacer"></div>
-          <input id="embedding-provider-base-url" v-model="embeddingBaseUrl" name="embedding-provider-base-url" class="provider-input provider-url" type="url" autocomplete="off" data-1p-ignore="true" data-bwignore="true" data-lpignore="true" @input="clearDiscovery('embedding')" />
+          <div class="spacer" />
+          <input
+            id="embedding-provider-base-url"
+            v-model="embeddingBaseUrl"
+            name="embedding-provider-base-url"
+            class="provider-input provider-url"
+            type="url"
+            autocomplete="off"
+            data-1p-ignore="true"
+            data-bwignore="true"
+            data-lpignore="true"
+            @input="clearDiscovery('embedding')"
+          >
         </div>
         <div class="row bordered">
           <div class="row-text">
-            <label class="row-title" for="embedding-provider-model">Embedding model</label>
-            <div class="row-sub">Use a model intended for semantic similarity</div>
+            <label
+              class="row-title"
+              for="embedding-provider-model"
+            >Embedding model</label>
+            <div class="row-sub">
+              Use a model intended for semantic similarity
+            </div>
           </div>
-          <div class="spacer"></div>
+          <div class="spacer" />
           <div class="discovery-controls">
             <DiscoveryCombobox
               id="embedding-provider-model"
@@ -1537,21 +2076,31 @@ async function rebuildSemanticIndex(): Promise<void> {
               label="Embedding model"
               placeholder="Embedding model ID"
             />
-            <button class="pill action" type="button" :disabled="discovery.embedding.loading || !embeddingBaseUrl.trim()" @click="loadEmbeddingModels">
+            <button
+              class="pill action"
+              type="button"
+              :disabled="discovery.embedding.loading || !embeddingBaseUrl.trim()"
+              @click="loadEmbeddingModels"
+            >
               {{ discovery.embedding.loading ? 'Loading…' : discovery.embedding.loaded ? 'Refresh' : 'Test & load' }}
             </button>
           </div>
         </div>
         <div class="row bordered">
           <div class="row-text">
-            <label class="row-title" for="embedding-provider-batch-size">Rebuild batch size</label>
-            <div class="row-sub">Maximum verses per provider request (1–64); oversized batches retry smaller</div>
+            <label
+              class="row-title"
+              for="embedding-provider-batch-size"
+            >Rebuild batch size</label>
+            <div class="row-sub">
+              Maximum verses per provider request (1–64); oversized batches retry smaller
+            </div>
           </div>
-          <div class="spacer"></div>
+          <div class="spacer" />
           <input
             id="embedding-provider-batch-size"
-            name="embedding-provider-batch-size"
             v-model.number="embeddingBatchSize"
+            name="embedding-provider-batch-size"
             class="provider-input batch-size-input"
             type="number"
             min="1"
@@ -1560,18 +2109,27 @@ async function rebuildSemanticIndex(): Promise<void> {
             inputmode="numeric"
             autocomplete="off"
             aria-label="Embedding rebuild batch size"
-          />
+          >
         </div>
         <div class="row bordered">
           <div class="row-text">
-            <label class="row-title" for="embedding-provider-api-key">Embedding API key</label>
+            <label
+              class="row-title"
+              for="embedding-provider-api-key"
+            >Embedding API key</label>
             <div class="row-sub">
-              <template v-if="semanticIndex.provider?.hasApiKey">Encrypted key stored — leave blank to keep it</template>
-              <template v-else-if="embeddingKind === 'local'">Optional for a local endpoint</template>
-              <template v-else>Stored encrypted on the server</template>
+              <template v-if="semanticIndex.provider?.hasApiKey">
+                Encrypted key stored — leave blank to keep it
+              </template>
+              <template v-else-if="embeddingKind === 'local'">
+                Optional for a local endpoint
+              </template>
+              <template v-else>
+                Stored encrypted on the server
+              </template>
             </div>
           </div>
-          <div class="spacer"></div>
+          <div class="spacer" />
           <ProviderSecretInput
             id="embedding-provider-api-key"
             v-model="embeddingApiKey"
@@ -1581,38 +2139,53 @@ async function rebuildSemanticIndex(): Promise<void> {
           />
         </div>
         <div class="row provider-actions">
-          <span class="provider-message" :class="{ failed: semanticIndex.error || discovery.embedding.error }">{{ embeddingMessage }}</span>
-          <div class="spacer"></div>
+          <span
+            class="provider-message"
+            :class="{ failed: semanticIndex.error || discovery.embedding.error }"
+          >{{ embeddingMessage }}</span>
+          <div class="spacer" />
           <button
             v-if="semanticIndex.provider"
             class="pill action danger"
             :disabled="semanticIndex.loading || semanticIndex.building"
             @click="removeEmbeddingProvider"
-          >Disconnect</button>
+          >
+            Disconnect
+          </button>
           <button
             class="pill action save-provider"
             :disabled="semanticIndex.loading || semanticIndex.building || discovery.embedding.loading || !embeddingModel.trim() || !embeddingBaseUrl.trim() || !embeddingBatchSizeValid"
             @click="saveEmbeddingProvider"
-          >{{ semanticIndex.loading ? 'Saving…' : 'Save embedding provider' }}</button>
+          >
+            {{ semanticIndex.loading ? 'Saving…' : 'Save embedding provider' }}
+          </button>
         </div>
       </div>
 
       <!-- Library & data -->
-      <div class="section-label">Library &amp; data</div>
+      <div class="section-label">
+        Library &amp; data
+      </div>
       <div class="card">
         <div
           v-if="legacyNotes.length || legacyHighlights.length"
           class="row bordered"
         >
           <div class="row-text">
-            <div class="row-title">Legacy browser data</div>
+            <div class="row-title">
+              Legacy browser data
+            </div>
             <div class="row-sub">
               {{ legacyNotes.length }} notes and {{ legacyHighlights.length }} highlights found in this browser.
-              <template v-if="importMessage"> {{ importMessage }}.</template>
-              <template v-else-if="importDone"> Already imported for {{ auth.user?.username }}.</template>
+              <template v-if="importMessage">
+                {{ importMessage }}.
+              </template>
+              <template v-else-if="importDone">
+                Already imported for {{ auth.user?.username }}.
+              </template>
             </div>
           </div>
-          <div class="spacer"></div>
+          <div class="spacer" />
           <button
             class="pill action hover-line"
             :disabled="importing || importDone"
@@ -1623,11 +2196,19 @@ async function rebuildSemanticIndex(): Promise<void> {
         </div>
         <div class="row">
           <div class="row-text">
-            <div class="row-title">Export everything</div>
-            <div class="row-sub">Notes and highlights as Markdown + JSON — yours, portable</div>
+            <div class="row-title">
+              Export everything
+            </div>
+            <div class="row-sub">
+              Notes and highlights as Markdown + JSON — yours, portable
+            </div>
           </div>
-          <div class="spacer"></div>
-          <button class="pill action hover-line" :disabled="exporting" @click="doExport">
+          <div class="spacer" />
+          <button
+            class="pill action hover-line"
+            :disabled="exporting"
+            @click="doExport"
+          >
             {{ exporting ? 'Exporting…' : 'Export' }}
           </button>
         </div>

@@ -13,7 +13,7 @@ export async function registerBodilessPost(
     route.addContentTypeParser<string>('application/json', { parseAs: 'string' }, (request, body, done) => {
       if (body === '') return done(null, undefined)
       // Retain JSON validation, poisoning protection, and Fastify's body limits.
-      parseJson(request, body, done)
+      void parseJson(request, body, done)
     })
     route.post(path, handler)
   })

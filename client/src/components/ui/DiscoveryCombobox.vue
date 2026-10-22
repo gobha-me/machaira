@@ -139,8 +139,8 @@ function closeSoon(): void {
   <div class="discovery-combobox">
     <div class="input-wrap">
       <input
-        ref="input"
         :id="id"
+        ref="input"
         :name="id"
         :value="modelValue"
         class="discovery-input"
@@ -161,7 +161,7 @@ function closeSoon(): void {
         @focus="onFocus"
         @blur="closeSoon"
         @keydown="onKeydown"
-      />
+      >
       <button
         type="button"
         class="toggle"
@@ -169,11 +169,23 @@ function closeSoon(): void {
         :aria-label="`Show ${label} options`"
         tabindex="-1"
         @mousedown.prevent="toggle"
-      >{{ loading ? '…' : '⌄' }}</button>
+      >
+        {{ loading ? '…' : '⌄' }}
+      </button>
     </div>
-    <div v-if="open" :id="listboxId" class="options" role="listbox">
+    <div
+      v-if="open"
+      :id="listboxId"
+      class="options"
+      role="listbox"
+    >
       <template v-if="filtered.length">
-        <div v-if="confirmed.length" class="group-label">Provider-confirmed</div>
+        <div
+          v-if="confirmed.length"
+          class="group-label"
+        >
+          Provider-confirmed
+        </div>
         <button
           v-for="choice in confirmed"
           :id="`${listboxId}-${filtered.indexOf(choice)}`"
@@ -187,9 +199,17 @@ function closeSoon(): void {
         >
           <span class="option-name">{{ choice.name }}</span>
           <span class="option-id">{{ choice.id }}</span>
-          <span v-if="choice.meta" class="option-meta">{{ choice.meta }}</span>
+          <span
+            v-if="choice.meta"
+            class="option-meta"
+          >{{ choice.meta }}</span>
         </button>
-        <div v-if="unknown.length" class="group-label">Compatibility not reported</div>
+        <div
+          v-if="unknown.length"
+          class="group-label"
+        >
+          Compatibility not reported
+        </div>
         <button
           v-for="choice in unknown"
           :id="`${listboxId}-${filtered.indexOf(choice)}`"
@@ -203,12 +223,25 @@ function closeSoon(): void {
         >
           <span class="option-name">{{ choice.name }}</span>
           <span class="option-id">{{ choice.id }}</span>
-          <span v-if="choice.meta" class="option-meta">{{ choice.meta }}</span>
+          <span
+            v-if="choice.meta"
+            class="option-meta"
+          >{{ choice.meta }}</span>
         </button>
       </template>
-      <div v-else class="empty">No loaded option matches. The entered ID can still be saved manually.</div>
+      <div
+        v-else
+        class="empty"
+      >
+        No loaded option matches. The entered ID can still be saved manually.
+      </div>
     </div>
-    <div v-if="stale" class="stale">This saved or manual ID is not in the latest provider list. It will be preserved.</div>
+    <div
+      v-if="stale"
+      class="stale"
+    >
+      This saved or manual ID is not in the latest provider list. It will be preserved.
+    </div>
   </div>
 </template>
 

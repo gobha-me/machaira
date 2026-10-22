@@ -18,31 +18,75 @@ function kindLabel(module: ModuleInfo): string {
 </script>
 
 <template>
-  <article class="source-card" @click="emit('details', module)">
+  <!-- eslint-disable-next-line vuejs-accessibility/click-events-have-key-events, vuejs-accessibility/no-static-element-interactions -- Card clicks supplement the native Details button below. -->
+  <article
+    class="source-card"
+    @click="emit('details', module)"
+  >
     <div class="card-top">
       <div class="identity">
         <h3>{{ module.description || module.name }}</h3>
-        <div class="code">{{ module.name }} · {{ module.language.toUpperCase() || 'UND' }}</div>
+        <div class="code">
+          {{ module.name }} · {{ module.language.toUpperCase() || 'UND' }}
+        </div>
       </div>
-      <span v-if="module.installed" class="installed">Installed</span>
+      <span
+        v-if="module.installed"
+        class="installed"
+      >Installed</span>
     </div>
-    <p v-if="module.about" class="about">{{ module.about }}</p>
+    <p
+      v-if="module.about"
+      class="about"
+    >
+      {{ module.about }}
+    </p>
     <div class="badges">
       <span>{{ kindLabel(module) }}</span>
       <span v-if="module.coverage.length">{{ module.coverage.length }} additional books</span>
       <span>{{ module.repository || 'Local import' }}</span>
-      <span :class="{ caution: module.aiEligibility === 'review-required' }" :title="module.distributionLicense">
+      <span
+        :class="{ caution: module.aiEligibility === 'review-required' }"
+        :title="module.distributionLicense"
+      >
         {{ module.aiEligibility === 'public-domain' ? 'Public domain' : 'License review' }}
       </span>
     </div>
-    <div class="actions" @click.stop>
+    <div
+      class="actions"
+      @click.stop
+    >
       <template v-if="installing">
-        <div class="bar" role="progressbar" :aria-valuenow="progress"><i :style="{ width: `${progress}%` }"></i></div>
+        <div
+          class="bar"
+          role="progressbar"
+          :aria-valuenow="progress"
+        >
+          <i :style="{ width: `${progress}%` }" />
+        </div>
         <span>Installing {{ progress }}%</span>
       </template>
-      <button v-else-if="module.installed" class="secondary" @click="emit('uninstall', module.name)">Remove</button>
-      <button v-else class="primary" :disabled="!module.repository" @click="emit('install', module)">Install</button>
-      <button class="details" @click="emit('details', module)">Details</button>
+      <button
+        v-else-if="module.installed"
+        class="secondary"
+        @click="emit('uninstall', module.name)"
+      >
+        Remove
+      </button>
+      <button
+        v-else
+        class="primary"
+        :disabled="!module.repository"
+        @click="emit('install', module)"
+      >
+        Install
+      </button>
+      <button
+        class="details"
+        @click="emit('details', module)"
+      >
+        Details
+      </button>
     </div>
   </article>
 </template>

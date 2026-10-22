@@ -59,8 +59,10 @@ function multipartRecording(
   return { boundary, body: Buffer.concat(chunks) }
 }
 
-async function listen(handler: (request: IncomingMessage, response: ServerResponse) => void) {
-  const server = createServer(handler)
+async function listen(handler: (request: IncomingMessage, response: ServerResponse) => void | Promise<void>) {
+  const server = createServer((request, response) => {
+    void Promise.resolve(handler(request, response)).catch((error: Error) => response.destroy(error))
+  })
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   const address = server.address()
   assert.ok(address && typeof address === 'object')
@@ -271,6 +273,7 @@ describe('STT provider boundary', () => {
     const started = new Promise<void>((resolve) => { signalStarted = resolve })
     const release = new Promise<void>((resolve) => { releaseUpstream = resolve })
     const upstream = await listen(async (request, response) => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Drain the stream to exercise completion and failure paths.
       for await (const _chunk of request) {
         // Drain the multipart request before holding the provider response.
       }
