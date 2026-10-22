@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useReader } from '../stores/reader'
 import { useUi } from '../stores/ui'
 import { useSettings } from '../stores/settings'
@@ -11,6 +11,7 @@ import { useWordStudy } from '../composables/useWordStudy'
 import { useNotes } from '../composables/useNotes'
 import { useNotes as useNotesStore } from '../stores/notes'
 import { inlineNoteVerses } from '../utils/inlineNotes'
+import { selectedScripture } from '../utils/textSelection'
 import InlineNote from '../components/InlineNote.vue'
 import NoteComposer from '../components/NoteComposer.vue'
 import { usePassageMenu } from '../composables/usePassageMenu'
@@ -325,6 +326,12 @@ const {
 } = useNotes()
 const composerOpen = ref(false)
 const composer = ref<InstanceType<typeof NoteComposer> | null>(null)
+// Keep one editor mounted in a detached Teleport host. Moving this host into the
+// passage lets the Note gesture focus it synchronously, without private Vue flush
+// APIs, an editor per verse, or waiting for a conditional mount on nextTick.
+const composerHost = ref<HTMLElement | null>(null)
+onMounted(() => { composerHost.value = document.createElement('div') })
+onBeforeUnmount(() => composerHost.value?.remove())
 const expandedNotes = ref<string[]>([])
 const inlineError = ref<string | null>(null)
 const verseNumbers = computed(() => reader.data?.verses.map((verse) => verse.n) ?? [])
@@ -339,6 +346,36 @@ const composerVerse = computed(() => {
   // Keep an unfinished draft reachable after navigation, with its original reference
   // visibly labelled, rather than silently filing it under the new chapter.
   return noteVerses({ refs: [noteAnchor.value] }).at(-1) ?? verseNumbers.value.at(-1)
+})
+function placeNoteComposer() {
+  const host = composerHost.value
+  const verse = readingEl.value?.querySelector(`[data-verse="${composerVerse.value}"]`)
+  if (!host) return
+  if (!composerOpen.value || !verse) { host.remove(); return }
+  // Avoid reinserting a focused editor when only its props have changed.
+  if (verse.nextElementSibling !== host) verse.after(host)
+}
+watch([composerOpen, composerVerse, () => reader.data], placeNoteComposer, { flush: 'post' })
+
+function noteDeleted(note: Note) {
+  const verses = noteVerses(note)
+  // A request may finish after the reader has moved to another selection. Only
+  // clear presentation belonging to the deleted note; saved highlights are separate.
+  if (reader.selectedVerses.some((verse) => verses.includes(verse))) {
+    dismiss()
+    reader.clearSelection()
+  }
+  const selection = window.getSelection()
+  const selected = selectionRoot.value && selectedScripture(selectionRoot.value, selection)
+  if (selected && verses.some((verse) => verse >= selected.verseStart && verse <= selected.verseEnd)) {
+    selection?.removeAllRanges()
+  }
+}
+// The inline component is unmounted before its async delete handler resumes.
+// Observe the acknowledged deletion here so cleanup survives that unmount.
+watch(() => [...notes.deleted], (deleted, previous) => {
+  const previousIds = new Set(previous.map((note) => note.id))
+  deleted.filter((note) => !previousIds.has(note.id)).forEach(noteDeleted)
 })
 function notesOnVerse(verse: number) {
   return notes.list.filter((note) => noteLocations.value.get(note.id)?.includes(verse))
@@ -373,16 +410,17 @@ watch(savedNote, (note) => {
 })
 
 const selectionRoot = ref<HTMLElement | null>(null)
-async function selectionNote(reference: string, quote: string) {
+function selectionNote(reference: string, quote: string) {
   anchorNoteSelection(reference, quote)
-  await showNoteComposer()
+  showNoteComposer()
 }
-async function showNoteComposer() {
+function showNoteComposer() {
   composerOpen.value = true
   toolsOpen.value = false
   dismiss()
-  await nextTick()
-  composer.value?.focus()
+  window.getSelection()?.removeAllRanges()
+  placeNoteComposer()
+  composer.value?.focus(noteBody.value)
 }
 
 // ── Passage action menu: floating keystone entry (shared PassageActions component) ──
@@ -426,9 +464,9 @@ function menuHighlight() {
   void reader.toggleHighlightRange(reader.selectedVerses)
   dismiss()
 }
-async function menuNote() {
+function menuNote() {
   anchorPassage(reader.currentRef)
-  await showNoteComposer()
+  showNoteComposer()
 }
 </script>
 
@@ -702,16 +740,6 @@ async function menuNote() {
                   :key="note.id"
                   :note="note"
                 />
-                <NoteComposer
-                  v-if="composerOpen && composerVerse === v.n"
-                  :ref="(element) => { composer = element as InstanceType<typeof NoteComposer> | null }"
-                  v-model:title="noteTitle"
-                  v-model:body="noteBody"
-                  :anchor="noteAnchor"
-                  :saving="noteSaving"
-                  :error="noteError"
-                  @save="saveNote"
-                />
                 <div
                   v-for="note in deletedAt(v.n)"
                   :key="note.id"
@@ -919,6 +947,20 @@ async function menuNote() {
       </div>
     </div>
 
+    <Teleport
+      v-if="composerHost"
+      :to="composerHost"
+    >
+      <NoteComposer
+        ref="composer"
+        v-model:title="noteTitle"
+        v-model:body="noteBody"
+        :anchor="noteAnchor"
+        :saving="noteSaving"
+        :error="noteError"
+        @save="saveNote"
+      />
+    </Teleport>
     <TextSelectionActions
       ref="textActions"
       :word-study="{ key: strongsKey, entry: strongsEntry, error: strongsError, loading: strongsLoading }"

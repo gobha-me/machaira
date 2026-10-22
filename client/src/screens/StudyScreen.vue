@@ -78,6 +78,7 @@ const tabs = [
 type StudyTab = typeof tabs[number]['id']
 const activeTab = ref<StudyTab>('compare')
 const notesOpen = ref(false)
+const notesDisclosure = ref<HTMLDetailsElement | null>(null)
 const passage = computed(() => ({ verseStart: focus.value, verseEnd: focusEnd.value }))
 const focusedVerses = computed(() => reader.data?.verses.filter(
   (verse) => verse.n >= focus.value && verse.n <= focusEnd.value
@@ -170,8 +171,12 @@ function menuHighlight() {
 }
 function menuNote() {
   notesOpen.value = true
-  void nextTick(focusComposer)
+  // The editor is already mounted inside details. Open it in the gesture itself
+  // so focus and the first input do not have to wait for Vue to patch :open.
+  if (notesDisclosure.value) notesDisclosure.value.open = true
   dismiss()
+  window.getSelection()?.removeAllRanges()
+  focusComposer()
 }
 </script>
 
@@ -408,6 +413,7 @@ function menuNote() {
       </section>
 
       <details
+        ref="notesDisclosure"
         class="notes-disclosure"
         :open="notesOpen"
         @toggle="notesOpen = ($event.target as HTMLDetailsElement).open"

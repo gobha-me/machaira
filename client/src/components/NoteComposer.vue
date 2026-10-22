@@ -4,7 +4,16 @@ import { ref } from 'vue'
 defineProps<{ title: string; body: string; anchor: string; saving: boolean; error: string | null }>()
 defineEmits<{ 'update:title': [value: string]; 'update:body': [value: string]; save: [] }>()
 const bodyEl = ref<HTMLTextAreaElement | null>(null)
-defineExpose({ focus: () => bodyEl.value?.focus() })
+defineExpose({
+  focus: (body: string) => {
+    if (!bodyEl.value) return
+    // The click can seed a quotation before Vue patches props. Put the caret after it
+    // now so input arriving in the same turn cannot replace the quote or get overwritten.
+    bodyEl.value.value = body
+    bodyEl.value.focus()
+    bodyEl.value.setSelectionRange(body.length, body.length)
+  }
+})
 </script>
 
 <template>

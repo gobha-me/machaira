@@ -528,6 +528,85 @@ describe('inline verse notes', () => {
     await flushPromises()
   }
 
+  it('focuses before the Note click returns and keeps input delivered before Vue renders', async () => {
+    const first = firstText(wrapper.get('[data-selection-text]').element)
+    await selectText(first, 7, first, 16)
+    textAction('Note').click()
+    // Deliberately do not yield: nextTick focus loses this first input.
+    const editor = document.activeElement as HTMLTextAreaElement
+    expect(editor.getAttribute('aria-label')).toBe('Note body')
+    expect(editor.value).toBe('> beginning\n\n')
+    expect(editor.selectionStart).toBe(editor.value.length)
+    editor.setRangeText('First keystrokes', editor.selectionStart, editor.selectionEnd, 'end')
+    editor.dispatchEvent(new Event('input', { bubbles: true }))
+    document.dispatchEvent(new Event('selectionchange'))
+    await flushPromises()
+    expect(document.activeElement).toBe(editor)
+    expect(wrapper.get('[aria-label="Note body"]').element).toHaveProperty('value', '> beginning\n\nFirst keystrokes')
+    expect(textActions()).toBeNull()
+    expect(window.getSelection()!.isCollapsed).toBe(true)
+  })
+
+  it('focuses synchronously from passage actions and preserves a draft when another anchor is rejected', async () => {
+    await wrapper.get('button.vnum').trigger('keydown', { key: 'F10', shiftKey: true })
+    const action = () => [...document.querySelectorAll<HTMLButtonElement>('.passage-actions button')]
+      .find((entry) => entry.textContent?.trim() === 'Note')!
+    action().click()
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Note body')
+    await wrapper.get('[aria-label="Note body"]').setValue('Keep my draft')
+    await wrapper.findAll('button.vnum')[1]!.trigger('keydown', { key: 'F10', shiftKey: true })
+    action().click()
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Note body')
+    await flushPromises()
+    expect(wrapper.get('[aria-label="Note body"]').element).toHaveProperty('value', 'Keep my draft')
+    expect(wrapper.get('.note-anchor').text()).toBe('John 1:1 · KJV')
+    expect(wrapper.get('[role="alert"]').text()).toContain('Save the current note')
+    expect(wrapper.findAll('.note-composer')).toHaveLength(1)
+  })
+
+  it('reuses the editor when a blank draft moves backwards and removes its host on unmount', async () => {
+    await wrapper.findAll('button.vnum')[1]!.trigger('keydown', { key: 'F10', shiftKey: true })
+    const action = [...document.querySelectorAll<HTMLButtonElement>('.passage-actions button')]
+      .find((entry) => entry.textContent?.trim() === 'Note')!
+    action.click()
+    const editor = document.activeElement
+    await flushPromises()
+    await beginNote()
+    expect(document.activeElement).toBe(editor)
+    expect(wrapper.get('.note-anchor').text()).toBe('John 1:1 · KJV')
+    expect(wrapper.get('.note-composer').element.parentElement?.previousElementSibling?.getAttribute('data-verse')).toBe('1')
+    const host = editor?.parentElement?.parentElement
+    wrapper.unmount()
+    expect(host?.isConnected).toBe(false)
+    expect(host?.querySelector('textarea')).toBeNull()
+    // Keep the shared cleanup and stores exercised after a normal remount too.
+    wrapper = mount(ReadScreen, { attachTo: document.body })
+    await flushPromises()
+    expect(wrapper.find('.note-composer').exists()).toBe(false)
+  })
+
+  it('preserves a newer unrelated selection while a delete is pending and after it succeeds', async () => {
+    let finishDelete!: () => void
+    vi.spyOn(api, 'deleteNote').mockImplementation(() => new Promise<void>((resolve) => { finishDelete = resolve }))
+    const reader = useReader()
+    useNotes().list = [{ ...rangeNote, refs: ['John 1:1 · KJV'] }]
+    reader.selectVerse(1)
+    await flushPromises()
+    await wrapper.get('.verse-note-marker').trigger('click')
+    await button('Delete note').trigger('click')
+    expect(button('Delete note').attributes('disabled')).toBeDefined()
+    expect(reader.selectedVerses).toEqual([1])
+    reader.selectVerse(2)
+    const prose = firstText(wrapper.findAll('[data-selection-text]')[1]!.element)
+    await selectText(prose, 0, prose, 8)
+    finishDelete()
+    await flushPromises()
+    expect(wrapper.find('.inline-note').exists()).toBe(false)
+    expect(reader.selectedVerses).toEqual([2])
+    expect(window.getSelection()!.toString()).toBe('The same')
+    expect(textActions()).not.toBeNull()
+  })
+
   it('keeps markers through a real translation switch and opens a range note once beneath its last verse', async () => {
     const notes = useNotes()
     notes.list = [rangeNote,
@@ -559,7 +638,7 @@ describe('inline verse notes', () => {
     const go = vi.spyOn(useUi(), 'go').mockImplementation(() => {})
     await beginNote()
     expect(wrapper.find('.rail-side .note-composer').exists()).toBe(false)
-    expect(wrapper.get('.note-composer').element.previousElementSibling?.getAttribute('data-verse')).toBe('1')
+    expect(wrapper.get('.note-composer').element.parentElement?.previousElementSibling?.getAttribute('data-verse')).toBe('1')
     await wrapper.get('[aria-label="Note body"]').setValue('  \n ')
     await wrapper.get('.note-composer').trigger('submit')
     expect(create).not.toHaveBeenCalled()
@@ -620,17 +699,30 @@ describe('inline verse notes', () => {
     vi.spyOn(api, 'createNote').mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({ ...rangeNote, id: 'restored' })
     const notes = useNotes()
     notes.list = [rangeNote]
+    const reader = useReader()
+    reader.selectVerse(1)
+    reader.extendSelection(2)
+    reader.highlights = { 'KJV/John/1/1': '#ffcc00' }
     await flushPromises()
     await wrapper.get('.verse-note-marker').trigger('click')
+    const prose = firstText(wrapper.get('[data-selection-text]').element)
+    await selectText(prose, 0, prose, 6)
     await button('Delete note').trigger('click')
     await flushPromises()
     expect(wrapper.get('.inline-note [role="alert"]').text()).toContain('Forbidden')
     expect(wrapper.findAll('.verse-note-marker')).toHaveLength(2)
     expect(wrapper.find('.inline-undo').exists()).toBe(false)
+    expect(reader.selectedVerses).toEqual([1, 2])
+    expect(window.getSelection()!.isCollapsed).toBe(false)
     await button('Delete note').trigger('click')
     await flushPromises()
     expect(remove).toHaveBeenCalledTimes(2)
     expect(wrapper.find('.verse-note-marker').exists()).toBe(false)
+    expect(reader.selectedVerses).toEqual([])
+    expect(window.getSelection()!.isCollapsed).toBe(true)
+    expect(textActions()).toBeNull()
+    expect(reader.highlights).toEqual({ 'KJV/John/1/1': '#ffcc00' })
+    expect(wrapper.findAll('.verse')[1]!.attributes('style')).toContain('background: transparent')
     await button('Undo').trigger('click')
     await flushPromises()
     expect(wrapper.get('[role="alert"]').text()).toContain('Could not restore note: offline')

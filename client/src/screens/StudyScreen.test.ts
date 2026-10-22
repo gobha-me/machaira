@@ -245,9 +245,33 @@ describe('focused Study tools', () => {
     const note = [...document.querySelectorAll<HTMLButtonElement>('[role="toolbar"] button')]
       .find((button) => button.textContent?.trim() === 'Note')!
     note.click()
-    await flushPromises()
     expect(wrapper.get('details').attributes('open')).toBeDefined()
     expect(document.activeElement).toBe(wrapper.get('textarea').element)
+    await flushPromises()
+    expect(document.activeElement).toBe(wrapper.get('textarea').element)
+  })
+
+  it('keeps input delivered before render after opening Note from a native text selection', async () => {
+    await flushPromises()
+    const range = document.createRange()
+    range.selectNodeContents(wrapper.get('[data-selection-text]').element)
+    window.getSelection()!.addRange(range)
+    document.dispatchEvent(new Event('selectionchange'))
+    await flushPromises()
+    const note = [...document.querySelectorAll<HTMLButtonElement>('[aria-label="Selected text actions"] button')]
+      .find((button) => button.textContent?.trim() === 'Note')!
+    note.click()
+    const editor = wrapper.get<HTMLTextAreaElement>('textarea').element
+    expect(document.activeElement).toBe(editor)
+    expect(wrapper.get('details').attributes('open')).toBeDefined()
+    expect(editor.value).toBe('> Verse 1\n\n')
+    editor.setRangeText('Immediate input', editor.selectionStart, editor.selectionEnd, 'end')
+    editor.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+    expect(editor.value).toBe('> Verse 1\n\nImmediate input')
+    expect(document.activeElement).toBe(editor)
+    expect(window.getSelection()!.isCollapsed).toBe(true)
+    expect(document.querySelector('[aria-label="Selected text actions"]')).toBeNull()
   })
 
   it('keeps Connections failures actionable without an empty card', async () => {
