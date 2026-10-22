@@ -313,7 +313,7 @@ export class ConnectionsService {
         continue
       }
       for (const neighbor of semantic.results.slice(0, MAX_THEMATIC)) {
-        if (neighbor.kind === 'general-book') continue
+        if (neighbor.kind === 'general-book' || neighbor.module !== seed.module) continue
         const linkedSeed: ConnectionSeed = {
           module: seed.module,
           book: neighbor.book,

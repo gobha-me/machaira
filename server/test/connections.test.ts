@@ -113,8 +113,10 @@ describe('connections graph', () => {
       async neighbors() {
         return {
           state: 'ready', results: [
-            { module: 'KJV', book: 'Ps', bookName: 'Psalms', chapter: 119, verse: 105,
-              content: 'Thy word is a lamp unto my feet.', distance: 0.1 },
+            { module: 'WEB', book: 'Ps', bookName: 'Psalms', chapter: 119, verse: 105,
+              content: 'Outdated indexed text', distance: 0.1 },
+            { module: 'KJV', book: 'John', bookName: 'John', chapter: 1, verse: 2,
+              content: 'Another translation must not be mapped without versification conversion', distance: 0.15 },
             { module: 'WEB', book: 'Ps', bookName: 'Psalms', chapter: 119, verse: 999,
               content: 'Unavailable indexed verse', distance: 0.2 },
             { module: 'WEB', book: 'Ps', bookName: 'Psalms', chapter: 999, verse: 1,
