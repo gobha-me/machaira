@@ -96,6 +96,75 @@ describe('connections graph', () => {
     assert.ok(result.warnings.some((warning) => /ready semantic index/.test(warning)))
   })
 
+  it('preserves curated references when the meaning index throws instead of reporting empty results', async () => {
+    const result = await new ConnectionsService({
+      async neighbors() { throw new Error('index storage failed') }
+    }, sources).graph('user-1', {
+      seeds: [{ module: 'WEB', book: 'John', chapter: 1, verseStart: 1 }]
+    })
+    assert.equal(result.semanticState, 'unavailable')
+    assert.deepEqual(result.edges.map((edge) => edge.kind), ['cross-reference'])
+    assert.ok(result.warnings.some((warning) => /could not be loaded/.test(warning)))
+    assert.ok(!JSON.stringify(result).includes('index storage failed'))
+  })
+
+  it('renders meaning previews from the current translation and excludes unavailable indexed verses', async () => {
+    const result = await new ConnectionsService({
+      async neighbors() {
+        return {
+          state: 'ready', results: [
+            { module: 'KJV', book: 'Ps', bookName: 'Psalms', chapter: 119, verse: 105,
+              content: 'Thy word is a lamp unto my feet.', distance: 0.1 },
+            { module: 'WEB', book: 'Ps', bookName: 'Psalms', chapter: 119, verse: 999,
+              content: 'Unavailable indexed verse', distance: 0.2 },
+            { module: 'WEB', book: 'Ps', bookName: 'Psalms', chapter: 999, verse: 1,
+              content: 'Unavailable indexed chapter', distance: 0.3 }
+          ]
+        }
+      }
+    }, sources).graph('user-1', {
+      seeds: [{ module: 'WEB', book: 'John', chapter: 1, verseStart: 1 }]
+    })
+    const thematic = result.edges.filter((edge) => edge.kind === 'thematic')
+    assert.equal(thematic.length, 1)
+    const preview = result.nodes.find((node) => node.id === thematic[0].target)!
+    assert.equal(preview.module, 'WEB')
+    assert.equal(preview.content, 'Your word is a lamp to my feet.')
+    assert.ok(result.warnings.some((warning) => /not available in the current translation/.test(warning)))
+  })
+
+  it('distinguishes a stale index from a ready index without neighbors', async () => {
+    for (const state of ['stale', 'ready'] as const) {
+      const result = await new ConnectionsService({
+        async neighbors() { return { state, results: [] } }
+      }, sources).graph('user-1', {
+        seeds: [{ module: 'WEB', book: 'John', chapter: 1, verseStart: 1 }]
+      })
+      assert.equal(result.semanticState, state)
+      assert.deepEqual(result.edges.map((edge) => edge.kind), ['cross-reference'])
+      assert.equal(result.warnings.some((warning) => /ready semantic index/.test(warning)), state === 'stale')
+    }
+  })
+
+  it('rejects malformed, reversed, unsafe and oversized seed requests before loading sources', async () => {
+    let calls = 0
+    const service = new ConnectionsService({
+      async neighbors() { throw new Error('Must not query invalid seeds') }
+    }, { ...sources, async installed() { calls += 1; return [web] } })
+    const seed = { module: 'WEB', book: 'John', chapter: 1 }
+    for (const input of [
+      null, [], { seeds: [null] }, { seeds: Array.from({ length: 6 }, () => seed) },
+      { seeds: [{ ...seed, module: ' ' }] }, { seeds: [{ ...seed, book: 'x'.repeat(201) }] },
+      ...[0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1].map((chapter) => ({ seeds: [{ ...seed, chapter }] })),
+      { seeds: [{ ...seed, verseEnd: 2 }] },
+      { seeds: [{ ...seed, verseStart: 2, verseEnd: 1 }] },
+      { seeds: [{ ...seed, verseStart: 0 }] }
+    ]) {
+      await assert.rejects(service.graph('user-1', input), ConnectionInputError)
+    }
+    assert.equal(calls, 0)
+  })
+
   it('validates the public request and reports unavailable linked passages honestly', async () => {
     const semantic: ConnectionSemanticSource = {
       async neighbors() { return { state: 'ready', results: [] } }

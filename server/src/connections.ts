@@ -298,7 +298,15 @@ export class ConnectionsService {
         if (linkedNode) addEdge({ source: sourceNode.id, target: linkedNode.id, kind: 'cross-reference' })
       }
 
-      const semantic = await this.semantic.neighbors(userId, seed, MAX_THEMATIC)
+      let semantic: SemanticNeighborResult
+      try {
+        semantic = await this.semantic.neighbors(userId, seed, MAX_THEMATIC)
+      } catch {
+        // Meaning lookup is optional: an index/storage failure must not hide curated references.
+        semanticState = 'unavailable'
+        warnings.add('Related passages could not be loaded; cross-references remain available')
+        continue
+      }
       semanticState = semantic.state
       if (semantic.state !== 'ready') {
         warnings.add('Thematic links require a ready semantic index; cross-references remain available')
@@ -307,14 +315,20 @@ export class ConnectionsService {
       for (const neighbor of semantic.results.slice(0, MAX_THEMATIC)) {
         if (neighbor.kind === 'general-book') continue
         const linkedSeed: ConnectionSeed = {
-          module: neighbor.module,
+          module: seed.module,
           book: neighbor.book,
           chapter: neighbor.chapter,
           verseStart: neighbor.verse,
           verseEnd: neighbor.verse
         }
         if (overlaps(seed, linkedSeed)) continue
-        const linkedNode = addNode(linkedSeed, snippet(neighbor.content), false)
+        // Vectors identify passages; previews always come from the current installed translation.
+        const linkedChapter = await validTarget(seed.module, linkedSeed)
+        if (!linkedChapter) {
+          warnings.add('Some related passages are not available in the current translation')
+          continue
+        }
+        const linkedNode = addNode(linkedSeed, nodeContent(linkedChapter, linkedSeed), false)
         if (linkedNode) {
           addEdge({
             source: sourceNode.id,
