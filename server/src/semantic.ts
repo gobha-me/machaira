@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
+import timers from 'node:timers/promises'
 import type { MachairaDatabase } from './database.js'
 import type { SecretStore } from './secrets.js'
 import { bookCode, bookReferenceNames, isDeuterocanonicalBook } from '@machaira/scripture'
@@ -111,6 +112,9 @@ const PROVIDER_KINDS = new Set<EmbeddingProviderKind>(['openai-compatible', 'loc
 const DEFAULT_REBUILD_BATCH_SIZE = 32
 const MAX_EMBEDDING_BATCH_SIZE = 64
 const MAX_DIMENSION = 8192
+const EMBEDDING_RETRIES = 2
+const EMBEDDING_RETRY_DELAY_MS = 500
+const MAX_EMBEDDING_RETRY_DELAY_MS = 30_000
 const CANONICAL_BOOKS = [...new Set(bookReferenceNames().map(bookCode)
   .filter((code): code is string => code !== null && !isDeuterocanonicalBook(code)))]
 
@@ -120,7 +124,9 @@ export class EmbeddingProviderError extends Error {
   constructor(
     message: string,
     readonly status?: number,
-    readonly responseBody?: string
+    readonly responseBody?: string,
+    readonly timedOut = false,
+    readonly retryAfterMs?: number
   ) {
     super(message)
     this.name = 'EmbeddingProviderError'
@@ -335,6 +341,7 @@ export async function requestEmbeddings(
   if (credentials.apiKey) headers.authorization = `Bearer ${credentials.apiKey}`
 
   let response: Response
+  let raw: string
   try {
     response = await fetch(endpoint(credentials.config.baseUrl, 'embeddings'), {
       method: 'POST',
@@ -343,18 +350,23 @@ export async function requestEmbeddings(
       headers,
       body: JSON.stringify({ model: credentials.config.model, input: inputs })
     })
+    // Reading a streamed response can time out after fetch has received its headers.
+    raw = await limitedBody(response)
   } catch (error) {
-    if (combinedSignal.aborted) throw new EmbeddingProviderError('Embedding request timed out or was cancelled')
+    if (signal?.aborted) throw new EmbeddingProviderError('Embedding request was cancelled')
+    if (timeout.aborted) throw new EmbeddingProviderError('Embedding request timed out', undefined, undefined, true)
+    if (error instanceof EmbeddingProviderError) throw error
     throw new EmbeddingProviderError(`Could not reach embedding provider: ${(error as Error).message}`)
   }
 
-  const raw = await limitedBody(response)
   if (!response.ok) {
     const detail = raw.slice(0, 2000)
     throw new EmbeddingProviderError(
       `Embedding provider rejected the request (${response.status}): ${detail || response.statusText}`,
       response.status,
-      detail
+      detail,
+      false,
+      embeddingRetryAfterMs(response.headers.get('retry-after'))
     )
   }
   let payload: unknown
@@ -397,6 +409,47 @@ interface AdaptiveEmbeddingResult {
   reducedBatchSize: number | null
 }
 
+function embeddingRetryAfterMs(header: string | null): number | undefined {
+  if (header === null) return undefined
+  const value = header.trim()
+  // Retry-After accepts unsigned integer seconds or an HTTP date. Other numeric
+  // forms must not fall through to Date.parse (which also accepts e.g. "-1").
+  const milliseconds = /^\d+$/.test(value)
+    ? Number(value) * 1000
+    : Number.isNaN(Number(value)) ? Date.parse(value) - Date.now() : NaN
+  if (Number.isNaN(milliseconds)) return undefined
+  return Math.min(MAX_EMBEDDING_RETRY_DELAY_MS, Math.max(0, milliseconds))
+}
+
+function isTransientEmbeddingError(error: unknown): error is EmbeddingProviderError {
+  return error instanceof EmbeddingProviderError && (
+    error.timedOut || error.status === 429 || (error.status !== undefined && error.status >= 500 && error.status <= 599)
+  )
+}
+
+async function requestEmbeddingsWithRetries(
+  credentials: { config: EmbeddingProviderConfig; apiKey: string | null },
+  inputs: string[],
+  signal?: AbortSignal
+): Promise<number[][]> {
+  for (let attempt = 0; ; attempt += 1) {
+    signal?.throwIfAborted()
+    try {
+      return await requestEmbeddings(credentials, inputs, signal)
+    } catch (error) {
+      if (signal?.aborted || !isTransientEmbeddingError(error)) throw error
+      if (attempt === EMBEDDING_RETRIES) {
+        throw new EmbeddingProviderError(
+          `Embedding request failed after ${attempt + 1} attempts at batch size ${inputs.length} (retry limit reached): ${error.message}`,
+          error.status, error.responseBody, error.timedOut, error.retryAfterMs
+        )
+      }
+      const backoff = EMBEDDING_RETRY_DELAY_MS * 2 ** attempt
+      await timers.setTimeout(Math.max(backoff, error.retryAfterMs ?? 0), undefined, { signal })
+    }
+  }
+}
+
 function isBatchLimitError(error: unknown): error is EmbeddingProviderError {
   if (!(error instanceof EmbeddingProviderError) || ![400, 413, 422].includes(error.status ?? 0)) {
     return false
@@ -426,20 +479,28 @@ async function requestEmbeddingsAdaptive(
   signal?: AbortSignal
 ): Promise<AdaptiveEmbeddingResult> {
   try {
-    return { vectors: await requestEmbeddings(credentials, inputs, signal), reducedBatchSize: null }
+    return { vectors: await requestEmbeddingsWithRetries(credentials, inputs, signal), reducedBatchSize: null }
   } catch (error) {
-    if (!isBatchLimitError(error) || inputs.length === 1 || signal?.aborted) throw error
+    if (!(error instanceof EmbeddingProviderError) || (!error.timedOut && !isBatchLimitError(error))
+      || inputs.length === 1 || signal?.aborted) throw error
 
-    const chunkSize = reportedBatchLimit(error, inputs.length)
+    // Only timeouts and explicit batch limits suggest smaller batches can help.
+    // A permanently timing-out batch of size n takes at most
+    // (EMBEDDING_RETRIES + 1) * (floor(log2(n)) + 1) requests: each level halves
+    // with floor, and the first failing sub-batch throws before any sibling runs.
+    // For n = 8: three attempts each at 8, 4, 2, 1 = 12 requests, not a full tree.
+    const chunkSize = (isBatchLimitError(error) ? reportedBatchLimit(error, inputs.length) : null)
       ?? Math.max(1, Math.floor(inputs.length / 2))
     const vectors: number[][] = []
     let reducedBatchSize = chunkSize
-    for (let start = 0; start < inputs.length; start += chunkSize) {
+    for (let start = 0; start < inputs.length;) {
+      const batch = inputs.slice(start, start + reducedBatchSize)
       const result = await requestEmbeddingsAdaptive(
         credentials,
-        inputs.slice(start, start + chunkSize),
+        batch,
         signal
       )
+      start += batch.length
       vectors.push(...result.vectors)
       if (result.reducedBatchSize !== null) {
         reducedBatchSize = Math.min(reducedBatchSize, result.reducedBatchSize)

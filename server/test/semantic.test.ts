@@ -4,7 +4,8 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, it } from 'node:test'
+import { describe, it, type TestContext } from 'node:test'
+import timers from 'node:timers/promises'
 import { setTimeout as delay } from 'node:timers/promises'
 import Database from 'better-sqlite3'
 import { openDatabase } from '../src/database.ts'
@@ -22,8 +23,11 @@ async function listen(handler: (request: IncomingMessage, response: ServerRespon
   assert.ok(address && typeof address === 'object')
   return {
     baseUrl: `http://127.0.0.1:${address.port}/v1`,
-    close: () => new Promise<void>((resolve, reject) =>
-      server.close((error) => error ? reject(error) : resolve()))
+    close: () => new Promise<void>((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve())
+      // Timeout tests deliberately leave response bodies unfinished.
+      server.closeAllConnections()
+    })
   }
 }
 
@@ -85,6 +89,15 @@ function sendVectors(response: ServerResponse, inputs: string[]): void {
   response.end(JSON.stringify({
     data: inputs.map((_input, index) => ({ index, embedding: [1, index % 2] }))
   }))
+}
+
+function recordRetryDelays(t: TestContext): number[] {
+  const delays: number[] = []
+  // Keep HTTP/abort handling real while observing backoff without waiting 30s.
+  t.mock.method(timers, 'setTimeout', async (milliseconds: number) => {
+    delays.push(milliseconds)
+  })
+  return delays
 }
 
 describe('semantic index', () => {
@@ -406,6 +419,291 @@ describe('semantic index', () => {
         { processed: 60, batchSize: 20 },
         { processed: 70, batchSize: 20 }
       ])
+    } finally {
+      db.close()
+      await upstream.close()
+    }
+  })
+
+  for (const failure of ['timeout', 'body timeout'] as const) {
+    it(`retries ${failure}, then halves an odd batch and continues without losing or duplicating inputs`, async (t) => {
+      const delays = recordRetryDelays(t)
+      const originalTimeout = AbortSignal.timeout.bind(AbortSignal)
+      t.mock.method(AbortSignal, 'timeout', () => originalTimeout(100))
+      const requestSizes: number[] = []
+      const completedInputs: string[] = []
+      const upstream = await listen(async (request, response) => {
+        const body = await requestBody(request)
+        requestSizes.push(body.input.length)
+        if (requestSizes.length <= 3) {
+          if (failure === 'timeout') return // No headers: exercise fetch's timeout path.
+          if (failure === 'body timeout') {
+            response.writeHead(200, { 'content-type': 'application/json' })
+            response.write('{"data":[') // Headers arrive, but the body never finishes.
+            return
+          }
+        }
+        completedInputs.push(...body.input)
+        sendVectors(response, body.input)
+      })
+      const db = openDatabase(':memory:')
+      seedUser(db)
+      const providers = new EmbeddingProviderService(db, new SecretStore(db, randomBytes(32)))
+      const index = new SemanticIndexService(db, providers, generatedSources(11))
+      try {
+        providers.save('user-1', { kind: 'local', baseUrl: upstream.baseUrl, model: 'tiny', batchSize: 5 })
+        const progress: Array<{ processed: number; batchSize: number }> = []
+        const built = await index.rebuild('user-1', ({ processed, batchSize }) => progress.push({ processed, batchSize }))
+        assert.equal(built.state, 'ready')
+        assert.equal(built.chunkCount, 11)
+        assert.deepEqual(requestSizes, [5, 5, 5, 2, 2, 1, 2, 2, 2])
+        assert.deepEqual(delays, [500, 1000])
+        assert.deepEqual(completedInputs, Array.from({ length: 11 }, (_, i) => `John 1:${i + 1}\nGenerated verse ${i + 1}.`))
+        assert.deepEqual(progress, [
+          { processed: 5, batchSize: 2 }, { processed: 7, batchSize: 2 },
+          { processed: 9, batchSize: 2 }, { processed: 11, batchSize: 2 }
+        ])
+        assert.equal(providers.get('user-1')?.batchSize, 5, 'reduction must only affect this run')
+      } finally {
+        db.close()
+        await upstream.close()
+      }
+    })
+  }
+
+  for (const status of [429, 502]) {
+    it(`recovers from ${status} within the retry budget without reducing the batch size`, async (t) => {
+      const delays = recordRetryDelays(t)
+      const requestSizes: number[] = []
+      const upstream = await listen(async (request, response) => {
+        const body = await requestBody(request)
+        requestSizes.push(body.input.length)
+        if (requestSizes.length <= 2) {
+          response.writeHead(status)
+          response.end('temporary gateway failure')
+        } else sendVectors(response, body.input)
+      })
+      const db = openDatabase(':memory:')
+      seedUser(db)
+      const providers = new EmbeddingProviderService(db, new SecretStore(db, randomBytes(32)))
+      const index = new SemanticIndexService(db, providers, generatedSources(9))
+      try {
+        providers.save('user-1', { kind: 'local', baseUrl: upstream.baseUrl, model: 'tiny', batchSize: 4 })
+        assert.equal((await index.rebuild('user-1', () => undefined)).chunkCount, 9)
+        assert.deepEqual(requestSizes, [4, 4, 4, 4, 1])
+        assert.deepEqual(delays, [500, 1000])
+      } finally {
+        db.close()
+        await upstream.close()
+      }
+    })
+  }
+
+  for (const status of [429, 500, 503, 599]) {
+    it(`exhausts ${status} retries without splitting, removes staged data and preserves the active index`, async (t) => {
+      const delays = recordRetryDelays(t)
+      let failing = false
+      const requestSizes: number[] = []
+      const upstream = await listen(async (request, response) => {
+        const body = await requestBody(request)
+        requestSizes.push(body.input.length)
+        // Stage one successful batch in the replacement run before the outage.
+        if (failing && requestSizes.length > 1) {
+          response.writeHead(status)
+          // Even misleading batch-limit text in a 429/5xx must not cause splitting.
+          response.end('provider offline: maximum batch size 1')
+        } else sendVectors(response, body.input)
+      })
+      const db = openDatabase(':memory:')
+      seedUser(db)
+      const providers = new EmbeddingProviderService(db, new SecretStore(db, randomBytes(32)))
+      const index = new SemanticIndexService(db, providers, generatedSources(9))
+      try {
+        providers.save('user-1', { kind: 'local', baseUrl: upstream.baseUrl, model: 'tiny', batchSize: 4 })
+        await index.rebuild('user-1', () => undefined)
+        const activeBefore = db.prepare('SELECT * FROM semantic_active_indexes').all()
+        const chunksBefore = db.prepare('SELECT * FROM semantic_chunks ORDER BY id').all()
+        const vectorsBefore = db.prepare('SELECT * FROM semantic_vectors_d2 ORDER BY chunk_id').all()
+        failing = true
+        requestSizes.length = 0
+        await assert.rejects(index.rebuild('user-1', () => undefined), new RegExp(`failed after 3 attempts at batch size 4.*retry limit reached.*${status}.*provider offline`))
+        assert.deepEqual(requestSizes, [4, 4, 4, 4])
+        assert.deepEqual(delays, [500, 1000])
+        assert.deepEqual(db.prepare('SELECT * FROM semantic_active_indexes').all(), activeBefore)
+        assert.deepEqual(db.prepare('SELECT * FROM semantic_chunks ORDER BY id').all(), chunksBefore)
+        assert.deepEqual(db.prepare('SELECT * FROM semantic_vectors_d2 ORDER BY chunk_id').all(), vectorsBefore)
+        const failed = db.prepare("SELECT chunk_count FROM semantic_index_runs WHERE status = 'failed'").all()
+        assert.deepEqual(failed, [{ chunk_count: 0 }])
+        const indexStatus = await index.status('user-1')
+        assert.equal(indexStatus.state, 'ready')
+        assert.equal(indexStatus.chunkCount, 9)
+        assert.match(indexStatus.lastError ?? '', /retry limit reached/)
+        failing = false
+        assert.equal((await index.search('user-1', { query: 'love', modules: ['WEB'] })).length, 9)
+        // The failed run must also release the rebuild lock.
+        assert.equal((await index.rebuild('user-1', () => undefined)).state, 'ready')
+      } finally {
+        db.close()
+        await upstream.close()
+      }
+    })
+  }
+
+  const retryNow = Date.UTC(2030, 0, 1)
+  for (const status of [429, 503]) {
+    for (const [name, header, expectedDelay] of [
+      ['missing', undefined, 500],
+      ['zero', '0', 500],
+      ['seconds', '2', 2000],
+      ['at cap', '30', 30_000],
+      ['above cap', '31', 30_000],
+      ['overflowing seconds', '9'.repeat(400), 30_000],
+      ['negative', '-1', 500],
+      ['fractional', '1.5', 500],
+      ['exponent', '1e3', 500],
+      ['empty', '', 500],
+      ['invalid date', 'not a date', 500],
+      ['future date', new Date(retryNow + 5000).toUTCString(), 5000],
+      ['capped date', new Date(retryNow + 60_000).toUTCString(), 30_000],
+      ['past date', new Date(retryNow - 5000).toUTCString(), 500]
+    ] as const) {
+      it(`handles ${name} Retry-After on ${status} without splitting or exceeding the retry budget`, async (t) => {
+        t.mock.method(Date, 'now', () => retryNow)
+        const delays = recordRetryDelays(t)
+        const requestSizes: number[] = []
+        const upstream = await listen(async (request, response) => {
+          const body = await requestBody(request)
+          requestSizes.push(body.input.length)
+          // The next response omits Retry-After: a previous value must not stick.
+          response.writeHead(status, requestSizes.length === 1 && header !== undefined
+            ? { 'retry-after': header } : {})
+          response.end('unavailable')
+        })
+        const db = openDatabase(':memory:')
+        seedUser(db)
+        const providers = new EmbeddingProviderService(db, new SecretStore(db, randomBytes(32)))
+        const index = new SemanticIndexService(db, providers, generatedSources(8))
+        try {
+          providers.save('user-1', { kind: 'local', baseUrl: upstream.baseUrl, model: 'tiny', batchSize: 8 })
+          await assert.rejects(index.rebuild('user-1', () => assert.fail('failed batch must not advance progress')),
+            /failed after 3 attempts at batch size 8.*retry limit reached/)
+          assert.deepEqual(requestSizes, [8, 8, 8])
+          assert.deepEqual(delays, [expectedDelay, 1000])
+          assert.equal((await index.status('user-1')).state, 'failed')
+          assert.deepEqual(db.prepare('SELECT * FROM semantic_chunks').all(), [])
+        } finally {
+          db.close()
+          await upstream.close()
+        }
+      })
+    }
+  }
+
+  for (const failure of ['timeout', 'body timeout'] as const) {
+    it(`bounds permanent ${failure} at batch size 8 to exactly 12 requests and skips all sibling batches`, async (t) => {
+      const delays = recordRetryDelays(t)
+      const originalTimeout = AbortSignal.timeout.bind(AbortSignal)
+      t.mock.method(AbortSignal, 'timeout', () => originalTimeout(100))
+      const requestedInputs: string[][] = []
+      const upstream = await listen(async (request, response) => {
+        requestedInputs.push((await requestBody(request)).input)
+        if (failure === 'body timeout') {
+          response.writeHead(200, { 'content-type': 'application/json' })
+          response.write('{"data":[')
+        }
+        // Permanently stall every request, including singletons.
+      })
+      const db = openDatabase(':memory:')
+      seedUser(db)
+      const providers = new EmbeddingProviderService(db, new SecretStore(db, randomBytes(32)))
+      const index = new SemanticIndexService(db, providers, generatedSources(16))
+      try {
+        providers.save('user-1', { kind: 'local', baseUrl: upstream.baseUrl, model: 'tiny', batchSize: 8 })
+        await assert.rejects(index.rebuild('user-1', () => assert.fail('failed batch must not advance progress')),
+          /failed after 3 attempts at batch size 1.*retry limit reached.*timed out/)
+        assert.equal(requestedInputs.length, 12, '3 attempts * 4 sizes; the first failing child stops recursion')
+        assert.deepEqual(requestedInputs.map((inputs) => inputs.length), [8, 8, 8, 4, 4, 4, 2, 2, 2, 1, 1, 1])
+        for (const inputs of requestedInputs) {
+          assert.deepEqual(inputs, requestedInputs[0].slice(0, inputs.length), 'only the first child may run')
+        }
+        assert.deepEqual(delays, [500, 1000, 500, 1000, 500, 1000, 500, 1000])
+        assert.equal((await index.status('user-1')).state, 'failed')
+        assert.deepEqual(db.prepare('SELECT * FROM semantic_chunks').all(), [])
+      } finally {
+        db.close()
+        await upstream.close()
+      }
+    })
+  }
+
+  it('stops retrying immediately when cancelled during backoff', async () => {
+    const abort = new AbortController()
+    let requests = 0
+    const upstream = await listen(async (request, response) => {
+      await requestBody(request)
+      requests += 1
+      response.writeHead(429, { 'retry-after': '120' })
+      response.end('rate limited')
+      setTimeout(() => abort.abort(), 50)
+    })
+    const db = openDatabase(':memory:')
+    seedUser(db)
+    const providers = new EmbeddingProviderService(db, new SecretStore(db, randomBytes(32)))
+    const index = new SemanticIndexService(db, providers, sources)
+    try {
+      providers.save('user-1', { kind: 'local', baseUrl: upstream.baseUrl, model: 'tiny' })
+      await assert.rejects(index.rebuild('user-1', () => undefined, abort.signal), /aborted|cancelled/)
+      assert.equal(requests, 1)
+      assert.equal((await index.status('user-1')).state, 'failed')
+      assert.deepEqual(db.prepare('SELECT * FROM semantic_chunks').all(), [])
+    } finally {
+      db.close()
+      await upstream.close()
+    }
+  })
+
+  it('reuses the minimum batch size for remaining inputs after repeated timeouts', async (t) => {
+    recordRetryDelays(t)
+    const originalTimeout = AbortSignal.timeout.bind(AbortSignal)
+    t.mock.method(AbortSignal, 'timeout', () => originalTimeout(100))
+    const requestSizes: number[] = []
+    const upstream = await listen(async (request, response) => {
+      const body = await requestBody(request)
+      requestSizes.push(body.input.length)
+      if (body.input.length > 1) return // A provider that only completes singletons.
+      sendVectors(response, body.input)
+    })
+    const db = openDatabase(':memory:')
+    seedUser(db)
+    const providers = new EmbeddingProviderService(db, new SecretStore(db, randomBytes(32)))
+    const index = new SemanticIndexService(db, providers, generatedSources(7))
+    try {
+      providers.save('user-1', { kind: 'local', baseUrl: upstream.baseUrl, model: 'tiny', batchSize: 5 })
+      assert.equal((await index.rebuild('user-1', () => undefined)).chunkCount, 7)
+      assert.deepEqual(requestSizes, [5, 5, 5, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1])
+    } finally {
+      db.close()
+      await upstream.close()
+    }
+  })
+
+  it('fails immediately on malformed vectors after a transient failure', async () => {
+    let requests = 0
+    const upstream = await listen(async (request, response) => {
+      await requestBody(request)
+      requests += 1
+      response.writeHead(requests === 1 ? 500 : 200)
+      response.end(requests === 1 ? 'temporary failure' : '{"data":[{"embedding":[null]}]}')
+    })
+    const db = openDatabase(':memory:')
+    seedUser(db)
+    const providers = new EmbeddingProviderService(db, new SecretStore(db, randomBytes(32)))
+    const index = new SemanticIndexService(db, providers, generatedSources(1))
+    try {
+      providers.save('user-1', { kind: 'local', baseUrl: upstream.baseUrl, model: 'tiny', batchSize: 1 })
+      await assert.rejects(index.rebuild('user-1', () => undefined), /non-numeric vector/)
+      assert.equal(requests, 2)
+      assert.equal((await index.status('user-1')).state, 'failed')
     } finally {
       db.close()
       await upstream.close()

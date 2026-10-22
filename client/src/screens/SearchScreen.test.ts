@@ -43,6 +43,35 @@ async function scope(label: string) {
 }
 
 describe('search request ownership and scopes', () => {
+  it('keeps meaning search enabled after a failed rebuild and explains that it uses the old index', async () => {
+    const semantic = useSemanticIndex()
+    semantic.status.lastError = 'Embedding request failed after 3 attempts at batch size 1'
+    const meaning = vi.spyOn(api, 'semanticSearch').mockResolvedValue([{ ...hit('Previous index result'), distance: 0 }])
+    await flushPromises()
+    expect(wrapper.get('[role="status"]').text()).toContain('stale after a failed rebuild')
+    expect(wrapper.get('[role="status"]').text()).toContain('still uses the old index')
+    expect(wrapper.findAll('button.mode')[1].attributes('disabled')).toBeUndefined()
+    await wrapper.findAll('button.mode')[1].trigger('click')
+    await search('love')
+    await flushPromises()
+    expect(meaning).toHaveBeenCalled()
+    expect(wrapper.text()).toContain('Previous index result')
+
+    semantic.status.lastError = null
+    await flushPromises()
+    expect(wrapper.find('[role="status"]').exists()).toBe(false)
+  })
+
+  it('does not advertise searching an old index when the failed rebuild has no usable index', async () => {
+    const semantic = useSemanticIndex()
+    semantic.status.state = 'failed'
+    semantic.status.lastError = 'provider offline'
+    await flushPromises()
+    expect(wrapper.find('[role="status"]').exists()).toBe(false)
+    expect(wrapper.findAll('button.mode')[1].attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain('provider offline')
+  })
+
   it.each(['success', 'failure'])('discards an older query %s without finishing the current request', async (outcome) => {
     const first = deferred<SearchHit[]>()
     const second = deferred<SearchHit[]>()
