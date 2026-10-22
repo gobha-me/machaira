@@ -108,6 +108,59 @@ describe('connections graph', () => {
     assert.ok(!JSON.stringify(result).includes('index storage failed'))
   })
 
+  it('preserves curated previews when reading a meaning preview fails', async () => {
+    const result = await new ConnectionsService({
+      async neighbors() {
+        return { state: 'ready', results: [{
+          kind: 'scripture', module: 'WEB', book: 'Ps', bookName: 'Psalms', chapter: 119, verse: 105,
+          content: 'An indexed preview must not be used as a fallback.', distance: 0.1
+        }] }
+      }
+    }, {
+      ...sources,
+      async chapter(module, book, number) {
+        if (book === 'Ps') throw new Error('native read failed with private details')
+        return sources.chapter(module, book, number)
+      }
+    }).graph('user-1', { seeds: [{ module: 'WEB', book: 'John', chapter: 1, verseStart: 1 }] })
+    assert.equal(result.semanticState, 'unavailable')
+    assert.deepEqual(result.edges.map((edge) => edge.kind), ['cross-reference'])
+    assert.equal(result.nodes.find((node) => node.book === 'Gen')?.content, 'In the beginning God created.')
+    assert.ok(!JSON.stringify(result).includes('private details'))
+    assert.ok(!JSON.stringify(result).includes('fallback'))
+  })
+
+  it('does not let a later successful seed hide an earlier meaning lookup error', async () => {
+    const result = await new ConnectionsService({
+      async neighbors(_userId, seed) {
+        if (seed.verseStart === 1) throw new Error('index failure')
+        return { state: 'ready', results: [] }
+      }
+    }, sources).graph('user-1', { seeds: [
+      { module: 'WEB', book: 'John', chapter: 1, verseStart: 1 },
+      { module: 'WEB', book: 'John', chapter: 1, verseStart: 2 }
+    ] })
+    assert.equal(result.semanticState, 'unavailable')
+    assert.deepEqual(result.edges.map((edge) => edge.kind), ['cross-reference'])
+  })
+
+  it('does not offer a reference range whose interior verses are missing in this translation', async () => {
+    const result = await new ConnectionsService({
+      async neighbors() { return { state: 'ready', results: [] } }
+    }, {
+      ...sources,
+      async chapter(_module, book) {
+        return book === 'John'
+          ? chapter([{ n: 1, text: 'In the beginning was the Word.', refs: [
+              { book: 'Gen', chapter: 1, verseStart: 1, verseEnd: 3 }
+            ] }])
+          : chapter([{ n: 1, text: 'In the beginning God created.' }, { n: 3, text: 'God said, Let there be light.' }])
+      }
+    }).graph('user-1', { seeds: [{ module: 'WEB', book: 'John', chapter: 1, verseStart: 1 }] })
+    assert.deepEqual(result.edges, [])
+    assert.ok(result.warnings.some((warning) => /outside the installed module/.test(warning)))
+  })
+
   it('renders meaning previews from the current translation and excludes unavailable indexed verses', async () => {
     const result = await new ConnectionsService({
       async neighbors() {

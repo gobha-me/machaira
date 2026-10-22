@@ -180,6 +180,7 @@ export class ConnectionsService {
     const nodes = new Map<string, ConnectionNode>()
     const edges = new Map<string, ConnectionEdge>()
     let semanticState: ConnectionsPayload['semanticState'] = 'unavailable'
+    let meaningLookupFailed = false
 
     const installed = new Map(
       (await this.sources.installed())
@@ -205,8 +206,11 @@ export class ConnectionsService {
       const selected = selectedVerses(chapter, value)
       if (selected.length === 0) return null
       if (value.verseStart !== null) {
+        const start = value.verseStart
         const verseNumbers = new Set(chapter.verses.map((verse) => verse.n))
-        if (!verseNumbers.has(value.verseStart) || !verseNumbers.has(value.verseEnd ?? value.verseStart)) {
+        const end = value.verseEnd ?? start
+        // Match reader navigation: a range with missing interior verses cannot be opened.
+        if ([...verseNumbers].filter((verse) => verse >= start && verse <= end).length !== end - start + 1) {
           return null
         }
       }
@@ -303,7 +307,7 @@ export class ConnectionsService {
         semantic = await this.semantic.neighbors(userId, seed, MAX_THEMATIC)
       } catch {
         // Meaning lookup is optional: an index/storage failure must not hide curated references.
-        semanticState = 'unavailable'
+        meaningLookupFailed = true
         warnings.add('Related passages could not be loaded; cross-references remain available')
         continue
       }
@@ -323,7 +327,15 @@ export class ConnectionsService {
         }
         if (overlaps(seed, linkedSeed)) continue
         // Vectors identify passages; previews always come from the current installed translation.
-        const linkedChapter = await validTarget(seed.module, linkedSeed)
+        let linkedChapter: ReadChapterResult | null
+        try {
+          linkedChapter = await validTarget(seed.module, linkedSeed)
+        } catch {
+          // Preview reads are part of the optional meaning lookup too.
+          meaningLookupFailed = true
+          warnings.add('Related passages could not be loaded; cross-references remain available')
+          continue
+        }
         if (!linkedChapter) {
           warnings.add('Some related passages are not available in the current translation')
           continue
@@ -343,7 +355,8 @@ export class ConnectionsService {
     return {
       nodes: [...nodes.values()],
       edges: [...edges.values()],
-      semanticState,
+      // A later successful seed must not turn an earlier lookup failure into empty results.
+      semanticState: meaningLookupFailed ? 'unavailable' : semanticState,
       warnings: [...warnings],
       ...(this.crossReferences ? { crossReferenceAttribution: CROSS_REFERENCE_ATTRIBUTION } : {})
     }
