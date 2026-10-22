@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { toRaw } from 'vue'
 import { api, type Note } from '../services/api'
+import { readNoteDrafts, writeNoteDrafts } from '../services/noteDrafts'
 
 interface NotesState {
   list: Note[]
@@ -11,6 +12,11 @@ interface NotesState {
   error: string | null
   saveErrors: Record<string, string>
   dirty: Record<string, boolean>
+  userId: string | null
+  draftError: string | null
+  deleting: Record<string, boolean>
+  deleted: Note[]
+  restoring: Record<string, boolean>
 }
 
 interface PendingSave {
@@ -38,7 +44,12 @@ export const useNotes = defineStore('notes', {
     saving: false,
     error: null,
     saveErrors: {},
-    dirty: {}
+    dirty: {},
+    userId: null,
+    draftError: null,
+    deleting: {},
+    deleted: [],
+    restoring: {}
   }),
   getters: {
     current(state): Note | null {
@@ -52,6 +63,30 @@ export const useNotes = defineStore('notes', {
     }
   },
   actions: {
+    activateUser(userId: string | null): void {
+      this.resetPersonalData()
+      this.userId = userId
+      if (!userId) return
+      try {
+        this.list = readNoteDrafts(userId)
+        for (const note of this.list) {
+          this.dirty[note.id] = true
+          this.saveErrors[note.id] = 'Unsaved draft recovered. Retry to sync.'
+        }
+        this.currentId = this.list[0]?.id ?? null
+      } catch {
+        this.draftError = 'Could not read local drafts. Browser storage may be unavailable or damaged.'
+      }
+    },
+    persistDrafts(): void {
+      if (!this.userId) return
+      try {
+        writeNoteDrafts(this.userId, this.list.filter((note) => this.dirty[note.id]))
+        this.draftError = null
+      } catch {
+        this.draftError = 'Could not keep a local copy of your edits. Keep this page open until saving succeeds.'
+      }
+    },
     async load(): Promise<void> {
       if (this.loading) return
       const activeGeneration = generation
@@ -63,7 +98,7 @@ export const useNotes = defineStore('notes', {
         const local = new Map(this.list.map((note) => [note.id, note]))
         this.list = [
           ...this.list.filter((note) => this.dirty[note.id]),
-          ...notes.filter((note) => !this.dirty[note.id]).map((note) => {
+          ...notes.filter((note) => !this.dirty[note.id] && !this.deleted.some((item) => item.id === note.id)).map((note) => {
             const existing = local.get(note.id)
             return existing && existing.updatedAt > note.updatedAt ? existing : note
           })
@@ -115,6 +150,8 @@ export const useNotes = defineStore('notes', {
       }
       this.list = [updated, ...this.list.filter((item) => item.id !== updated.id)]
       this.dirty[updated.id] = true
+      // Synchronous storage closes the debounce/unload window; only server acknowledgement clears it.
+      this.persistDrafts()
       this.scheduleSave(updated.id)
     },
     scheduleSave(id: string, delay = SAVE_DELAY_MS): void {
@@ -125,10 +162,11 @@ export const useNotes = defineStore('notes', {
       pending.set(id, state)
       this.saving = true
     },
-    async flushSave(id: string): Promise<void> {
+    async flushSave(id: string, keepalive = false): Promise<void> {
       const state = pending.get(id)
       const note = this.list.find((item) => item.id === id)
-      if (!state || !note || state.running) return
+      if (!state || !note || state.running || this.deleting[id]) return
+      clearTimeout(state.timer)
       state.running = true
       state.timer = undefined
       const sentRevision = state.revision
@@ -139,12 +177,13 @@ export const useNotes = defineStore('notes', {
           body: note.body,
           tags: [...note.tags],
           refs: [...note.refs]
-        })
+        }, keepalive)
         if (activeGeneration !== generation || pending.get(id) !== state) return
         if (state.revision === sentRevision) {
           this.list = [saved, ...this.list.filter((item) => item.id !== id)]
           delete this.saveErrors[id]
           delete this.dirty[id]
+          this.persistDrafts()
         }
       } catch (error) {
         if (activeGeneration === generation && pending.get(id) === state) {
@@ -165,18 +204,60 @@ export const useNotes = defineStore('notes', {
       const id = this.saveErrorId ?? this.currentId
       if (id) this.scheduleSave(id, 0)
     },
+    flushPending(): void {
+      if (Object.keys(this.dirty).length) this.persistDrafts()
+      for (const id of Object.keys(this.dirty)) {
+        if (this.deleting[id]) continue
+        if (!pending.has(id)) pending.set(id, { running: false, revision: 0 })
+        this.saving = true
+        // Browsers may end the request on pagehide; the local draft remains until acknowledgement.
+        void this.flushSave(id, true)
+      }
+    },
     async remove(id: string): Promise<void> {
+      if (this.deleting[id] || !this.list.some((note) => note.id === id)) return
       const activeGeneration = generation
+      this.error = null
+      this.deleting[id] = true
       const state = pending.get(id)
       clearTimeout(state?.timer)
       pending.delete(id)
-      await api.deleteNote(id)
-      if (activeGeneration !== generation) return
-      delete this.saveErrors[id]
-      delete this.dirty[id]
-      this.list = this.list.filter((n) => n.id !== id)
-      if (this.currentId === id) this.currentId = this.list[0]?.id ?? null
       this.saving = pending.size > 0
+      try {
+        await api.deleteNote(id)
+        if (activeGeneration !== generation) return
+        const note = this.list.find((item) => item.id === id)
+        if (note) this.deleted.push({ ...toRaw(note), tags: [...note.tags], refs: [...note.refs] })
+        clearTimeout(pending.get(id)?.timer)
+        pending.delete(id)
+        this.saving = pending.size > 0
+        delete this.saveErrors[id]
+        delete this.dirty[id]
+        this.list = this.list.filter((n) => n.id !== id)
+        this.persistDrafts()
+        if (this.currentId === id) this.currentId = this.list[0]?.id ?? null
+      } catch (error) {
+        if (activeGeneration !== generation) return
+        this.error = `Could not delete note: ${(error as Error).message}`
+        if (this.dirty[id]) this.scheduleSave(id)
+        throw error
+      } finally {
+        if (activeGeneration === generation) delete this.deleting[id]
+      }
+    },
+    async undoRemove(id: string): Promise<void> {
+      const note = this.deleted.find((item) => item.id === id)
+      if (!note || this.restoring[id]) return
+      const activeGeneration = generation
+      this.error = null
+      this.restoring[id] = true
+      try {
+        // The create endpoint assigns a new ID; preserve the content, including unsaved edits.
+        await this.create(note)
+        if (activeGeneration === generation) this.deleted = this.deleted.filter((item) => item.id !== id)
+      } finally {
+        if (activeGeneration === generation) delete this.restoring[id]
+      }
     },
     resetPersonalData(): void {
       cancelPending()
@@ -188,6 +269,11 @@ export const useNotes = defineStore('notes', {
       this.error = null
       this.saveErrors = {}
       this.dirty = {}
+      this.userId = null
+      this.draftError = null
+      this.deleting = {}
+      this.deleted = []
+      this.restoring = {}
     }
   }
 })
