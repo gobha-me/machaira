@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useReader } from '../stores/reader'
 import { useUi } from '../stores/ui'
+import { useLibrary } from '../stores/library'
 import { useCompare } from '../composables/useCompare'
 import { useWordStudy } from '../composables/useWordStudy'
 import { useNotes } from '../composables/useNotes'
@@ -16,6 +17,7 @@ import ConnectionsPanel from '../components/ConnectionsPanel.vue'
 
 const reader = useReader()
 const ui = useUi()
+const library = useLibrary()
 
 const {
   focus,
@@ -87,6 +89,25 @@ const focusedVerses = computed(() => reader.data?.verses.filter(
 const passageHasStrongs = computed(() => focusedVerses.value.some((verse) =>
   verse.segments.some((segment) => segment.kind === 'word' && segment.strongs.length > 0)
 ))
+const missingStrongsModules = computed(() => {
+  const keys = focusedVerses.value.flatMap((verse) => verse.segments.flatMap(
+    (segment) => segment.kind === 'word' ? segment.strongs : []
+  ))
+  // The native lookup uses these exact module names; tagged Bibles and other lexicons
+  // cannot supply entries. Without passage tags, offer both languages to get started.
+  return [
+    { name: 'StrongsGreek', label: 'Strong’s Greek', prefix: 'G' },
+    { name: 'StrongsHebrew', label: 'Strong’s Hebrew', prefix: 'H' }
+  ].filter((module) => (!keys.length || keys.some((key) => key.startsWith(module.prefix)))
+    && !library.isInstalled(module.name))
+})
+
+function openStrongsLibrary() {
+  library.category = 'lexicon'
+  library.query = missingStrongsModules.value.length === 1 ? missingStrongsModules.value[0].name : 'Strongs'
+  library.language = ''
+  ui.go('library')
+}
 
 function pickVerse(event: Event, end = false) {
   const value = Number((event.target as HTMLSelectElement).value)
@@ -369,6 +390,20 @@ function menuNote() {
             :closable="false"
           />
           <template v-else>
+            <div
+              v-if="missingStrongsModules.length"
+              class="strongs-install"
+            >
+              <p class="strongs-hint">
+                Install {{ missingStrongsModules.map((module) => module.label).join(' and ') }} in the Library to enable word study for this passage.
+              </p>
+              <button
+                type="button"
+                @click="openStrongsLibrary"
+              >
+                Open lexicons in Library
+              </button>
+            </div>
             <p
               v-if="strongsKey"
               class="sub"
@@ -396,7 +431,7 @@ function menuNote() {
                 class="strongs-result"
               />
               <p
-                v-else
+                v-else-if="!missingStrongsModules.length || !passageHasStrongs"
                 class="strongs-hint"
               >
                 <template v-if="passageHasStrongs">
@@ -597,6 +632,18 @@ function menuNote() {
 }
 .strongs-result {
   margin-top: 12px;
+}
+.strongs-install button {
+  margin-top: 10px;
+  padding: 10px 12px;
+  min-height: 44px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
 }
 .context {
   font-size: 20px;

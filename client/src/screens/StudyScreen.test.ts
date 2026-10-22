@@ -7,6 +7,7 @@ import StudyScreen from './StudyScreen.vue'
 import { api } from '../services/api'
 import { useReader } from '../stores/reader'
 import { useLibrary } from '../stores/library'
+import { useUi } from '../stores/ui'
 import { pathologicalModule } from '../test/fixtures/moduleInfo'
 
 let wrapper: VueWrapper
@@ -49,6 +50,63 @@ const tab = (id: string) => wrapper.get(`#study-tab-${id}`)
 const pick = (n: string, end = false) => wrapper.get(`select[aria-label="${end ? 'Through' : 'From'} verse"]`).setValue(n)
 
 describe('focused Study tools', () => {
+  it('offers an install action without mistaking a tagged Bible, another dictionary, or catalog-only modules for installed Strong’s lexicons', async () => {
+    const library = useLibrary()
+    library.modules.push(
+      { ...pathologicalModule, name: 'OtherDictionary', kind: 'lexicon', installed: true },
+      ...['StrongsGreek', 'StrongsHebrew'].map((name) => ({
+        ...pathologicalModule, name, kind: 'lexicon' as const, installed: false
+      }))
+    )
+    library.category = 'commentary'
+    library.query = 'unrelated search'
+    library.language = 'fr'
+    const go = vi.spyOn(useUi(), 'go')
+    const lookup = vi.spyOn(api, 'strongs')
+    await tab('word-study').trigger('click')
+    expect(wrapper.get('.strongs-install').text()).toContain('Install Strong’s Greek and Strong’s Hebrew')
+    expect(wrapper.get('#study-panel-word-study').text()).toContain('No Strong’s tags were returned')
+    await wrapper.get('.strongs-install button').trigger('click')
+    expect(go).toHaveBeenCalledExactlyOnceWith('library')
+    expect(library.category).toBe('lexicon')
+    expect(library.query).toBe('Strongs')
+    expect(library.language).toBe('')
+    expect(library.filteredModules.map((module) => module.name)).toEqual(['StrongsGreek', 'StrongsHebrew'])
+    expect(lookup).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['G3056', 'StrongsGreek', 'Strong’s Greek', 'StrongsHebrew'],
+    ['H7225', 'StrongsHebrew', 'Strong’s Hebrew', 'StrongsGreek']
+  ])('requires the matching lexicon for %s and reacts to install/uninstall without remounting', async (key, name, label, other) => {
+    const library = useLibrary()
+    library.modules.push({ ...pathologicalModule, name: other, kind: 'lexicon', installed: true })
+    useReader().data!.verses[0].segments = [{ kind: 'word', text: 'Word', strongs: [key] }]
+    await tab('word-study').trigger('click')
+    expect(wrapper.get('.strongs-install').text()).toContain(`Install ${label} in the Library`)
+    expect(wrapper.get('#study-panel-word-study').text()).not.toContain('Tap a tagged word')
+    await wrapper.get('.strongs-install button').trigger('click')
+    expect(library.query).toBe(name)
+    library.modules.push({ ...pathologicalModule, name, kind: 'lexicon', installed: true })
+    await flushPromises()
+    expect(wrapper.find('.strongs-install').exists()).toBe(false)
+    expect(wrapper.get('#study-panel-word-study').text()).toContain('Tap a tagged word')
+    library.modules = library.modules.filter((module) => module.name !== name)
+    await flushPromises()
+    expect(wrapper.get('.strongs-install').text()).toContain(`Install ${label}`)
+    expect(tab('word-study').attributes('aria-selected')).toBe('true')
+  })
+
+  it('requires both lexicons for a passage with Greek and Hebrew tags', async () => {
+    useReader().data!.verses[0].segments = [{ kind: 'word', text: 'Word', strongs: ['G3056', 'H1697'] }]
+    await tab('word-study').trigger('click')
+    expect(wrapper.get('.strongs-install').text()).toContain('Install Strong’s Greek and Strong’s Hebrew')
+    useLibrary().modules.push({ ...pathologicalModule, name: 'StrongsGreek', kind: 'lexicon', installed: true })
+    await flushPromises()
+    expect(wrapper.get('.strongs-install').text()).toContain('Install Strong’s Hebrew in the Library')
+    expect(wrapper.get('.strongs-install').text()).not.toContain('Strong’s Greek')
+  })
+
   it('keeps the first prose click of a word double-click independent of verse selection', async () => {
     await flushPromises()
     const prose = wrapper.get('[data-selection-text]')
