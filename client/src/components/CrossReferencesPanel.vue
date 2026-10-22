@@ -62,10 +62,17 @@ defineEmits<{ (e: 'close'): void; (e: 'open-reference', target: ScriptureTarget)
         class="xref-entry"
       >
         <span class="xref-verse">{{ entry.verse }}</span>
-        <button v-if="entry.target" class="xref-text xref-link serif" @click="$emit('open-reference', entry.target)">
+        <button
+          v-if="entry.target"
+          class="xref-text xref-link serif"
+          @click="$emit('open-reference', entry.target)"
+        >
           {{ entry.text }} <small v-if="entry.votes !== undefined">({{ entry.votes }} votes)</small>
         </button>
-        <span v-else class="xref-text serif">{{ entry.text }}</span>
+        <span
+          v-else
+          class="xref-text serif"
+        >{{ entry.text }}</span>
       </div>
     </div>
     <CrossReferenceCredits />

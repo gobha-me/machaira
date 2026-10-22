@@ -657,8 +657,8 @@ async function menuNote() {
             :module-name="reader.moduleName ?? ''"
             :ref-label="selectionLabel"
             :empty-reason="crossReferencesReason"
-            @open-reference="(target) => reader.moduleName && reader.openRef(reader.moduleName, target.book, target.chapter, target.verseStart ?? undefined, target.verseEnd ?? undefined)"
             closable
+            @open-reference="(target) => reader.moduleName && reader.openRef(reader.moduleName, target.book, target.chapter, target.verseStart ?? undefined, target.verseEnd ?? undefined)"
             @close="closeCrossReferences"
           />
 
