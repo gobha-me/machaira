@@ -4,6 +4,7 @@ import cors from '@fastify/cors'
 import rateLimit from '@fastify/rate-limit'
 import staticFiles from '@fastify/static'
 import multipart from '@fastify/multipart'
+import { registerSecurity } from './security.js'
 import { AuthService, SESSION_COOKIE } from './auth.js'
 import { openDatabase } from './database.js'
 import { registerAuth } from './routes/auth.js'
@@ -39,6 +40,7 @@ export interface AppOptions {
   secretKey: Buffer
   origin?: string
   production?: boolean
+  hsts?: boolean
   logger?: boolean
   registerFeatureRoutes?: boolean
   clientPath?: string
@@ -70,6 +72,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   const deploymentProviders = new DeploymentProviderService(options.deploymentProviders ?? {})
 
   app.addHook('onClose', async () => db.close())
+  await registerSecurity(app, options.hsts ?? options.production ?? false)
   await app.register(cookie)
   await app.register(rateLimit, { global: false })
   await app.register(multipart, {
