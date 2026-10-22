@@ -15,6 +15,9 @@ import { pathologicalModule } from '../test/fixtures/moduleInfo'
 let wrapper: VueWrapper
 beforeEach(() => {
   vi.restoreAllMocks()
+  vi.spyOn(api, 'connections').mockResolvedValue({
+    nodes: [], edges: [], semanticState: 'empty', warnings: []
+  })
   const pinia = createPinia()
   setActivePinia(pinia)
   useLibrary().modules = [{ ...pathologicalModule, name: 'KJV', installed: true }]
@@ -73,6 +76,35 @@ describe('reader keyboard accessibility', () => {
     expect(document.activeElement).toBe(wrapper.findAll('button.wtap')[1].element)
   })
 
+  it('opens connections on verse selection and exposes its menu action even without embedded references', async () => {
+    const user = userEvent.setup()
+    const number = wrapper.get('button.vnum').element as HTMLElement
+    number.focus()
+    await user.keyboard('{Enter}')
+    await flushPromises()
+    expect(wrapper.get('.rail-side').classes()).toContain('open')
+    expect(wrapper.get('.connections-card').text()).toContain('Connections')
+    expect(document.activeElement).toBe(number)
+    expect(api.connections).toHaveBeenCalledWith([{
+      module: 'KJV', book: 'John', chapter: 1, verseStart: 1, verseEnd: 1
+    }])
+    await user.keyboard('{Shift>}{F10}{/Shift}')
+    await user.tab()
+    await user.tab()
+    await user.tab()
+    expect(document.activeElement?.textContent?.trim()).toBe('Connections')
+    expect((document.activeElement as HTMLButtonElement).disabled).toBe(false)
+    await user.keyboard('{Enter}')
+    await flushPromises()
+    expect(document.activeElement).toBe(wrapper.get('.connections-card h2').element)
+    await user.tab()
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Close connections')
+    await user.keyboard(' ')
+    await flushPromises()
+    expect(wrapper.find('.connections-card').exists()).toBe(false)
+    expect(document.activeElement).toBe(number)
+  })
+
   it.each(['{Shift>}{F10}{/Shift}', '{ContextMenu}'])('opens passage actions with %s and restores focus on Escape', async (key) => {
     const user = userEvent.setup()
     const number = wrapper.get('button.vnum').element as HTMLElement
@@ -87,6 +119,21 @@ describe('reader keyboard accessibility', () => {
     expect(document.activeElement?.textContent?.trim()).toBe('Word study')
     await user.keyboard('{Escape}')
     expect(document.querySelector('[role="toolbar"]')).toBeNull()
+    expect(document.activeElement).toBe(number)
+  })
+
+  it('returns focus to the selected verse when Escape closes the connections rail', async () => {
+    const user = userEvent.setup()
+    const number = wrapper.get('button.vnum').element as HTMLElement
+    number.focus()
+    await user.keyboard('{Enter}')
+    await flushPromises()
+    ;(wrapper.get('.connections-card h2').element as HTMLElement).focus()
+    await user.keyboard('{Escape}')
+    await flushPromises()
+    expect(wrapper.get('.rail-side').classes()).not.toContain('open')
+    expect(wrapper.find('.connections-card').exists()).toBe(false)
+    expect(useReader().selectedVerses).toEqual([1])
     expect(document.activeElement).toBe(number)
   })
 

@@ -180,6 +180,7 @@ export class ConnectionsService {
     const nodes = new Map<string, ConnectionNode>()
     const edges = new Map<string, ConnectionEdge>()
     let semanticState: ConnectionsPayload['semanticState'] = 'unavailable'
+    let meaningLookupFailed = false
 
     const installed = new Map(
       (await this.sources.installed())
@@ -205,8 +206,11 @@ export class ConnectionsService {
       const selected = selectedVerses(chapter, value)
       if (selected.length === 0) return null
       if (value.verseStart !== null) {
+        const start = value.verseStart
         const verseNumbers = new Set(chapter.verses.map((verse) => verse.n))
-        if (!verseNumbers.has(value.verseStart) || !verseNumbers.has(value.verseEnd ?? value.verseStart)) {
+        const end = value.verseEnd ?? start
+        // Match reader navigation: a range with missing interior verses cannot be opened.
+        if ([...verseNumbers].filter((verse) => verse >= start && verse <= end).length !== end - start + 1) {
           return null
         }
       }
@@ -298,23 +302,45 @@ export class ConnectionsService {
         if (linkedNode) addEdge({ source: sourceNode.id, target: linkedNode.id, kind: 'cross-reference' })
       }
 
-      const semantic = await this.semantic.neighbors(userId, seed, MAX_THEMATIC)
+      let semantic: SemanticNeighborResult
+      try {
+        semantic = await this.semantic.neighbors(userId, seed, MAX_THEMATIC)
+      } catch {
+        // Meaning lookup is optional: an index/storage failure must not hide curated references.
+        meaningLookupFailed = true
+        warnings.add('Related passages could not be loaded; cross-references remain available')
+        continue
+      }
       semanticState = semantic.state
       if (semantic.state !== 'ready') {
         warnings.add('Thematic links require a ready semantic index; cross-references remain available')
         continue
       }
       for (const neighbor of semantic.results.slice(0, MAX_THEMATIC)) {
-        if (neighbor.kind === 'general-book') continue
+        if (neighbor.kind === 'general-book' || neighbor.module !== seed.module) continue
         const linkedSeed: ConnectionSeed = {
-          module: neighbor.module,
+          module: seed.module,
           book: neighbor.book,
           chapter: neighbor.chapter,
           verseStart: neighbor.verse,
           verseEnd: neighbor.verse
         }
         if (overlaps(seed, linkedSeed)) continue
-        const linkedNode = addNode(linkedSeed, snippet(neighbor.content), false)
+        // Vectors identify passages; previews always come from the current installed translation.
+        let linkedChapter: ReadChapterResult | null
+        try {
+          linkedChapter = await validTarget(seed.module, linkedSeed)
+        } catch {
+          // Preview reads are part of the optional meaning lookup too.
+          meaningLookupFailed = true
+          warnings.add('Related passages could not be loaded; cross-references remain available')
+          continue
+        }
+        if (!linkedChapter) {
+          warnings.add('Some related passages are not available in the current translation')
+          continue
+        }
+        const linkedNode = addNode(linkedSeed, nodeContent(linkedChapter, linkedSeed), false)
         if (linkedNode) {
           addEdge({
             source: sourceNode.id,
@@ -329,7 +355,8 @@ export class ConnectionsService {
     return {
       nodes: [...nodes.values()],
       edges: [...edges.values()],
-      semanticState,
+      // A later successful seed must not turn an earlier lookup failure into empty results.
+      semanticState: meaningLookupFailed ? 'unavailable' : semanticState,
       warnings: [...warnings],
       ...(this.crossReferences ? { crossReferenceAttribution: CROSS_REFERENCE_ATTRIBUTION } : {})
     }
