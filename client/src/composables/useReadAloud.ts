@@ -23,6 +23,7 @@ interface SpeechSynthesisLike {
 interface AudioLike {
   onended: (() => void) | null
   onerror: (() => void) | null
+  readonly error?: { code: number } | null
   play(): Promise<void>
   pause(): void
 }
@@ -37,7 +38,12 @@ class ReadAloudCancelledError extends Error {
 export interface ReadAloudEnvironment {
   synthesis: SpeechSynthesisLike | null
   createUtterance: ((text: string) => SpeechSynthesisUtteranceLike) | null
-  createAudio: ((blob: Blob) => { audio: AudioLike; release: () => void }) | null
+  createAudio: (() => {
+    audio: AudioLike
+    unlock: () => void
+    setSource: (blob: Blob) => () => void
+    dispose: () => void
+  }) | null
   fetchAudio: (provider: 'local' | 'cloud', text: string, signal: AbortSignal) => Promise<Blob>
 }
 
@@ -181,24 +187,6 @@ class RemoteAudioBuffer {
     this.clear()
   }
 
-  async prepare(
-    tier: RemoteTier,
-    startIndex: number,
-    onReady: () => void
-  ): Promise<number> {
-    this.clear()
-    const target = Math.min(this.capacity, this.verses.length - startIndex)
-    const requests: Promise<Blob>[] = []
-    for (let index = startIndex; index < startIndex + target; index += 1) {
-      requests.push(this.request(tier, index, true).then((blob) => {
-        onReady()
-        return blob
-      }))
-    }
-    await Promise.all(requests)
-    return target
-  }
-
   current(tier: RemoteTier, index: number): Promise<Blob> {
     return this.request(tier, index, true)
   }
@@ -255,11 +243,46 @@ function browserEnvironment(): ReadAloudEnvironment {
     createUtterance: speechAvailable
       ? (text) => new SpeechSynthesisUtterance(text) as unknown as SpeechSynthesisUtteranceLike
       : null,
-    createAudio: audioAvailable ? (blob) => {
-      const url = URL.createObjectURL(blob)
+    createAudio: audioAvailable ? () => {
+      const audio = new Audio()
       return {
-        audio: new Audio(url) as unknown as AudioLike,
-        release: () => URL.revokeObjectURL(url)
+        audio: audio as unknown as AudioLike,
+        unlock: () => {
+          // Play a short silent PCM WAV during the click, before synthesis awaits.
+          // Keep the element unmuted: muted autoplay need not grant audible playback.
+          const samples = 800
+          const wav = new Uint8Array(44 + samples)
+          const view = new DataView(wav.buffer)
+          const tag = (offset: number, text: string) => {
+            for (let i = 0; i < text.length; i += 1) wav[offset + i] = text.charCodeAt(i)
+          }
+          tag(0, 'RIFF')
+          view.setUint32(4, 36 + samples, true)
+          tag(8, 'WAVEfmt ')
+          view.setUint32(16, 16, true)
+          view.setUint16(20, 1, true)
+          view.setUint16(22, 1, true)
+          view.setUint32(24, 8000, true)
+          view.setUint32(28, 8000, true)
+          view.setUint16(32, 1, true)
+          view.setUint16(34, 8, true)
+          tag(36, 'data')
+          view.setUint32(40, samples, true)
+          wav.fill(128, 44)
+          audio.src = `data:audio/wav;base64,${btoa(String.fromCharCode(...wav))}`
+          // Unlock is best effort; actual verse playback offers gesture recovery.
+          void audio.play().catch(() => {})
+        },
+        setSource: (blob) => {
+          const url = URL.createObjectURL(blob)
+          audio.src = url
+          return () => URL.revokeObjectURL(url)
+        },
+        dispose: () => {
+          audio.pause()
+          audio.removeAttribute('src')
+          audio.load()
+        }
       }
     } : null,
     fetchAudio: (provider, text, signal) => api.ttsSpeech(provider, text, signal)
@@ -284,13 +307,18 @@ function copyConfig(config: TtsConfig): TtsConfig {
 function failureDetail(tier: TtsTier, failure: unknown): string {
   if (failure instanceof ApiError) return `request failed (HTTP ${failure.status})`
   if (!(failure instanceof Error)) return 'an unexpected playback error occurred'
+  if (failure.name === 'NotSupportedError') return 'the audio format is not supported by this browser'
+  if (failure.name === 'AbortError') return 'the audio request or playback was interrupted'
+  if (failure instanceof TypeError) return 'the network request failed; check the connection'
   const safeMessages = new Set([
     'Audio playback is unavailable in this browser',
     'Browser speech is unavailable',
     'Browser speech did not respond',
     'Browser speech stopped unexpectedly',
     'Generated audio could not be played',
-    'Generated audio could not be resumed'
+    'Audio download failed',
+    'Generated audio could not be decoded',
+    'Audio format is not supported by this browser'
   ])
   if (safeMessages.has(failure.message)) return failure.message.toLowerCase()
   return tier === 'browser'
@@ -305,6 +333,7 @@ export function createReadAloudController(
   const active = ref(false)
   const playing = ref(false)
   const preparing = ref(false)
+  const needsAudioGesture = ref(false)
   const preparedCount = ref(0)
   const preparationTarget = ref(0)
   const currentVerse = ref<number | null>(null)
@@ -318,9 +347,10 @@ export function createReadAloudController(
   let config: TtsConfig | null = null
   let buffer: RemoteAudioBuffer | null = null
   let bufferedTier: RemoteTier | null = null
+  let sessionAudio: ReturnType<NonNullable<ReadAloudEnvironment['createAudio']>> | null = null
   let currentAudio: AudioLike | null = null
+  let retryAudio: (() => void) | null = null
   let cancelAudio: (() => void) | null = null
-  let failAudio: ((failure: Error) => void) | null = null
   let settleBrowser: ((failure?: Error) => void) | null = null
   let armBrowserWatchdog: (() => void) | null = null
   let browserWatchdog: ReturnType<typeof setTimeout> | null = null
@@ -368,7 +398,8 @@ export function createReadAloudController(
   function cleanupAudio(): void {
     cancelAudio?.()
     cancelAudio = null
-    failAudio = null
+    retryAudio = null
+    needsAudioGesture.value = false
     currentAudio = null
   }
 
@@ -388,6 +419,8 @@ export function createReadAloudController(
   function cancelSession(): void {
     playbackGeneration += 1
     cancelCurrentPlayback()
+    sessionAudio?.dispose()
+    sessionAudio = null
     buffer?.cancelAll()
     buffer = null
     bufferedTier = null
@@ -435,10 +468,11 @@ export function createReadAloudController(
   }
 
   async function playRemote(blob: Blob, token: number): Promise<void> {
-    if (!environment.createAudio) throw new Error('Audio playback is unavailable in this browser')
+    if (!sessionAudio) throw new Error('Audio playback is unavailable in this browser')
     if (token !== generation) throw new ReadAloudCancelledError()
     cleanupAudio()
-    const created = environment.createAudio(blob)
+    const created = sessionAudio
+    const releaseSource = created.setSource(blob)
     currentAudio = created.audio
     await new Promise<void>((resolve, reject) => {
       let settled = false
@@ -449,7 +483,7 @@ export function createReadAloudController(
       const release = () => {
         if (released) return
         released = true
-        created.release()
+        releaseSource()
       }
       const clearOwnership = () => {
         created.audio.onended = null
@@ -457,7 +491,8 @@ export function createReadAloudController(
         if (currentAudio !== created.audio) return
         currentAudio = null
         cancelAudio = null
-        failAudio = null
+        retryAudio = null
+        needsAudioGesture.value = false
       }
       const finish = (failure?: Error, releaseNow = true) => {
         if (settled) return
@@ -476,54 +511,58 @@ export function createReadAloudController(
         created.audio.pause()
         if (releaseAfterPause) release()
       }
-      failAudio = (failure) => finish(failure)
       created.audio.onended = () => finish()
-      created.audio.onerror = () => finish(new Error('Generated audio could not be played'))
-
-      let playPromise: Promise<void>
-      try {
-        playPromise = created.audio.play()
-      } catch (failure) {
-        playSettled = true
-        finish(failure instanceof Error ? failure : new Error('Generated audio could not be played'))
-        return
-      }
-      void playPromise.then(
-        () => {
-          playSettled = true
-          if (releaseAfterPlaySettles) release()
-        },
-        (failure) => {
-          playSettled = true
-          if (releaseAfterPlaySettles) release()
-          finish(failure instanceof Error ? failure : new Error('Generated audio could not be played'))
+      created.audio.onerror = () => {
+        const messages: Record<number, string> = {
+          2: 'Audio download failed',
+          3: 'Generated audio could not be decoded',
+          4: 'Audio format is not supported by this browser'
         }
-      )
+        finish(new Error(messages[created.audio.error?.code ?? 0] ?? 'Generated audio could not be played'))
+      }
+
+      const playbackFailed = (failure: unknown) => {
+        if (settled) return
+        if (failure && typeof failure === 'object' && 'name' in failure && failure.name === 'NotAllowedError') {
+          // Keep the ready source and provider: retry play() directly in the next click.
+          needsAudioGesture.value = true
+          playing.value = false
+          return
+        }
+        finish(failure instanceof Error ? failure : new Error('Generated audio could not be played'))
+      }
+      const attemptPlay = () => {
+        playing.value = true
+        let playPromise: Promise<void>
+        try {
+          playSettled = false
+          playPromise = created.audio.play()
+        } catch (failure) {
+          playSettled = true
+          playbackFailed(failure)
+          return
+        }
+        void playPromise.then(
+          () => {
+            playSettled = true
+            if (releaseAfterPlaySettles) release()
+            if (settled) return
+            needsAudioGesture.value = false
+          },
+          (failure) => {
+            playSettled = true
+            if (releaseAfterPlaySettles) release()
+            playbackFailed(failure)
+          }
+        )
+      }
+      retryAudio = attemptPlay
+      attemptPlay()
     })
   }
 
   function isCurrentRun(token: number, playToken: number): boolean {
     return token === generation && playToken === playbackGeneration
-  }
-
-  async function prepareRemote(
-    tier: RemoteTier,
-    index: number,
-    token: number,
-    playToken: number
-  ): Promise<void> {
-    if (!buffer) throw new ReadAloudCancelledError()
-    preparing.value = true
-    preparedCount.value = 0
-    preparationTarget.value = Math.min(config!.remoteAudioCacheSize, options.verses().length - index)
-    try {
-      await buffer.prepare(tier, index, () => {
-        if (isCurrentRun(token, playToken)) preparedCount.value += 1
-      })
-      bufferedTier = tier
-    } finally {
-      if (isCurrentRun(token, playToken)) preparing.value = false
-    }
   }
 
   async function currentRemoteBlob(
@@ -565,9 +604,15 @@ export function createReadAloudController(
         if (tier === 'browser') {
           await playBrowser(verse.text, token)
         } else {
-          if (bufferedTier !== tier) await prepareRemote(tier, index, token, playToken)
+          if (bufferedTier !== tier) {
+            buffer?.clear()
+            bufferedTier = tier
+          }
+          // Queue the playhead first; later syntheses must never gate its playback.
+          const pending = currentRemoteBlob(tier, index, token, playToken)
+          buffer?.maintain(tier, index)
+          const blob = await pending
           if (!isCurrentRun(token, playToken)) throw new ReadAloudCancelledError()
-          const blob = await currentRemoteBlob(tier, index, token, playToken)
           buffer?.maintain(tier, index)
           await playRemote(blob, token)
         }
@@ -631,6 +676,15 @@ export function createReadAloudController(
     cancelSession()
     unavailable.clear()
     config = copyConfig(options.config())
+    if (config.order.some((tier) => tier !== 'browser' && config![tier]) && environment.createAudio) {
+      // start() is called synchronously by Listen (also when browser speech is first).
+      try {
+        sessionAudio = environment.createAudio()
+        sessionAudio.unlock()
+      } catch {
+        // An unlock failure must not prevent synthesis or explicit tap recovery.
+      }
+    }
     buffer = new RemoteAudioBuffer(verses, config.remoteAudioCacheSize, environment.fetchAudio)
     active.value = true
     playing.value = true
@@ -650,7 +704,17 @@ export function createReadAloudController(
     else start()
   }
 
+  function recoverAudio(): void {
+    if (!needsAudioGesture.value) return
+    needsAudioGesture.value = false
+    retryAudio?.()
+  }
+
   function togglePlayback(): void {
+    if (needsAudioGesture.value) {
+      recoverAudio()
+      return
+    }
     if (completed.value || error.value) {
       start()
       return
@@ -673,14 +737,10 @@ export function createReadAloudController(
     if (currentProvider.value === 'browser' && environment.synthesis?.paused) {
       environment.synthesis.resume()
       armBrowserWatchdog?.()
+      playing.value = true
     } else if (currentAudio) {
-      void currentAudio.play().catch((failure) => {
-        failAudio?.(failure instanceof Error
-          ? failure
-          : new Error('Generated audio could not be resumed'))
-      })
+      retryAudio?.()
     }
-    playing.value = true
   }
 
   function seek(offset: -1 | 1): void {
@@ -717,6 +777,7 @@ export function createReadAloudController(
     active,
     playing,
     preparing,
+    needsAudioGesture,
     preparedCount,
     preparationTarget,
     preparationProgress,
@@ -731,6 +792,7 @@ export function createReadAloudController(
     start,
     toggle,
     togglePlayback,
+    recoverAudio,
     previous,
     next,
     stop
