@@ -60,12 +60,12 @@ const {
 } = useNotes()
 
 const selectionRoot = ref<HTMLElement | null>(null)
+const textActions = ref<InstanceType<typeof TextSelectionActions> | null>(null)
 function selectionNote(reference: string, quote: string) {
   anchorNoteSelection(reference, quote)
   menuNote()
 }
 async function selectionWordStudy(keys: string[]) {
-  activeTab.value = 'word-study'
   await tapWord(keys)
 }
 
@@ -82,6 +82,10 @@ const passage = computed(() => ({ verseStart: focus.value, verseEnd: focusEnd.va
 const focusedVerses = computed(() => reader.data?.verses.filter(
   (verse) => verse.n >= focus.value && verse.n <= focusEnd.value
 ) ?? [])
+// Catalog descriptions are not evidence of which words in this passage carry tags.
+const passageHasStrongs = computed(() => focusedVerses.value.some((verse) =>
+  verse.segments.some((segment) => segment.kind === 'word' && segment.strongs.length > 0)
+))
 
 function pickVerse(event: Event, end = false) {
   const value = Number((event.target as HTMLSelectElement).value)
@@ -112,9 +116,8 @@ onMounted(async () => {
 })
 
 // Word lookup is independent of the verse-number/gutter selection gesture.
-async function studyWord(_n: number, keys: string[]) {
-  activeTab.value = 'word-study'
-  await tapWord(keys)
+function studyWord(verse: number, keys: string[], target: HTMLElement) {
+  textActions.value?.openWord(verse, keys, target)
 }
 
 // ── Passage action menu: shared PassageActions component, same keystone as Read ──
@@ -391,8 +394,13 @@ function menuNote() {
                 v-else
                 class="strongs-hint"
               >
-                Tap any word in the passage above to open its Greek or Hebrew entry. Needs a
-                Strong’s-tagged translation (e.g. KJVA) and the Strong’s modules from the Library.
+                <template v-if="passageHasStrongs">
+                  Tap a tagged word in the passage above to open its Greek or Hebrew entry.
+                </template>
+                <template v-else>
+                  No Strong’s tags were returned for this passage in {{ reader.moduleName }}.
+                  Try another passage or a tagged translation.
+                </template>
               </p>
             </div>
           </template>
@@ -469,7 +477,10 @@ function menuNote() {
     </div>
 
     <TextSelectionActions
+      ref="textActions"
+      :word-study="{ key: strongsKey, entry: strongs, error: strongsError, loading: strongsLoading }"
       :root="selectionRoot"
+      @clear-word-study="clearWordStudy"
       @open="dismiss"
       @word-study="selectionWordStudy"
       @note="selectionNote"

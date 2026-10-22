@@ -130,7 +130,7 @@ describe('word and phrase selection actions', () => {
     await flushPromises()
     expect(lookup).toHaveBeenCalledExactlyOnceWith('G3056')
     expect(useReader().selectedVerses).toEqual([])
-    expect(wrapper.get('[role="alert"]').text()).toContain('No entry for G3056')
+    expect(textActions()!.querySelector('[role="alert"]')!.textContent).toContain('Word lookup failed for G3056')
   })
 
   it.each([false, true])('double-clicks prose without changing an existing verse selection (Strong’s display: %s)', async (showStrongs) => {
@@ -197,7 +197,7 @@ describe('word and phrase selection actions', () => {
     textAction('Word study').click()
     await flushPromises()
     expect(lookup).toHaveBeenCalledExactlyOnceWith('G3056')
-    expect(wrapper.get('[role="alert"]').text()).toContain('No entry for G3056')
+    expect(textActions()!.querySelector('[role="alert"]')!.textContent).toContain('Word lookup failed for G3056')
   })
 
   it('offers a choice for multiple tagged words and explains a selection without tags', async () => {
@@ -395,7 +395,7 @@ describe('reader keyboard accessibility', () => {
     await flushPromises()
     expect(lookup).toHaveBeenCalledExactlyOnceWith('G3056')
     expect(useReader().selectedVerses).toEqual([2])
-    expect(wrapper.get('[role="alert"]').text()).toContain('No entry for G3056.')
+    expect(textActions()!.querySelector('[role="alert"]')!.textContent).toContain('Word lookup failed for G3056.')
     expect(wrapper.find('.strongs-card').exists()).toBe(false)
   })
 

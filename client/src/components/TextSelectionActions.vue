@@ -5,12 +5,19 @@ import { useUi } from '../stores/ui'
 import { formatPassageRef } from '../utils/passageRef'
 import { selectedScripture, type SelectedText } from '../utils/textSelection'
 import { placeSelectionPopover } from '../utils/selectionPopover'
+import type { StrongsPayload } from '../services/api'
+import StrongsCard from './StrongsCard.vue'
 
-const props = defineProps<{ root: HTMLElement | null; avoid?: HTMLElement | null }>()
+const props = defineProps<{
+  root: HTMLElement | null
+  avoid?: HTMLElement | null
+  wordStudy?: { key: string | null; entry: StrongsPayload | null; error: string | null; loading: boolean }
+}>()
 const emit = defineEmits<{
   note: [reference: string, quote: string]
   wordStudy: [keys: string[]]
   open: []
+  clearWordStudy: []
 }>()
 const reader = useReader()
 const ui = useUi()
@@ -20,6 +27,7 @@ const studying = ref(false)
 const toolbar = ref<HTMLElement | null>(null)
 let dismissedRange: Range | null = null
 let activeRange: Range | null = null
+let wordAnchor: HTMLElement | null = null
 let resizeObserver: ResizeObserver | null = null
 const reference = computed(() => chosen.value ? formatPassageRef({
   book: reader.bookName, chapter: reader.chapter, moduleName: reader.moduleName,
@@ -31,8 +39,10 @@ function dismiss() {
   dismissedRange = selection?.rangeCount ? selection.getRangeAt(0).cloneRange() : null
   chosen.value = null
   activeRange = null
+  wordAnchor = null
   placement.value = null
   studying.value = false
+  emit('clearWordStudy')
 }
 function position() {
   if (!chosen.value || !activeRange || !props.root || !toolbar.value) return
@@ -50,13 +60,20 @@ function update(event: Event) {
   // only while interacting with the toolbar; never retain a range from another passage.
   if (toolbar.value?.contains(document.activeElement)) return
   const next = props.root && selectedScripture(props.root, window.getSelection())
+  // Direct taps do not create a native range. Their keyup/selectionchange events
+  // must not close the result immediately after Enter or Space opens it.
+  if (!next && wordAnchor?.isConnected && window.getSelection()?.isCollapsed) return
   if (!next || reader.loadingChapter || reader.error) { dismiss(); return }
   const range = window.getSelection()!.getRangeAt(0)
   if (dismissedRange && range.startContainer === dismissedRange.startContainer
     && range.endContainer === dismissedRange.endContainer
     && range.startOffset === dismissedRange.startOffset && range.endOffset === dismissedRange.endOffset) return
-  if (JSON.stringify(next) !== JSON.stringify(chosen.value)) studying.value = false
+  if (JSON.stringify(next) !== JSON.stringify(chosen.value)) {
+    studying.value = false
+    emit('clearWordStudy')
+  }
   chosen.value = next
+  wordAnchor = null
   activeRange = range.cloneRange()
   void nextTick(position)
   emit('open')
@@ -70,7 +87,29 @@ function onScroll(event: Event) {
   if (event.target instanceof Node && toolbar.value?.contains(event.target)) return
   dismiss()
 }
-function study(keys: string[]) { emit('wordStudy', keys); dismiss() }
+function study(keys: string[]) {
+  studying.value = true
+  emit('wordStudy', keys)
+}
+
+// A direct tagged-word tap uses the same anchored surface as a native text selection.
+// Snapshot the word without changing the browser range, verse selection, focus, or scroll.
+function openWord(verse: number, keys: string[], target: HTMLElement) {
+  if (!props.root?.contains(target) || reader.loadingChapter || reader.error) return
+  dismiss()
+  const range = document.createRange()
+  range.selectNodeContents(target)
+  activeRange = range
+  wordAnchor = target
+  chosen.value = {
+    text: target.textContent?.trim() ?? '', verseStart: verse, verseEnd: verse,
+    words: keys.map((key) => ({ key, text: target.textContent?.trim() ?? '' }))
+  }
+  emit('open')
+  study(keys)
+  void nextTick(position)
+}
+defineExpose({ openWord })
 function note() {
   if (chosen.value) emit('note', reference.value, chosen.value.text)
   dismiss()
@@ -90,7 +129,7 @@ function observeLayout() {
   void nextTick(position)
 }
 watch(() => [toolbar.value, props.root, props.avoid], observeLayout, { flush: 'post' })
-watch(studying, () => { void nextTick(position) })
+watch(() => [studying.value, props.wordStudy], () => { void nextTick(position) })
 onMounted(() => {
   resizeObserver = new ResizeObserver(position)
   observeLayout()
@@ -148,15 +187,47 @@ onUnmounted(() => {
           Note
         </button>
       </div>
+      <button
+        v-if="studying"
+        type="button"
+        class="close-study"
+        aria-label="Close word study"
+        @click="dismiss"
+      >
+        Close
+      </button>
       <template v-if="studying">
+        <p
+          v-if="wordStudy?.key"
+          class="lookup-key"
+        >
+          Strong’s lexicon · {{ wordStudy.key }}
+        </p>
+        <p
+          v-if="wordStudy?.loading"
+          role="status"
+        >
+          Looking up…
+        </p>
+        <p
+          v-else-if="wordStudy?.error"
+          role="alert"
+        >
+          {{ wordStudy.error }}
+        </p>
+        <StrongsCard
+          v-else-if="wordStudy?.entry"
+          :entry="wordStudy.entry"
+          class="lookup-result"
+        />
         <p
           v-if="!chosen.words.length"
           role="status"
         >
-          No Strong’s tags for this selection in {{ reader.moduleName }}. Choose a tagged word in a Strong’s-enabled translation.
+          No Strong’s tags for this selection in {{ reader.moduleName }}. Choose a tagged word in this passage, or try another translation.
         </p>
         <div
-          v-else
+          v-else-if="chosen.words.length > 1"
           class="words"
           aria-label="Choose a word to study"
         >
@@ -191,6 +262,7 @@ onUnmounted(() => {
   box-shadow: 0 4px 20px #0003;
 }
 .actions { display: flex; }
+.close-study { display: block; margin-left: auto; }
 button {
   flex: 1;
   min-height: 44px;
@@ -204,6 +276,8 @@ button {
   font-size: 12px;
 }
 button:hover { background: var(--paper); }
+.lookup-result { padding: 8px; font-size: 13px; overflow-wrap: anywhere; }
+.lookup-key { font-weight: 600; }
 p { margin: 8px; font-size: 12px; }
 .words { display: flex; flex-wrap: wrap; }
 </style>

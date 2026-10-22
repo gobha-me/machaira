@@ -26,7 +26,9 @@ export function useWordStudy() {
       if (activeGeneration !== generation) return
       entry.value = null
       error.value =
-        e instanceof ApiError && e.status === 409 ? e.message : `No entry for ${key}.`
+        e instanceof ApiError && e.status === 409 ? e.message
+          : e instanceof ApiError && e.status === 404 ? `No entry for ${key}.`
+            : `Word lookup failed for ${key}. Try again.`
     } finally {
       if (activeGeneration === generation) loading.value = false
     }

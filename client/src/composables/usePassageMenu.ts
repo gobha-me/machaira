@@ -11,7 +11,7 @@ import {
 
 interface UsePassageMenuOptions {
   // A tagged-word lookup never changes the verse selection.
-  onWordTap?: (verse: number, strongs: string[]) => void | Promise<void>
+  onWordTap?: (verse: number, strongs: string[], target: HTMLElement) => void | Promise<void>
 }
 
 // Verse-selection gestures, their presentation ("bring the passage forward"), and the floating
@@ -77,7 +77,7 @@ export function usePassageMenu(opts: UsePassageMenuOptions = {}) {
 
   function dismiss() {
     menuDismissed.value = true
-    if (keyboardOpener?.isConnected) keyboardOpener.focus()
+    if (keyboardOpener?.isConnected) keyboardOpener.focus({ preventScroll: true })
     keyboardOpener = null
   }
 
@@ -183,13 +183,14 @@ export function usePassageMenu(opts: UsePassageMenuOptions = {}) {
     cancelWordTap()
     if (hasNativeTextSelection(e.currentTarget) || e.detail >= 2) return
     if (e.shiftKey) return
-    if (e.detail === 0) { void opts.onWordTap?.(n, strongs); return }
     const target = e.currentTarget
-    // Let a native double-click finish before a mouse lookup can open a drawer and move
-    // the word. Keyboard activation remains immediate; native ranges win over this timer.
+    if (!(target instanceof HTMLElement)) return
+    if (e.detail === 0) { void opts.onWordTap?.(n, strongs, target); return }
+    // Let a native double-click finish before a mouse lookup opens its anchored card.
+    // Keyboard activation remains immediate; native ranges win over this timer.
     wordTapTimer = setTimeout(() => {
       wordTapTimer = null
-      if (!hasNativeTextSelection(target)) void opts.onWordTap?.(n, strongs)
+      if (!hasNativeTextSelection(target)) void opts.onWordTap?.(n, strongs, target)
     }, 500)
   }
   watch(() => [reader.moduleName, reader.book, reader.chapter, reader.data, reader.loadingChapter, reader.error], cancelWordTap, { flush: 'sync' })

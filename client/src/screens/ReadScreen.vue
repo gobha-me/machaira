@@ -163,9 +163,8 @@ const chapterNotes = computed(() => {
   return out
 })
 
-// ── Strong's word study: tap a tagged word → lexicon entry in the rail ──
-// The menu's "Word study" button opens this in place; wordStudyOn reveals the tappable
-// words for the current chapter even when the global Strong's-display setting is off.
+// Strong's lookups stay anchored to the word or native selection. The verse menu can
+// reveal tappable words even when the global Strong's-display setting is off.
 const wordStudyOn = ref(false)
 const toolsOpen = ref(false)
 const connectionsOpen = ref(false)
@@ -205,14 +204,14 @@ const {
   clear: clearWordStudy
 } = useWordStudy()
 
-async function tapReaderWord(keys: string[]) {
-  void openTools()
-  await tapWord(keys)
+const textActions = ref<InstanceType<typeof TextSelectionActions> | null>(null)
+function tapReaderWord(verse: number, keys: string[], target: HTMLElement) {
+  textActions.value?.openWord(verse, keys, target)
 }
 
+// Results stay at the selected word; opening tools would reflow the passage and move focus.
 async function selectionWordStudy(keys: string[]) {
-  wordStudyOn.value = true
-  await tapReaderWord(keys)
+  await tapWord(keys)
 }
 
 // Always render segments, including hidden Strong's metadata, so native selections can
@@ -229,8 +228,9 @@ function wordsTappableIn(n: number): boolean {
   return vs.length === 0 || vs.includes(n)
 }
 
+// Returned tags describe this chapter; their absence cannot establish module-wide support.
 const chapterHasStrongs = computed(
-  () => !!reader.data?.verses.some((v) => v.segments?.some((s) => s.kind === 'word'))
+  () => !!reader.data?.verses.some((v) => v.segments?.some((s) => s.kind === 'word' && s.strongs.length > 0))
 )
 
 function openWordStudy() {
@@ -404,7 +404,7 @@ const {
   onVersePointerEnd,
   onWordClick,
   dismiss
-} = usePassageMenu({ onWordTap: (_n, keys) => tapReaderWord(keys) })
+} = usePassageMenu({ onWordTap: tapReaderWord })
 
 function menuWordStudy() {
   openWordStudy()
@@ -843,7 +843,7 @@ async function menuNote() {
               v-else-if="!chapterHasStrongs"
               class="word-card-state"
             >
-              This translation isn’t Strong’s-tagged. Switch to a tagged translation (e.g. KJVA) to study words.
+              No Strong’s tags were returned for this chapter in {{ reader.moduleName }}. Try another passage or a tagged translation.
             </p>
             <p
               v-else
@@ -920,8 +920,11 @@ async function menuNote() {
     </div>
 
     <TextSelectionActions
+      ref="textActions"
+      :word-study="{ key: strongsKey, entry: strongsEntry, error: strongsError, loading: strongsLoading }"
       :root="selectionRoot"
       :avoid="toolsOpen ? toolsEl : null"
+      @clear-word-study="clearWordStudy"
       @open="dismiss"
       @word-study="selectionWordStudy"
       @note="selectionNote"

@@ -59,3 +59,14 @@ describe('word-study request ownership', () => {
     scope.stop()
   })
 })
+
+describe('word-study invalid input and errors', () => {
+  it('ignores empty key lists without issuing a request', async () => {
+    const lookup = vi.spyOn(api, 'strongs')
+    const study = useWordStudy()
+    await study.tapWord([])
+    expect(lookup).not.toHaveBeenCalled()
+    expect(study.loading.value).toBe(false)
+    expect(study.strongsKey.value).toBeNull()
+  })
+})

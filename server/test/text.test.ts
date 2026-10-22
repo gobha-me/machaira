@@ -13,6 +13,22 @@ describe('SWORD verse markup', () => {
     })
   }
 
+  it('detects actual rendered Strong’s attributes without treating all word wrappers as tagged', () => {
+    // The native binding rewrites OSIS lemma= to class= (including KJV). Both carry
+    // real module tokens; a bare <w>, an invalid token, or an empty word cannot enable lookup.
+    for (const attribute of ['lemma', 'class']) {
+      const parsed = parseVerseMarkup(
+        `<w ${attribute}="strong:G3588 strong:G2316">God</w> ` +
+        `<w ${attribute}="strong:invalid">so</w> <w>loved</w> ` +
+        `<w ${attribute}="strong:G25"></w>`
+      )
+      assert.equal(parsed.text, 'God so loved')
+      assert.deepEqual(parsed.segments.filter((segment) => segment.kind === 'word'), [
+        { kind: 'word', text: 'God', strongs: ['G3588', 'G2316'] }
+      ])
+    }
+  })
+
   it('separates cross-references from translator footnotes and verse text', () => {
     const parsed = parseVerseMarkup(
       'He said <div class="sword-markup sword-note">Translator note.</div> this ' +
