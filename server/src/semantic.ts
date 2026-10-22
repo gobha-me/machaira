@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import timers from 'node:timers/promises'
+import type { CrossReferenceMapNode, CrossReferenceMapEdge, CrossReferenceMapSimilarity } from '@machaira/scripture'
 import type { MachairaDatabase } from './database.js'
 import type { SecretStore } from './secrets.js'
 import { parseDeploymentProvider, type DeploymentProviderConfig } from './deployment-providers.js'
@@ -953,6 +954,55 @@ export class SemanticIndexService {
         }] : []
       }).slice(0, limit)
     }
+  }
+
+  /** Compare aggregate centroids using only the current account's stored Scripture vectors.
+   * One pass over the installed translation bounds work by corpus size, not edge count.
+   * L2 distances between means are descriptive; they are not probabilities.
+   */
+  async mapDistances(
+    userId: string, module: string, nodes: CrossReferenceMapNode[], edges: CrossReferenceMapEdge[]
+  ): Promise<CrossReferenceMapSimilarity> {
+    const status = await this.status(userId)
+    const empty = { state: status.state, distances: edges.map(() => null) }
+    if (status.state !== 'ready' || !status.modules.includes(module)) return empty
+    const active = this.activeRun(userId)
+    if (!active?.dimension) return empty
+    const table = ensureVectorTable(this.db, active.dimension)
+    const byScope = new Map<string, string[]>()
+    for (const node of nodes) {
+      const key = `${node.book}/${node.chapter ?? ''}/${node.verse ?? ''}`
+      const ids = byScope.get(key) ?? []
+      // Merged canonical verses may resolve to the same stored translation verse.
+      if (!ids.includes(node.id)) ids.push(node.id)
+      byScope.set(key, ids)
+    }
+    const sums = new Map<string, { sum: Float64Array; count: number }>()
+    const rows = this.db.prepare(`SELECT c.book, c.chapter, c.verse, v.embedding
+      FROM semantic_chunks c JOIN ${table} v ON v.chunk_id = c.id AND v.run_id = c.run_id
+      WHERE c.run_id = ? AND c.module = ? AND c.kind = 'scripture'`).iterate(active.id, module)
+    for (const raw of rows) {
+      const row = raw as { book: string; chapter: number; verse: number; embedding: Buffer }
+      const ids = byScope.get(`${row.book}/${row.chapter}/${row.verse}`)
+        ?? byScope.get(`${row.book}/${row.chapter}/`) ?? byScope.get(`${row.book}//`)
+      if (!ids || row.embedding.byteLength !== active.dimension * 4) continue
+      const vector = new Float32Array(Uint8Array.from(row.embedding).buffer)
+      if (!vector.every(Number.isFinite)) continue
+      for (const id of ids) {
+        let entry = sums.get(id)
+        if (!entry) { entry = { sum: new Float64Array(active.dimension), count: 0 }; sums.set(id, entry) }
+        for (let i = 0; i < vector.length; i++) entry.sum[i] += vector[i]
+        entry.count++
+      }
+    }
+    return { state: status.state, distances: edges.map((edge) => {
+      const a = sums.get(edge.source), b = sums.get(edge.target)
+      if (!a || !b) return null
+      let squared = 0
+      for (let i = 0; i < a.sum.length; i++) squared += (a.sum[i] / a.count - b.sum[i] / b.count) ** 2
+      const distance = Math.sqrt(squared)
+      return Number.isFinite(distance) ? distance : null
+    }) }
   }
 
   private activeRun(userId: string): RunRow | null {

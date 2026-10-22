@@ -54,6 +54,7 @@ export function createAppRouter(history: RouterHistory = createWebHashHistory())
     routes: [
       { path: '/read/:module?/:book?/:chapter?/:verse?', name: 'read', component: ReadScreen },
       { path: '/plan', name: 'plan', component: PlanScreen },
+      { path: '/map', name: 'map', component: () => import('./screens/MapScreen.vue') },
       { path: '/study', name: 'study', component: StudyScreen },
       { path: '/search', name: 'search', component: SearchScreen },
       { path: '/library', name: 'library', component: LibraryScreen },

@@ -921,3 +921,48 @@ describe('semantic provider migration', () => {
     }
   })
 })
+
+it('computes map centroid distances from stored Scripture only, with missing data, stale configuration, and account isolation', async () => {
+  let embeddingRequests = 0
+  const upstream = await listen(async (request, response) => {
+    embeddingRequests++
+    const body = await requestBody(request)
+    response.writeHead(200, { 'content-type': 'application/json' })
+    response.end(JSON.stringify({ data: body.input.map((_value, index) => ({ index, embedding: index === 0 ? [1, 0] : index === 1 ? [0, 1] : [-1, 0] })) }))
+  })
+  const db = openDatabase(':memory:')
+  seedUser(db)
+  const providers = new EmbeddingProviderService(db, new SecretStore(db, randomBytes(32)))
+  const index = new SemanticIndexService(db, providers, sources)
+  const nodes = [
+    { id: 'one', book: 'John', chapter: 1, verse: 1, label: 'John 1:1' },
+    { id: 'two', book: 'John', chapter: 1, verse: 2, label: 'John 1:2' },
+    { id: 'missing', book: 'Gen', chapter: null, verse: null, label: 'Genesis' }
+  ]
+  const sample = { source: 'John.1.1', target: 'John.1.2' }
+  const edges = [{ source: 'one', target: 'two', count: 1, sample }, { source: 'one', target: 'missing', count: 1, sample }]
+  try {
+    assert.deepEqual(await index.mapDistances('user-1', 'WEB', nodes, edges), { state: 'unconfigured', distances: [null, null] })
+    providers.save('user-1', { kind: 'local', baseUrl: upstream.baseUrl, model: 'tiny' })
+    assert.deepEqual(await index.mapDistances('user-1', 'WEB', nodes, edges), { state: 'empty', distances: [null, null] })
+    await index.rebuild('user-1', () => undefined)
+    const before = embeddingRequests
+    const result = await index.mapDistances('user-1', 'WEB', nodes, edges)
+    assert.equal(result.state, 'ready')
+    assert.ok(Math.abs(result.distances[0]! - Math.sqrt(2)) < 0.00001)
+    assert.equal(result.distances[1], null)
+    const merged = await index.mapDistances('user-1', 'WEB', [nodes[0], { ...nodes[0], id: 'two' }], edges)
+    assert.equal(merged.distances[0], 0, 'merged canonical verses must both receive their translation vector')
+    assert.deepEqual((await index.mapDistances('user-1', 'not-indexed', nodes, edges)).distances, [null, null])
+    assert.deepEqual((await index.mapDistances('another-user', 'WEB', nodes, edges)).distances, [null, null])
+    const centroid = await index.mapDistances('user-1', 'WEB', [nodes[0], { id: 'two', book: 'John', chapter: null, verse: null, label: 'John' }], edges)
+    // The verse node consumes verse 1; the remaining book aggregate has mean [-0.5, 0.5].
+    assert.ok(Math.abs(centroid.distances[0]! - Math.sqrt(2.5)) < 0.00001)
+    assert.equal(embeddingRequests, before, 'map similarity must never invoke the embedding provider')
+    const chunk = db.prepare('SELECT id FROM semantic_chunks WHERE verse = 2').get() as { id: number }
+    db.prepare('DELETE FROM semantic_vectors_d2 WHERE chunk_id = ?').run(BigInt(chunk.id))
+    assert.deepEqual((await index.mapDistances('user-1', 'WEB', nodes, edges)).distances, [null, null])
+    providers.save('user-1', { kind: 'local', baseUrl: upstream.baseUrl, model: 'changed' })
+    assert.deepEqual(await index.mapDistances('user-1', 'WEB', nodes, edges), { state: 'stale', distances: [null, null] })
+  } finally { db.close(); await upstream.close() }
+})

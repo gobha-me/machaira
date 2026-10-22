@@ -204,3 +204,4 @@ export function parseCrossReferenceTargets(markup: string, label: string): Scrip
 }
 
 export * from './reader-state.js'
+export * from './cross-reference-map.js'
