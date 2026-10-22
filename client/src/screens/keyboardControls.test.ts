@@ -44,7 +44,8 @@ describe('screen keyboard controls', () => {
       const actions = document.querySelector('[aria-label="Selected text actions"]')!
       ;[...actions.querySelectorAll('button')].find((button) => button.textContent?.trim() === 'Word study')!.click()
       await flushPromises()
-      expect(wrapper.get('#study-panel-word-study').text()).toContain('Looking up')
+      expect(actions.textContent).toContain('Looking up')
+      expect(wrapper.get('#study-tab-compare').attributes('aria-selected')).toBe('true')
       reader.chapter = 2
       reject(new Error('obsolete failure'))
       await flushPromises()
@@ -125,7 +126,7 @@ describe('screen keyboard controls', () => {
       await flushPromises()
       expect(lookup).toHaveBeenCalledWith('G3056')
       expect(reader.selectedVerses).toEqual([])
-      expect(wrapper.get('.strongs-error').text()).toBe('No entry for G3056.')
+      expect(document.querySelector('.text-selection-actions [role="alert"]')!.textContent).toBe('Word lookup failed for G3056. Try again.')
       expect(wrapper.find('button button').exists()).toBe(false)
     } finally {
       wrapper.unmount()
