@@ -111,11 +111,8 @@ onMounted(async () => {
   syncFromSelection()
 })
 
-// Tapping a word brings its verse forward (compare follows the selection) and looks it up.
-// Selecting only when the verse sits outside the current selection avoids selectVerse's
-// toggle-off branch and leaves a multi-verse range intact.
-async function studyWord(n: number, keys: string[]) {
-  if (!reader.selectedVerses.includes(n)) reader.selectVerse(n)
+// Word lookup is independent of the verse-number/gutter selection gesture.
+async function studyWord(_n: number, keys: string[]) {
   activeTab.value = 'word-study'
   await tapWord(keys)
 }
@@ -591,7 +588,7 @@ function menuNote() {
   text-wrap: pretty;
 }
 .cverse {
-  cursor: pointer;
+  cursor: text;
   border-radius: 3px;
   padding: 1px 2px;
 }
@@ -611,7 +608,7 @@ function menuNote() {
   background: color-mix(in oklab, var(--accent) 12%, transparent);
 }
 .cvnum {
-  padding: 0;
+  padding: 4px 6px;
   border: 0;
   background: none;
   cursor: pointer;

@@ -124,7 +124,7 @@ describe('screen keyboard controls', () => {
       await user.keyboard('{Enter}')
       await flushPromises()
       expect(lookup).toHaveBeenCalledWith('G3056')
-      expect(reader.selectedVerses).toEqual([1])
+      expect(reader.selectedVerses).toEqual([])
       expect(wrapper.get('.strongs-error').text()).toBe('No entry for G3056.')
       expect(wrapper.find('button button').exists()).toBe(false)
     } finally {

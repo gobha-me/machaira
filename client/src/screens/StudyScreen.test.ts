@@ -49,6 +49,22 @@ const tab = (id: string) => wrapper.get(`#study-tab-${id}`)
 const pick = (n: string, end = false) => wrapper.get(`select[aria-label="${end ? 'Through' : 'From'} verse"]`).setValue(n)
 
 describe('focused Study tools', () => {
+  it('keeps the first prose click of a word double-click independent of verse selection', async () => {
+    await flushPromises()
+    const prose = wrapper.get('[data-selection-text]')
+    await prose.trigger('click', { detail: 1 })
+    expect(useReader().selectedVerses).toEqual([])
+    const range = document.createRange()
+    range.selectNodeContents(prose.element)
+    window.getSelection()!.addRange(range)
+    document.dispatchEvent(new Event('selectionchange'))
+    await prose.trigger('click', { detail: 2 })
+    await prose.trigger('dblclick', { detail: 2 })
+    await flushPromises()
+    expect(document.querySelector('[aria-label="Selected text actions"]')).not.toBeNull()
+    expect(useReader().selectedVerses).toEqual([])
+  })
+
   it('defaults to Compare without mounting unavailable tools, chat, or an open notes card', async () => {
     await flushPromises()
     expect(tab('compare').attributes('aria-selected')).toBe('true')
