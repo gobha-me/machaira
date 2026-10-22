@@ -133,6 +133,12 @@ const {
   }
 })
 
+const playbackLabel = computed(() => needsAudioGesture.value ? 'Tap to start audio'
+  : preparingAudio.value ? 'Preparing audio'
+    : listeningError.value ? 'Retry'
+      : playing.value ? 'Pause read-aloud'
+        : listeningComplete.value ? 'Replay chapter' : 'Resume read-aloud')
+
 // The verse being read aloud outranks both the highlight and the selection tint; everything
 // else is the shared selection presentation (usePassageMenu).
 function verseBg(n: number): string {
@@ -673,12 +679,16 @@ async function menuNote() {
       >←</button>
       <button
         class="play"
-        :class="{ recovery: needsAudioGesture }"
+        :class="{ recovery: needsAudioGesture || listeningError }"
         :disabled="preparingAudio"
-        :title="needsAudioGesture ? 'Tap to start audio' : preparingAudio ? 'Preparing audio' : playing ? 'Pause read-aloud' : listeningComplete ? 'Replay chapter' : 'Resume read-aloud'"
-        :aria-label="needsAudioGesture ? 'Tap to start audio' : preparingAudio ? 'Preparing audio' : playing ? 'Pause read-aloud' : listeningComplete ? 'Replay chapter' : 'Resume read-aloud'"
+        :aria-busy="preparingAudio"
+        :title="playbackLabel"
+        :aria-label="playbackLabel"
         @click="togglePlay"
-      >{{ needsAudioGesture ? 'Tap to start audio' : playing ? '❚❚' : '▶' }}</button>
+      >
+        <span v-if="preparingAudio" class="listen-spinner" aria-hidden="true"></span>
+        <template v-else>{{ needsAudioGesture ? 'Tap to start audio' : listeningError ? 'Retry' : playing ? '❚❚' : '▶' }}</template>
+      </button>
       <button
         class="seek"
         type="button"
@@ -1335,6 +1345,21 @@ h1 {
   width: auto;
   padding: 0 12px;
   border-radius: 999px;
+}
+.listen-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: listen-spin 0.8s linear infinite;
+}
+@keyframes listen-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .listen-spinner { animation: none; }
 }
 .seek {
   width: 30px;

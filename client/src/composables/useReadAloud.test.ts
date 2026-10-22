@@ -3,9 +3,10 @@ import {
   createReadAloudController,
   type ReadAloudEnvironment
 } from './useReadAloud'
-import { ApiError, type TtsConfig } from '../services/api'
+import { api, ApiError, type TtsConfig } from '../services/api'
 
 class FakeUtterance {
+  onstart: (() => void) | null = null
   onend: (() => void) | null = null
   onerror: ((event: { error: string }) => void) | null = null
 
@@ -129,13 +130,13 @@ describe('read-aloud controller', () => {
     }, result)
 
     controller.start()
-    expect(controller.preparationTarget.value).toBe(1)
+    expect(controller.preparationTarget.value).toBe(2)
     await vi.waitFor(() => expect(audios[0].play).toHaveBeenCalledTimes(1))
     expect(fetchAudio).toHaveBeenCalledTimes(2)
     expect(fetchAudio.mock.calls.map((call) => call.slice(0, 2))).toEqual([
       ['local', 'one'], ['local', 'two']
     ])
-    expect(controller.preparedCount.value).toBe(1)
+    expect(controller.preparedCount.value).toBe(2)
     audios[0].onended?.()
     await vi.waitFor(() => expect(audios[0].play).toHaveBeenCalledTimes(2))
     expect(releases[0]).toHaveBeenCalledOnce()
@@ -159,9 +160,9 @@ describe('read-aloud controller', () => {
 
     controller.start()
     expect(controller.preparing.value).toBe(true)
-    expect(controller.playing.value).toBe(true)
+    expect(controller.playing.value).toBe(false)
     controller.togglePlayback()
-    expect(controller.playing.value).toBe(true)
+    expect(controller.playing.value).toBe(false)
 
     resolveFetch(new Blob(['audio'], { type: 'audio/mpeg' }))
     await vi.waitFor(() => expect(audios[0].play).toHaveBeenCalledTimes(1))
@@ -356,14 +357,15 @@ describe('read-aloud controller', () => {
     expect(unlock).toHaveBeenCalledOnce()
     expect(unlock.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(result.fetchAudio).mock.invocationCallOrder[0]!)
     expect(result.fetchAudio).toHaveBeenCalledTimes(2)
-    expect(controller.preparationTarget.value).toBe(1)
+    expect(controller.preparationTarget.value).toBe(5)
     expect(audios[0].play).not.toHaveBeenCalled()
 
     resolvers[0]!()
     await vi.waitFor(() => expect(audios[0].play).toHaveBeenCalledOnce())
     expect(result.fetchAudio).toHaveBeenCalledTimes(3)
     expect(controller.preparing.value).toBe(false)
-    expect(controller.preparationProgress.value).toBe(100)
+    expect(controller.preparedCount.value).toBe(1)
+    expect(controller.preparationProgress.value).toBe(20)
     expect(peakRequests).toBe(2)
     expect(audios).toHaveLength(1)
     audios[0].onended?.()
@@ -504,32 +506,34 @@ describe('read-aloud controller', () => {
     expect(releases[0]).toHaveBeenCalledOnce()
   })
 
-  it('clears blocked playback on stop and ignores a late rejection after seeking', async () => {
+  it('clears blocked playback on stop and ignores a late rejection after restarting at another verse', async () => {
     const { result, audios, releases, dispose } = environment()
     let rejectPlay!: (failure: Error) => void
+    let startVerse = 1
     const controller = createReadAloudController({
       verses: () => [{ n: 1, text: 'one' }, { n: 2, text: 'two' }],
-      startVerse: () => null,
+      startVerse: () => startVerse,
       config: () => config(['local'])
     }, result)
     controller.start()
     audios[0].play.mockImplementationOnce(() => new Promise<void>((_resolve, reject) => { rejectPlay = reject }))
     await vi.waitFor(() => expect(audios[0].play).toHaveBeenCalledOnce())
-    controller.next()
-    await vi.waitFor(() => expect(audios[0].play).toHaveBeenCalledTimes(2))
+    startVerse = 2
+    controller.start()
+    await vi.waitFor(() => expect(audios[1].play).toHaveBeenCalledOnce())
     rejectPlay(new DOMException('blocked', 'NotAllowedError'))
     await vi.waitFor(() => expect(releases[0]).toHaveBeenCalledOnce())
     expect(controller.needsAudioGesture.value).toBe(false)
     expect(controller.currentVerse.value).toBe(2)
     controller.togglePlayback()
-    audios[0].play.mockRejectedValueOnce(new DOMException('blocked', 'NotAllowedError'))
+    audios[1].play.mockRejectedValueOnce(new DOMException('blocked', 'NotAllowedError'))
     controller.togglePlayback()
     await vi.waitFor(() => expect(controller.needsAudioGesture.value).toBe(true))
     controller.stop()
     controller.recoverAudio()
-    expect(audios[0].play).toHaveBeenCalledTimes(3)
+    expect(audios[1].play).toHaveBeenCalledTimes(2)
     expect(controller.needsAudioGesture.value).toBe(false)
-    expect(dispose).toHaveBeenCalledOnce()
+    expect(dispose).toHaveBeenCalledTimes(2)
     expect(releases[1]).toHaveBeenCalledOnce()
     expect(controller.completed.value).toBe(false)
   })
@@ -604,5 +608,222 @@ describe('read-aloud controller', () => {
     expect(controller.error.value).toContain('Local TTS failed at verse 7')
     expect(controller.error.value).toContain('HTTP 502')
     expect(controller.error.value).not.toContain('secret upstream response body')
+  })
+
+  it.each([
+    [null, 1], [1, 1], [17, 17], [31, 31],
+    [0, 1], [-1, 1], [32, 1], [1.5, 1], [NaN, 1]
+  ])('queues the chapter tail for start %s (invalid selections fall back to verse 1)', (selected, start) => {
+    const { result } = environment()
+    result.fetchAudio = vi.fn(() => new Promise<Blob>(() => {}))
+    const controller = createReadAloudController({
+      verses: () => Array.from({ length: 31 }, (_, index) => ({ n: index + 1, text: String(index + 1) })),
+      startVerse: () => selected,
+      config: () => config(['local'])
+    }, result)
+
+    controller.start()
+    expect(controller.preparationTarget.value).toBe(31 - start + 1)
+    expect(controller.currentVerse.value).toBe(start)
+    expect(controller.canPrevious.value).toBe(false)
+    expect(controller.preparedCount.value).toBe(0)
+    expect(controller.playing.value).toBe(false)
+    controller.stop()
+  })
+
+  it('plays every queued verse through the chapter end despite later selection and input changes', async () => {
+    const { result, fetchAudio, audios } = environment()
+    let verses = Array.from({ length: 31 }, (_, index) => ({ n: index + 1, text: String(index + 1) }))
+    let selected = 17
+    const controller = createReadAloudController({
+      verses: () => verses,
+      startVerse: () => selected,
+      config: () => config(['local'])
+    }, result)
+    controller.start()
+    verses[16]!.text = 'changed after starting'
+    verses = []
+    selected = 31
+    for (let verse = 17; verse <= 31; verse += 1) {
+      await vi.waitFor(() => expect(audios[0].play).toHaveBeenCalledTimes(verse - 16))
+      expect(controller.currentVerse.value).toBe(verse)
+      expect(controller.preparationTarget.value).toBe(15)
+      audios[0].onended?.()
+    }
+    await vi.waitFor(() => expect(controller.completed.value).toBe(true))
+    expect(fetchAudio.mock.calls.map((call) => call[1])).toEqual(
+      Array.from({ length: 15 }, (_, index) => String(index + 17))
+    )
+    expect(controller.preparedCount.value).toBe(15)
+    expect(controller.preparationProgress.value).toBe(100)
+    controller.stop()
+  })
+
+  it('times out a request that ignores abort, retries the failed verse, and ignores its late success', async () => {
+    vi.useFakeTimers()
+    const { result, audios } = environment()
+    let resolveStalled!: (blob: Blob) => void
+    const fetchAudio = vi.fn<ReadAloudEnvironment['fetchAudio']>()
+      .mockResolvedValueOnce(new Blob(['first']))
+      .mockImplementationOnce(() => new Promise<Blob>((resolve) => { resolveStalled = resolve }))
+      .mockResolvedValue(new Blob(['retried']))
+    result.fetchAudio = fetchAudio
+    const controller = createReadAloudController({
+      verses: () => [{ n: 7, text: 'seven' }, { n: 8, text: 'eight' }],
+      startVerse: () => 7,
+      config: () => config(['local'])
+    }, result)
+    try {
+      controller.start()
+      await vi.advanceTimersByTimeAsync(0)
+      audios[0].onended?.()
+      await vi.advanceTimersByTimeAsync(89_999)
+      expect(controller.preparing.value).toBe(true)
+      expect(controller.playing.value).toBe(false)
+      expect(controller.error.value).toBeNull()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(controller.error.value).toContain('Local TTS failed at verse 8: audio request timed out after 90 seconds')
+      expect(fetchAudio.mock.calls[1]![2].aborted).toBe(true)
+      expect(controller.preparing.value).toBe(false)
+      expect(controller.active.value).toBe(true)
+      expect(controller.completed.value).toBe(false)
+
+      controller.togglePlayback()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(fetchAudio.mock.calls.map((call) => call[1])).toEqual(['seven', 'eight', 'eight'])
+      expect(controller.currentVerse.value).toBe(8)
+      expect(controller.error.value).toBeNull()
+      expect(audios[0].play).toHaveBeenCalledTimes(2)
+      expect(controller.preparedCount.value).toBe(2)
+      resolveStalled(new Blob(['late']))
+      await vi.advanceTimersByTimeAsync(0)
+      expect(audios[0].play).toHaveBeenCalledTimes(2)
+      expect(controller.preparedCount.value).toBe(2)
+      audios[0].onended?.()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(controller.completed.value).toBe(true)
+    } finally {
+      controller.stop()
+      vi.useRealTimers()
+    }
+  })
+
+  it('times out an unfinished audio body even after HTTP 200 headers arrive', async () => {
+    vi.useFakeTimers()
+    let stream!: ReadableStreamDefaultController<Uint8Array>
+    const response = new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        stream = controller
+        controller.enqueue(new Uint8Array([1, 2, 3]))
+        // Deliberately never end the body or react to the request's abort signal.
+      }
+    }), { status: 200, headers: { 'content-type': 'audio/mpeg' } })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response))
+    const { result, audios } = environment()
+    result.fetchAudio = (provider, text, signal) => api.ttsSpeech(provider, text, signal)
+    const controller = createReadAloudController({
+      verses: () => [{ n: 1, text: 'one' }],
+      startVerse: () => null,
+      config: () => config(['local'])
+    }, result)
+    try {
+      controller.start()
+      await vi.advanceTimersByTimeAsync(38_300)
+      expect(response.bodyUsed).toBe(true)
+      expect(controller.preparedCount.value).toBe(0)
+      expect(controller.preparing.value).toBe(true)
+      expect(controller.error.value).toBeNull()
+      await vi.advanceTimersByTimeAsync(51_700)
+      expect(controller.error.value).toContain('timed out after 90 seconds')
+      expect(controller.preparing.value).toBe(false)
+      expect(audios[0].play).not.toHaveBeenCalled()
+    } finally {
+      stream.close()
+      controller.stop()
+      vi.useRealTimers()
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it.each([
+    [new ApiError(503, { error: 'secret ingress body' }), 'HTTP 503'],
+    [new ApiError(502, {}), 'HTTP 502'],
+    [new TypeError('secret network details'), 'network request failed'],
+    ['invalid rejection', 'remote playback failed unexpectedly']
+  ])('surfaces a rejected foreground request and retries the same verse: %s', async (failure, expected) => {
+    const { result, audios } = environment()
+    const fetchAudio = vi.fn<ReadAloudEnvironment['fetchAudio']>()
+      .mockRejectedValueOnce(failure)
+      .mockResolvedValue(new Blob(['audio']))
+    result.fetchAudio = fetchAudio
+    const controller = createReadAloudController({
+      verses: () => [{ n: 1, text: 'one' }, { n: 2, text: 'two' }],
+      startVerse: () => 2,
+      config: () => config(['local'])
+    }, result)
+    controller.start()
+    await vi.waitFor(() => expect(controller.error.value).toContain(expected))
+    expect(controller.error.value).not.toContain('secret')
+    expect(controller.preparing.value).toBe(false)
+    expect(controller.playing.value).toBe(false)
+    expect(audios[0].play).not.toHaveBeenCalled()
+    controller.retry()
+    await vi.waitFor(() => expect(audios[0].play).toHaveBeenCalledOnce())
+    expect(fetchAudio.mock.calls.map((call) => call[1])).toEqual(['two', 'two'])
+    expect(controller.error.value).toBeNull()
+    controller.stop()
+  })
+
+  it('releases cancelled prefetch slots even when requests never acknowledge abort', async () => {
+    const { result, audios } = environment()
+    const fetchAudio = vi.fn<ReadAloudEnvironment['fetchAudio']>()
+      .mockRejectedValueOnce(new ApiError(503, {}))
+      .mockImplementationOnce(() => new Promise<Blob>(() => {}))
+      .mockResolvedValue(new Blob(['retry']))
+    result.fetchAudio = fetchAudio
+    const controller = createReadAloudController({
+      verses: () => [{ n: 1, text: 'one' }, { n: 2, text: 'two' }, { n: 3, text: 'three' }],
+      startVerse: () => null,
+      config: () => config(['local'])
+    }, result)
+    controller.start()
+    await vi.waitFor(() => expect(controller.error.value).toContain('HTTP 503'))
+    expect(fetchAudio.mock.calls[1]![2].aborted).toBe(true)
+    controller.retry()
+    await vi.waitFor(() => expect(audios[0].play).toHaveBeenCalledOnce())
+    expect(controller.currentVerse.value).toBe(1)
+    controller.stop()
+  })
+
+  it('keeps preparing until play resolves, and until browser speech actually starts', async () => {
+    const { result, audios, utterances } = environment()
+    const controller = createReadAloudController({
+      verses: () => [{ n: 1, text: 'one' }],
+      startVerse: () => null,
+      config: () => config(['local'])
+    }, result)
+    controller.start()
+    let resolvePlay!: () => void
+    audios[0].play.mockImplementationOnce(() => new Promise<void>((resolve) => { resolvePlay = resolve }))
+    await vi.waitFor(() => expect(audios[0].play).toHaveBeenCalledOnce())
+    expect(controller.preparing.value).toBe(true)
+    expect(controller.playing.value).toBe(false)
+    resolvePlay()
+    await vi.waitFor(() => expect(controller.playing.value).toBe(true))
+    expect(controller.preparing.value).toBe(false)
+    controller.stop()
+
+    const browser = createReadAloudController({
+      verses: () => [{ n: 1, text: 'one' }],
+      startVerse: () => null,
+      config: () => config(['browser'])
+    }, result)
+    browser.start()
+    expect(browser.preparing.value).toBe(true)
+    expect(browser.playing.value).toBe(false)
+    utterances[0].onstart?.()
+    expect(browser.preparing.value).toBe(false)
+    expect(browser.playing.value).toBe(true)
+    browser.stop()
   })
 })
