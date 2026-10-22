@@ -237,13 +237,13 @@ function menuNote() {
               v-for="(seg, i) in v.segments"
               :key="i"
             ><template v-if="seg.kind === 'word'"
-            >{{ segLead(seg.text, i) }}<span
+            >{{ segLead(v.segments, i) }}<span
                 class="wtap"
                 @click.stop="onWordClick(v.n, seg.strongs, $event)"
               >{{ seg.text }}</span></template><template
               v-else-if="seg.kind === 'note'"
             ></template><template v-else
-            >{{ segLead(seg.text, i) + seg.text }}</template></template>{{ ' ' }}</span>
+            >{{ segLead(v.segments, i) + seg.text }}</template></template>{{ ' ' }}</span>
         </div>
         <p v-if="reader.highlightError" class="error">{{ reader.highlightError }}</p>
 
