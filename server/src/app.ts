@@ -1,3 +1,5 @@
+import { dirname, join } from 'node:path'
+import { CrossReferenceService } from './cross-references.js'
 import Fastify, { type FastifyInstance } from 'fastify'
 import cookie from '@fastify/cookie'
 import cors from '@fastify/cors'
@@ -67,13 +69,19 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   const chats = new ChatConversationService(db)
   const embeddingProviders = new EmbeddingProviderService(db, secrets, defaults.embeddings)
   const semanticIndex = new SemanticIndexService(db, embeddingProviders)
-  const connections = new ConnectionsService(semanticIndex)
+  const crossReferences = (options.registerFeatureRoutes ?? true)
+    ? new CrossReferenceService(options.databasePath === ':memory:' ? ':memory:' : join(dirname(options.databasePath), 'cross-references.sqlite'))
+    : undefined
+  const connections = new ConnectionsService(semanticIndex, undefined, crossReferences)
   const tts = new TtsService(db, secrets, defaults.tts)
   const stt = new SttService(db, secrets, defaults.stt)
   const providerDiscovery = new ProviderDiscoveryService(db, secrets)
   const deploymentProviders = new DeploymentProviderService(defaults)
 
-  app.addHook('onClose', async () => db.close())
+  app.addHook('onClose', async () => {
+    crossReferences?.db.close()
+    db.close()
+  })
   await registerSecurity(app, options.hsts ?? options.production ?? false)
   await app.register(cookie)
   await app.register(rateLimit, { global: false })
@@ -109,7 +117,7 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
 
   if (options.registerFeatureRoutes ?? true) {
     await registerSources(app)
-    await registerRead(app)
+    await registerRead(app, crossReferences!)
     await registerStudy(app)
     await registerCommentary(app)
   }

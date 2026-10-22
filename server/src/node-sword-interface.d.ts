@@ -82,6 +82,7 @@ declare module 'node-sword-interface' {
     ): Promise<Verse[]>
     enableMarkup(): void
     disableMarkup(): void
+    mapVersificationReference(reference: string, sourceSystem: string, targetSystem: string): string
     getSwordVersion(): string
     getSwordPath(): string
   }

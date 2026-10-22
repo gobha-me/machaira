@@ -1,8 +1,20 @@
 diff --git a/node_modules/node-sword-interface/index.js b/node_modules/node-sword-interface/index.js
-index cd7f66c..3a9cfac 100644
+index cd7f66c..24fcb2a 100644
 --- a/node_modules/node-sword-interface/index.js
 +++ b/node_modules/node-sword-interface/index.js
-@@ -416,6 +416,11 @@ class NodeSwordInterface {
+@@ -356,6 +356,11 @@ class NodeSwordInterface {
+     return this.nativeInterface.isModuleReadable(moduleCode);
+   }
+ 
++  // Strict system-to-system mapping for external canonical reference datasets.
++  mapVersificationReference(reference, sourceSystem, targetSystem) {
++    return this.nativeInterface.mapVersificationReference(reference, sourceSystem, targetSystem);
++  }
++
+   /**
+    * Maps a verse reference from one module's versification to another module's versification.
+    *
+@@ -416,6 +421,11 @@ class NodeSwordInterface {
      return this.nativeInterface.getRawModuleEntry(moduleCode, key, processImageUrls);
    }
  
@@ -14,7 +26,7 @@ index cd7f66c..3a9cfac 100644
    /**
     * Returns the text of an entry for the given module and key.
     * If no entry exists for the given key the return value is a verse with empty content.
-@@ -830,4 +835,3 @@ class NodeSwordInterface {
+@@ -830,4 +840,3 @@ class NodeSwordInterface {
  }
  
  module.exports = NodeSwordInterface;
@@ -32,7 +44,7 @@ index dd80faf..a849d22 100644
      if (swModule->getConfigEntry("SwordVersionDate")) {
          object["lastUpdate"] = this->getConfigEntry(swModule, "SwordVersionDate", env);
 diff --git a/node_modules/node-sword-interface/src/napi_module/node_sword_interface.cpp b/node_modules/node-sword-interface/src/napi_module/node_sword_interface.cpp
-index b9ea1b1..bca2db4 100644
+index b9ea1b1..bf8b7d9 100644
 --- a/node_modules/node-sword-interface/src/napi_module/node_sword_interface.cpp
 +++ b/node_modules/node-sword-interface/src/napi_module/node_sword_interface.cpp
 @@ -94,6 +94,7 @@ Napi::Object NodeSwordInterface::Init(Napi::Env env, Napi::Object exports)
@@ -43,7 +55,15 @@ index b9ea1b1..bca2db4 100644
          InstanceMethod("getReferenceText", &NodeSwordInterface::getReferenceText),
          InstanceMethod("getChapterText", &NodeSwordInterface::getChapterText),
          InstanceMethod("getBookText", &NodeSwordInterface::getBookText),
-@@ -390,6 +391,8 @@ ModuleType NodeSwordInterface::getModuleTypeFromString(std::string moduleTypeStr
+@@ -115,6 +116,7 @@ Napi::Object NodeSwordInterface::Init(Napi::Env env, Napi::Object exports)
+         InstanceMethod("refreshLocalModules", &NodeSwordInterface::refreshLocalModules),
+         InstanceMethod("saveModuleUnlockKey", &NodeSwordInterface::saveModuleUnlockKey),
+         InstanceMethod("isModuleReadable", &NodeSwordInterface::isModuleReadable),
++        InstanceMethod("mapVersificationReference", &NodeSwordInterface::mapVersificationReference),
+         InstanceMethod("mapVerseReference", &NodeSwordInterface::mapVerseReference),
+         InstanceMethod("getSwordTranslation", &NodeSwordInterface::getSwordTranslation),
+         InstanceMethod("getBookAbbreviation", &NodeSwordInterface::getBookAbbreviation),
+@@ -390,6 +392,8 @@ ModuleType NodeSwordInterface::getModuleTypeFromString(std::string moduleTypeStr
          return ModuleType::dict;
      } else if (moduleTypeString == "COMMENTARY") {
          return ModuleType::commentary;
@@ -52,7 +72,7 @@ index b9ea1b1..bca2db4 100644
      } else if (moduleTypeString == "IMAGES") {
          return ModuleType::images;
      } else if (moduleTypeString == "MAPS") {
-@@ -646,6 +649,43 @@ Napi::Value NodeSwordInterface::getRawModuleEntry(const Napi::CallbackInfo& info
+@@ -646,6 +650,43 @@ Napi::Value NodeSwordInterface::getRawModuleEntry(const Napi::CallbackInfo& info
      }
  }
  
@@ -96,8 +116,25 @@ index b9ea1b1..bca2db4 100644
  Napi::Value NodeSwordInterface::getReferenceText(const Napi::CallbackInfo& info)
  {
      lockApi();
+@@ -1114,6 +1155,16 @@ Napi::Value NodeSwordInterface::getSwordPath(const Napi::CallbackInfo& info)
+     return swordPath;
+ }
+ 
++Napi::Value NodeSwordInterface::mapVersificationReference(const Napi::CallbackInfo& info)
++{
++    lockApi();
++    INIT_SCOPE_AND_VALIDATE(ParamType::string, ParamType::string, ParamType::string);
++    string result = this->_textProcessor->mapVersificationReference(
++        info[0].As<Napi::String>(), info[1].As<Napi::String>(), info[2].As<Napi::String>());
++    unlockApi();
++    return Napi::String::New(info.Env(), result);
++}
++
+ Napi::Value NodeSwordInterface::mapVerseReference(const Napi::CallbackInfo& info)
+ {
+     lockApi();
 diff --git a/node_modules/node-sword-interface/src/napi_module/node_sword_interface.hpp b/node_modules/node-sword-interface/src/napi_module/node_sword_interface.hpp
-index 24a9b55..d182559 100644
+index 24a9b55..42557a6 100644
 --- a/node_modules/node-sword-interface/src/napi_module/node_sword_interface.hpp
 +++ b/node_modules/node-sword-interface/src/napi_module/node_sword_interface.hpp
 @@ -75,6 +75,7 @@ private:
@@ -108,13 +145,21 @@ index 24a9b55..d182559 100644
      Napi::Value getReferenceText(const Napi::CallbackInfo& info);
      Napi::Value getChapterText(const Napi::CallbackInfo& info);
      Napi::Value getBookText(const Napi::CallbackInfo& info);
-@@ -128,4 +129,3 @@ private:
+@@ -99,6 +100,7 @@ private:
+     Napi::Value isModuleReadable(const Napi::CallbackInfo& info);
+     Napi::Value refreshLocalModules(const Napi::CallbackInfo& info);
+ 
++    Napi::Value mapVersificationReference(const Napi::CallbackInfo& info);
+     Napi::Value mapVerseReference(const Napi::CallbackInfo& info);
+ 
+     Napi::Value getSwordTranslation(const Napi::CallbackInfo& info);
+@@ -128,4 +130,3 @@ private:
  };
  
  #endif // _NODE_SWORD_INTERFACE
 -
 diff --git a/node_modules/node-sword-interface/src/sword_backend/common_defs.hpp b/node_modules/node-sword-interface/src/sword_backend/common_defs.hpp
-index ac15d59..b0323ec 100644
+index ac15d59..cfac182 100644
 --- a/node_modules/node-sword-interface/src/sword_backend/common_defs.hpp
 +++ b/node_modules/node-sword-interface/src/sword_backend/common_defs.hpp
 @@ -31,6 +31,7 @@ enum class ModuleType {
@@ -126,7 +171,7 @@ index ac15d59..b0323ec 100644
      maps,
      any
 diff --git a/node_modules/node-sword-interface/src/sword_backend/repository_interface.hpp b/node_modules/node-sword-interface/src/sword_backend/repository_interface.hpp
-index 76fde1f..f5f7ab9 100644
+index 76fde1f..a030aeb 100644
 --- a/node_modules/node-sword-interface/src/sword_backend/repository_interface.hpp
 +++ b/node_modules/node-sword-interface/src/sword_backend/repository_interface.hpp
 @@ -92,6 +92,9 @@ public:
@@ -139,3 +184,76 @@ index 76fde1f..f5f7ab9 100644
              case ModuleType::images:
                  moduleTypeFilter = "Images";
                  break;
+diff --git a/node_modules/node-sword-interface/src/sword_backend/text_processor.cpp b/node_modules/node-sword-interface/src/sword_backend/text_processor.cpp
+index 8ee950b..6091e64 100644
+--- a/node_modules/node-sword-interface/src/sword_backend/text_processor.cpp
++++ b/node_modules/node-sword-interface/src/sword_backend/text_processor.cpp
+@@ -985,3 +985,56 @@ string TextProcessor::mapVerseReference(string sourceOsisRef, string sourceModul
+ 
+     return result.str();
+ }
++
++// Unlike mapVerseReference, external datasets must never silently normalize an
++// invalid key into the next book, or treat an unknown system as KJV.
++string TextProcessor::mapVersificationReference(string reference, string sourceSystem, string targetSystem)
++{
++    // SWORD systems without translation tables are deliberately unsupported:
++    // their identical-looking verse numbers can refer to different content.
++    const string supported = "|OpenBible|KJV|KJVA|NRSV|Synodal|Vulg|Calvin|DarbyFr|Segond|";
++    if (supported.find("|" + sourceSystem + "|") == string::npos ||
++        supported.find("|" + targetSystem + "|") == string::npos) return "";
++    bool sourceCanonical = sourceSystem == "OpenBible";
++    bool targetCanonical = targetSystem == "OpenBible";
++    VersificationMgr* mgr = VersificationMgr::getSystemVersificationMgr();
++    const auto* src = mgr->getVersificationSystem(sourceCanonical ? "KJV" : sourceSystem.c_str());
++    const auto* dst = mgr->getVersificationSystem(targetCanonical ? "KJV" : targetSystem.c_str());
++    if (!src || !dst) return "";
++
++    // Parse without auto-normalization, then require an exact OSIS round trip.
++    // OpenBible uses 15 verses for 3 John (KJV merges 14 and 15).
++    VerseKey key;
++    key.setVersificationSystem(sourceCanonical ? "NRSV" : sourceSystem.c_str());
++    key.setAutoNormalize(false);
++    key.setText(reference.c_str());
++    if (key.popError() || reference != key.getOSISRef() || key.getChapter() < 1 || key.getVerse() < 1) return "";
++    const char* book = key.getOSISBookName();
++    int chapter = key.getChapter(), verse = key.getVerse(), end = verse;
++    if (src->getBookNumberByOSISName(book) < 1 || dst->getBookNumberByOSISName(book) < 1) return "";
++    const auto* sourceBook = src->getBook(src->getBookNumberByOSISName(book) - 1);
++    const auto* targetBook = dst->getBook(dst->getBookNumberByOSISName(book) - 1);
++    if (!sourceBook || !targetBook) return "";
++    if (string(book) == "3John") {
++        int srcMax = sourceCanonical ? 15 : sourceBook->getVerseMax(1);
++        int dstMax = targetCanonical ? 15 : targetBook->getVerseMax(1);
++        if (verse > srcMax) return "";
++        if (srcMax == 15 && dstMax == 14 && verse == 15) verse = end = 14;
++        if (srcMax == 14 && dstMax == 15 && verse == 14) end = 15;
++    } else {
++        // OpenBible follows KJV chapter/verse numbering outside 3 John.
++        if (chapter > sourceBook->getChapterMax() || verse > sourceBook->getVerseMax(chapter)) return "";
++        src->translateVerse(dst, &book, &chapter, &verse, &end);
++        // Mapping tables use end=0 as the sentinel for a single target verse.
++        if (end == 0) end = verse;
++    }
++    if (dst->getBookNumberByOSISName(book) < 1) return "";
++    targetBook = dst->getBook(dst->getBookNumberByOSISName(book) - 1);
++    int targetMax = targetCanonical && string(book) == "3John" ? 15 :
++        (targetBook && chapter >= 1 && chapter <= targetBook->getChapterMax() ? targetBook->getVerseMax(chapter) : 0);
++    if (verse < 1 || end < verse || end > targetMax) return "";
++    stringstream result;
++    result << book << "." << chapter << "." << verse;
++    if (end > verse) result << "-" << book << "." << chapter << "." << end;
++    return result.str();
++}
+diff --git a/node_modules/node-sword-interface/src/sword_backend/text_processor.hpp b/node_modules/node-sword-interface/src/sword_backend/text_processor.hpp
+index f44cbc8..e5ad06b 100644
+--- a/node_modules/node-sword-interface/src/sword_backend/text_processor.hpp
++++ b/node_modules/node-sword-interface/src/sword_backend/text_processor.hpp
+@@ -59,6 +59,7 @@ public:
+     std::string padStrongsNumber(const std::string strongsNumber);
+     bool isModuleReadable(sword::SWModule* module, std::string key="John 1:1");
+ 
++    std::string mapVersificationReference(std::string reference, std::string sourceSystem, std::string targetSystem);
+     std::string mapVerseReference(std::string sourceOsisRef, std::string sourceModuleName, std::string targetModuleName, bool allowRange = false);
+ 
+ private:
