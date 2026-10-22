@@ -197,3 +197,26 @@ describe('deployment provider client', () => {
     })
   })
 })
+
+describe('reader state API', () => {
+  it('sends timestamped cursor and preference writes with session credentials and propagates failures', async () => {
+    const cursor = { moduleName: 'WEB', book: 'Gen', chapter: 2, updated_at: 100 }
+    const preferences = { preferences: { theme: 'ink' as const }, updated_at: 101 }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('null'))
+      .mockResolvedValueOnce(new Response(JSON.stringify(cursor)))
+      .mockResolvedValueOnce(new Response(JSON.stringify(preferences)))
+      .mockResolvedValueOnce(new Response('{"error":"Unavailable"}', { status: 503 }))
+    vi.stubGlobal('fetch', fetchMock)
+    expect(await api.readingCursor()).toBeNull()
+    expect(await api.saveReadingCursor(cursor)).toEqual(cursor)
+    expect(await api.savePreferences(preferences)).toEqual(preferences)
+    await expect(api.preferences()).rejects.toMatchObject({ status: 503 })
+    expect(fetchMock.mock.calls).toEqual([
+      ['/api/me/reading-cursor', { credentials: 'same-origin' }],
+      ['/api/me/reading-cursor', { credentials: 'same-origin', method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(cursor) }],
+      ['/api/me/preferences', { credentials: 'same-origin', method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(preferences) }],
+      ['/api/me/preferences', { credentials: 'same-origin' }]
+    ])
+  })
+})

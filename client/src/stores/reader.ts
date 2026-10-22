@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
-import type { ScriptureTarget } from '@machaira/scripture'
+import { parseReadingCursor, type ReadingCursor, type ScriptureTarget } from '@machaira/scripture'
+import { AccountCache } from '../services/accountCache'
 import { api, type BookEntry, type ChapterPayload } from '../services/api'
 import { formatPassageRef } from '../utils/passageRef'
 import { useLibrary } from './library'
@@ -30,38 +31,23 @@ let moduleLoadGeneration = 0
 let chapterLoadGeneration = 0
 let highlightLoadGeneration = 0
 let referenceOpenGeneration = 0
+const positionSyncs = new WeakMap<object, AccountCache<ReadingCursor>>()
 const highlightMutations = new WeakMap<object, Promise<void>>()
 
 export type OpenReferenceResult =
   | { ok: true }
   | { ok: false; error: string }
 
-interface ReaderPosition {
-  moduleName: string
-  book: string
-  chapter: number
-}
-
 function positionKey(userId: string): string {
   return `${POS_KEY_PREFIX}${encodeURIComponent(userId)}`
 }
 
-function loadPos(userId: string): ReaderPosition | null {
-  try {
-    const raw = localStorage.getItem(positionKey(userId))
-    if (!raw) return null
-    const p = JSON.parse(raw)
-    if (
-      typeof p?.moduleName === 'string' && p.moduleName &&
-      typeof p?.book === 'string' && p.book &&
-      Number.isInteger(p?.chapter) && p.chapter >= 1
-    ) {
-      return { moduleName: p.moduleName, book: p.book, chapter: p.chapter }
-    }
-    return null
-  } catch {
-    return null
+function parseCachedPosition(value: unknown): ReadingCursor | null {
+  // v2 caches predate timestamps. Give those entries the lowest priority during migration.
+  if (value && typeof value === 'object' && !Array.isArray(value) && !('updated_at' in value)) {
+    return parseReadingCursor({ ...value, updated_at: 0 })
   }
+  return parseReadingCursor(value)
 }
 
 function discardLegacyPos(): void {
@@ -194,6 +180,8 @@ export const useReader = defineStore('reader', {
       const userId = this.activeUserId
       const generation = readerGeneration
       if (!userId) return
+      await positionSyncs.get(this)?.restore()
+      if (generation !== readerGeneration || this.activeUserId !== userId) return
       const lib = useLibrary()
       await lib.load()
       if (generation !== readerGeneration || this.activeUserId !== userId) return
@@ -202,7 +190,7 @@ export const useReader = defineStore('reader', {
         this.ready = true
         return
       }
-      const saved = loadPos(userId)
+      const saved = positionSyncs.get(this)?.current
       if (saved && bibles.some((m) => m.name === saved.moduleName)) {
         // Set book/chapter first so setModule can preserve a fully valid saved passage.
         this.book = saved.book
@@ -404,16 +392,12 @@ export const useReader = defineStore('reader', {
         if (loadGeneration === chapterLoadGeneration) this.loadingChapter = false
       }
     },
+    async restorePosition(): Promise<void> {
+      await positionSyncs.get(this)?.restore()
+    },
     persistPos(): void {
       if (!this.activeUserId || !this.moduleName || !this.book) return
-      try {
-        localStorage.setItem(
-          positionKey(this.activeUserId),
-          JSON.stringify({ moduleName: this.moduleName, book: this.book, chapter: this.chapter })
-        )
-      } catch {
-        // A disabled/full localStorage must not turn a successful chapter read into an error.
-      }
+      positionSyncs.get(this)?.update({ moduleName: this.moduleName, book: this.book, chapter: this.chapter })
     },
     // Plain click: single-verse select, toggling off only when re-clicking a lone verse.
     // Clicking within an existing range collapses back to a single anchor.
@@ -477,6 +461,7 @@ export const useReader = defineStore('reader', {
       }
     },
     activateUser(userId: string | null): void {
+      positionSyncs.get(this)?.activate(null)
       readerGeneration += 1
       moduleLoadGeneration += 1
       chapterLoadGeneration += 1
@@ -497,6 +482,19 @@ export const useReader = defineStore('reader', {
       this.error = null
       this.ready = false
       discardLegacyPos()
+      const sync = new AccountCache<ReadingCursor>({
+        key: positionKey,
+        parse: parseCachedPosition,
+        get: () => api.readingCursor(),
+        put: (value) => api.saveReadingCursor(value),
+        apply: (value) => {
+          if (!this.ready || !this.installedBibles.some((module) => module.name === value.moduleName)) return
+          if (this.moduleName === value.moduleName && this.book === value.book && this.chapter === value.chapter) return
+          void this.openRef(value.moduleName, value.book, value.chapter)
+        }
+      })
+      positionSyncs.set(this, sync)
+      sync.activate(userId)
     }
   }
 })

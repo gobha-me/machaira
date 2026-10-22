@@ -1,6 +1,6 @@
 // Typed client for the local SWORD backend (proxied at /api in dev).
 
-import type { ScriptureTarget } from '@machaira/scripture'
+import type { ReadingCursor, UserPreferences, ScriptureTarget } from '@machaira/scripture'
 export type { ScriptureTarget } from '@machaira/scripture'
 export type SearchScope = 'all' | 'scripture' | 'apocrypha' | 'ancient-writings'
 
@@ -542,6 +542,19 @@ export class ApiError extends Error {
 }
 
 export const api = {
+  readingCursor(): Promise<ReadingCursor | null> {
+    return getJson<ReadingCursor | null>('/api/me/reading-cursor')
+  },
+  saveReadingCursor(value: ReadingCursor): Promise<ReadingCursor> {
+    return requestJson<ReadingCursor>('/api/me/reading-cursor', json('PUT', value))
+  },
+  preferences(): Promise<UserPreferences | null> {
+    return getJson<UserPreferences | null>('/api/me/preferences')
+  },
+  savePreferences(value: UserPreferences): Promise<UserPreferences> {
+    return requestJson<UserPreferences>('/api/me/preferences', json('PUT', value))
+  },
+
   async repositories(): Promise<string[]> {
     return (await getJson<{ repositories: string[] }>('/api/repositories')).repositories
   },

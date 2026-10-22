@@ -87,12 +87,14 @@ function onKey(e: KeyboardEvent) {
 }
 onMounted(() => {
   window.addEventListener('keydown', onKey)
+  window.addEventListener('online', onOnline)
   readingPlan.startClock()
   auth.initialize()
 })
 onUnmounted(() => {
   personalLoadGeneration += 1
   window.removeEventListener('keydown', onKey)
+  window.removeEventListener('online', onOnline)
   readingPlan.stopClock()
 })
 
@@ -115,12 +117,20 @@ async function loadOptionalData(features: OptionalFeature[] = optionalFeatures):
   }))
 }
 
+function onOnline(): void {
+  if (!auth.user) return
+  void settings.restore()
+  void reader.restorePosition()
+}
+
 async function loadPersonalData(userId: string): Promise<void> {
   const generation = ++personalLoadGeneration
   personalLoading.value = true
   personalReady.value = false
   personalError.value = null
   try {
+    await settings.restore()
+    if (generation !== personalLoadGeneration || auth.user?.id !== userId) return
     await reader.init()
     if (generation === personalLoadGeneration && auth.user?.id === userId) {
       // These stores expose failures as state instead of rejecting their load promises.
@@ -160,6 +170,7 @@ watch(
     personalLoadGeneration += 1
     notes.resetPersonalData()
     library.resetPersonalData()
+    settings.activateUser(userId)
     reader.activateUser(userId)
     aiProvider.reset()
     semanticIndex.reset()
