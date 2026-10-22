@@ -8,7 +8,7 @@ import { buildApp } from '../src/app.ts'
 import { openDatabase } from '../src/database.ts'
 
 const cursor = { moduleName: 'WEB', book: 'Gen', chapter: 2, updated_at: 100 }
-const prefs = { preferences: { theme: 'ink', followAlong: false }, updated_at: 100 }
+const prefs = { preferences: { theme: 'ink', followAlong: false, studyPartnerOpen: true }, updated_at: 100 }
 
 it('isolates both reader resources, authenticates every method, and keeps newer writes including ties', async () => {
   const app = await buildApp({ databasePath: ':memory:', secretKey: randomBytes(32), logger: false, registerFeatureRoutes: false })
@@ -58,6 +58,7 @@ it('rejects malformed, oversized and coercible inputs without changing stored da
       ['preferences', prefs, [
         { preferences: null }, { preferences: [] }, { preferences: { theme: 'sepia' } },
         { preferences: { followAlong: 'false' } }, { preferences: { textScale: 0.89 } }, { preferences: { textScale: 1.41 } },
+        ...['false', 0, 1, null, [], {}].map((studyPartnerOpen) => ({ preferences: { studyPartnerOpen } })),
         { preferences: { accent: 'red' } }, { preferences: { defaultModuleName: '../WEB' } },
         { preferences: { compareModuleNames: ['WEB', 1] } }, { preferences: { compareModuleNames: Array(129).fill('WEB') } },
         { preferences: { commentaryModuleName: {} } }, { updated_at: null }, { updated_at: -1 }, { user_id: 'another-user' }

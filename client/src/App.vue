@@ -16,6 +16,7 @@ import { useChatConversations } from './stores/chatConversations'
 import { applyVars } from './theme'
 import { invalidateAccountRequests } from './services/api'
 import RailNav from './components/RailNav.vue'
+import StudyPartnerDrawer from './components/StudyPartnerDrawer.vue'
 import AuthScreen from './components/AuthScreen.vue'
 import { useReaderRouting } from './composables/useReaderRouting'
 
@@ -33,6 +34,7 @@ const sttProvider = useSttProvider()
 const chatConversations = useChatConversations()
 const personalLoading = ref(false)
 const personalReady = ref(false)
+const partnerButton = ref<HTMLButtonElement | null>(null)
 const router = useRouter()
 const { initialize: initializeReader, routeError } = useReaderRouting(personalReady)
 const personalError = ref<string | null>(null)
@@ -212,50 +214,68 @@ watch(
     class="app-root"
   >
     <RailNav />
-    <main class="app-main">
-      <div
-        v-if="degradedFeatures.length"
-        class="feature-errors"
-        aria-label="Unavailable features"
-      >
-        <div
-          v-for="feature in degradedFeatures"
-          :key="feature.label"
-          class="feature-error"
-          role="status"
+    <div class="app-workspace">
+      <header class="global-toolbar">
+        <button
+          ref="partnerButton"
+          type="button"
+          aria-controls="study-partner"
+          :aria-expanded="settings.studyPartnerOpen"
+          aria-keyshortcuts="Control+Shift+Y Meta+Shift+Y"
+          title="Study partner (Ctrl/⌘+Shift+Y)"
+          @click="settings.toggle('studyPartnerOpen')"
         >
-          <span>{{ feature.label }} unavailable: {{ feature.error }}</span>
-          <button
-            :disabled="feature.loading"
-            @click="loadOptionalData([feature])"
+          Study partner
+        </button>
+      </header>
+      <div class="app-content">
+        <main class="app-main">
+          <div
+            v-if="degradedFeatures.length"
+            class="feature-errors"
+            aria-label="Unavailable features"
           >
-            {{ feature.loading ? 'Retrying…' : `Retry ${feature.label}` }}
-          </button>
-        </div>
+            <div
+              v-for="feature in degradedFeatures"
+              :key="feature.label"
+              class="feature-error"
+              role="status"
+            >
+              <span>{{ feature.label }} unavailable: {{ feature.error }}</span>
+              <button
+                :disabled="feature.loading"
+                @click="loadOptionalData([feature])"
+              >
+                {{ feature.loading ? 'Retrying…' : `Retry ${feature.label}` }}
+              </button>
+            </div>
+          </div>
+          <p
+            v-if="notes.draftError"
+            class="feature-error"
+            role="alert"
+          >
+            {{ notes.draftError }}
+          </p>
+          <div
+            v-if="routeError"
+            class="feature-errors"
+            role="status"
+          >
+            {{ routeError }}
+          </div>
+          <RouterView v-slot="{ Component }">
+            <KeepAlive
+              :key="auth.user?.id"
+              include="SearchScreen"
+            >
+              <component :is="Component" />
+            </KeepAlive>
+          </RouterView>
+        </main>
+        <StudyPartnerDrawer :return-focus="partnerButton" />
       </div>
-      <p
-        v-if="notes.draftError"
-        class="feature-error"
-        role="alert"
-      >
-        {{ notes.draftError }}
-      </p>
-      <div
-        v-if="routeError"
-        class="feature-errors"
-        role="status"
-      >
-        {{ routeError }}
-      </div>
-      <RouterView v-slot="{ Component }">
-        <KeepAlive
-          :key="auth.user?.id"
-          include="SearchScreen"
-        >
-          <component :is="Component" />
-        </KeepAlive>
-      </RouterView>
-    </main>
+    </div>
   </div>
 </template>
 
@@ -275,6 +295,10 @@ watch(
   flex-direction: column;
   overflow: hidden;
 }
+.app-workspace { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.app-content { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+.global-toolbar { display: flex; justify-content: flex-end; flex-shrink: 0; padding: 4px 12px; border-bottom: 1px solid var(--line); }
+.global-toolbar button { min-height: 44px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--card); color: var(--ink); cursor: pointer; font: inherit; font-size: 13px; }
 .feature-errors {
   flex-shrink: 0;
   max-height: 30dvh;

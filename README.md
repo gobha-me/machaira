@@ -16,7 +16,7 @@ semantic search, personal journaling, and a bring-your-own-model study partner.
 | Screen | What it does |
 | --- | --- |
 | **Read** | Renders a chapter from any installed translation in a responsive phone, tablet, or desktop layout; translation picker, book/chapter navigation, touch-friendly passage tools and range selection, persisted highlights, and provider-backed read-aloud follow-along. |
-| **Study** | Side-by-side verse comparison, Strong's glosses, and streamed Markdown passage-aware chat—with pluggable hold-to-talk input—through user-configured providers. |
+| **Study** | Side-by-side verse comparison, Strong's glosses, commentary, cross-references, and passage notes, with access to the global Study partner. |
 | **Search** | Real SWORD full-text and embedding-backed “by meaning” search across Scripture and installed Generic Books, with typed or hold-to-talk input. |
 | **Library** | Browse a unified official-repository catalog, inspect canon and license coverage, install from an exact repository, or import a local SWORD ZIP. |
 | **Journal** | Per-account Markdown notes with Edit/Preview views and tags, plus an interactive graph of linked, cross-referenced, and thematically related passages. |
@@ -266,6 +266,12 @@ container or pod itself, so containerized deployments generally need a reachable
 or host gateway instead. Chat responses stream through Sword; provider keys never return to the
 browser. Conversations and passage context are stored per account, remain selected while moving
 between screens, and can be reopened, renamed, or deleted from the Study partner history menu.
+
+Use the **Study partner** button on any screen or **Ctrl/⌘+Shift+Y** to toggle the drawer.
+It sits beside desktop content and becomes a full-screen dialog on mobile. Escape closes it
+while focus is inside; closing returns focus to the invoking control. Its open/closed preference
+syncs with your account. The context chip follows the current chapter, selected verses, or selected
+Scripture text; drafts and streamed replies survive closing the drawer or switching screens.
 
 Assistant replies render safe Markdown while user questions remain plain text. Raw HTML and remote
 images are disabled, unsafe link protocols are rejected, and external web links open in a separate

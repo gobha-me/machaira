@@ -27,6 +27,7 @@ function defaults(): ReaderPreferences {
     alwaysCite: true,
     showFootnotes: true,
     showStrongs: false,
+    studyPartnerOpen: false,
     defaultModuleName: null,
     compareModuleNames: null,
     commentaryModuleName: null
@@ -115,6 +116,7 @@ export const useSettings = defineStore('settings', {
         | 'alwaysCite'
         | 'showFootnotes'
         | 'showStrongs'
+        | 'studyPartnerOpen'
     ) {
       this[key] = !this[key]
       this.persist()
