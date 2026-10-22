@@ -1,5 +1,6 @@
 import type { MachairaDatabase } from './database.js'
 import type { SecretStore } from './secrets.js'
+import { parseDeploymentProvider, type DeploymentProviderConfig } from './deployment-providers.js'
 import {
   VoiceConfigError,
   limitedProviderError,
@@ -21,6 +22,7 @@ export interface SttEndpointConfig {
 }
 
 export interface SttConfig {
+  deploymentDefault?: boolean
   order: SttTier[]
   local: SttEndpointConfig | null
   cloud: SttEndpointConfig | null
@@ -121,14 +123,19 @@ async function limitedText(response: Response): Promise<string> {
 }
 
 export class SttService {
+  private readonly deploymentDefault?: DeploymentProviderConfig
   private readonly activeUsers = new Set<string>()
   private activeLocal = 0
   private activeCloud = 0
 
   constructor(
     private readonly db: MachairaDatabase,
-    private readonly secrets: SecretStore
-  ) {}
+    private readonly secrets: SecretStore,
+    deploymentDefault?: DeploymentProviderConfig
+  ) {
+    this.deploymentDefault = deploymentDefault === undefined
+      ? undefined : parseDeploymentProvider('stt', deploymentDefault)
+  }
 
   get(userId: string): SttConfig {
     const row = this.db.prepare(`
@@ -137,7 +144,16 @@ export class SttService {
         cloud_provider, cloud_base_url, cloud_model
       FROM stt_configs WHERE user_id = ?
     `).get(userId) as StoredSttConfig | undefined
-    if (!row) return { order: ['browser'], local: null, cloud: null }
+    if (!row) {
+      if (this.deploymentDefault) return {
+        deploymentDefault: true, order: ['local', 'browser'], cloud: null,
+        local: {
+          provider: 'openai-compatible', baseUrl: this.deploymentDefault.baseUrl,
+          model: this.deploymentDefault.model, hasApiKey: false
+        }
+      }
+      return { order: ['browser'], local: null, cloud: null }
+    }
     let order: SttTier[] = ['browser']
     try {
       order = parseVoiceOrder(JSON.parse(row.provider_order_json))
@@ -223,18 +239,19 @@ export class SttService {
     tier: 'local' | 'cloud',
     staged?: unknown
   ): { endpoint: SttEndpointConfig; apiKey: string | null } {
-    const saved = this.get(userId)[tier]
+    const config = this.get(userId)
+    const saved = config[tier]
     if (staged === undefined) {
       if (!saved) throw new VoiceConfigError(`${tier} STT is not configured`)
       return {
         endpoint: saved,
-        apiKey: this.secrets.get(userId, tier === 'local' ? LOCAL_KEY : CLOUD_KEY)
+        apiKey: config.deploymentDefault ? null : this.secrets.get(userId, tier === 'local' ? LOCAL_KEY : CLOUD_KEY)
       }
     }
     const parsed = parseEndpoint(staged, tier)
     if (!parsed) throw new VoiceConfigError(`${tier} STT is not configured`)
     const identityUnchanged = parsed.provider === saved?.provider && parsed.baseUrl === saved.baseUrl
-    const storedKey = identityUnchanged
+    const storedKey = identityUnchanged && !config.deploymentDefault
       ? this.secrets.get(userId, tier === 'local' ? LOCAL_KEY : CLOUD_KEY)
       : null
     return {
@@ -307,7 +324,7 @@ export class SttService {
     if (!config.order.includes(tier)) throw new VoiceConfigError(`${tier} STT is not enabled`)
     const selected = config[tier]
     if (!selected) throw new VoiceConfigError(`${tier} STT is not configured`)
-    const apiKey = this.secrets.get(userId, tier === 'local' ? LOCAL_KEY : CLOUD_KEY)
+    const apiKey = config.deploymentDefault ? null : this.secrets.get(userId, tier === 'local' ? LOCAL_KEY : CLOUD_KEY)
     if (tier === 'cloud' && !apiKey) throw new VoiceConfigError('The cloud STT provider needs an API key')
     if (this.activeUsers.has(userId)) throw new SttBusyError('A transcription is already in progress')
     if (tier === 'local' && this.activeLocal >= 1) throw new SttBusyError('Local transcription is busy')

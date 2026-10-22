@@ -63,7 +63,7 @@ function providerUrl(value: unknown, name: string): string {
   return url.toString().replace(/\/$/, '')
 }
 
-function parseProvider(capability: DeploymentProviderCapability, value: unknown): DeploymentProviderConfig {
+export function parseDeploymentProvider(capability: DeploymentProviderCapability, value: unknown): DeploymentProviderConfig {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new DeploymentProviderConfigError(`${capability} provider must be an object`)
   }
@@ -112,7 +112,7 @@ export function parseDeploymentProviders(value: string | undefined): DeploymentP
     if (!CAPABILITIES.has(key as DeploymentProviderCapability)) {
       throw new DeploymentProviderConfigError(`Unknown deployment provider capability: ${key}`)
     }
-    result[key as DeploymentProviderCapability] = parseProvider(key as DeploymentProviderCapability, provider)
+    result[key as DeploymentProviderCapability] = parseDeploymentProvider(key as DeploymentProviderCapability, provider)
   }
   return result
 }

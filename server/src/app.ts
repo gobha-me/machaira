@@ -30,6 +30,7 @@ import { ProviderDiscoveryService } from './provider-discovery.js'
 import { registerProviderDiscovery } from './routes/provider-discovery.js'
 import {
   DeploymentProviderService,
+  parseDeploymentProviders,
   type DeploymentProviderConfigMap
 } from './deployment-providers.js'
 import { registerDeploymentProviders } from './routes/deployment-providers.js'
@@ -53,6 +54,7 @@ const PUBLIC_API_PATHS = new Set([
 ])
 
 export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
+  const defaults = parseDeploymentProviders(JSON.stringify(options.deploymentProviders ?? {}))
   const app = Fastify({ logger: options.logger ?? true })
   const db = openDatabase(options.databasePath)
   const auth = new AuthService(db)
@@ -61,13 +63,13 @@ export async function buildApp(options: AppOptions): Promise<FastifyInstance> {
   const secrets = new SecretStore(db, options.secretKey)
   const ai = new AiProviderService(db, secrets)
   const chats = new ChatConversationService(db)
-  const embeddingProviders = new EmbeddingProviderService(db, secrets)
+  const embeddingProviders = new EmbeddingProviderService(db, secrets, defaults.embeddings)
   const semanticIndex = new SemanticIndexService(db, embeddingProviders)
   const connections = new ConnectionsService(semanticIndex)
-  const tts = new TtsService(db, secrets)
-  const stt = new SttService(db, secrets)
+  const tts = new TtsService(db, secrets, defaults.tts)
+  const stt = new SttService(db, secrets, defaults.stt)
   const providerDiscovery = new ProviderDiscoveryService(db, secrets)
-  const deploymentProviders = new DeploymentProviderService(options.deploymentProviders ?? {})
+  const deploymentProviders = new DeploymentProviderService(defaults)
 
   app.addHook('onClose', async () => db.close())
   await app.register(cookie)

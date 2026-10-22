@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import timers from 'node:timers/promises'
 import type { MachairaDatabase } from './database.js'
 import type { SecretStore } from './secrets.js'
+import { parseDeploymentProvider, type DeploymentProviderConfig } from './deployment-providers.js'
 import { bookCode, bookReferenceNames, isDeuterocanonicalBook } from '@machaira/scripture'
 import { parseSearchScope, scopeIncludesKind } from './search-scope.js'
 import {
@@ -18,6 +19,7 @@ import {
 export type EmbeddingProviderKind = 'openai-compatible' | 'local'
 
 export interface EmbeddingProviderConfig {
+  deploymentDefault?: boolean
   kind: EmbeddingProviderKind
   baseUrl: string
   model: string
@@ -238,16 +240,30 @@ async function limitedBody(response: Response, max = 8 * 1024 * 1024): Promise<s
 }
 
 export class EmbeddingProviderService {
+  private readonly deploymentDefault?: DeploymentProviderConfig
   constructor(
     private readonly db: MachairaDatabase,
-    private readonly secrets: SecretStore
-  ) {}
+    private readonly secrets: SecretStore,
+    deploymentDefault?: DeploymentProviderConfig
+  ) {
+    this.deploymentDefault = deploymentDefault === undefined
+      ? undefined : parseDeploymentProvider('embeddings', deploymentDefault)
+  }
 
   get(userId: string): EmbeddingProviderConfig | null {
     const row = this.db.prepare(`
       SELECT kind, base_url, model, batch_size FROM embedding_provider_configs WHERE user_id = ?
     `).get(userId) as StoredEmbeddingConfig | undefined
-    if (!row) return null
+    if (!row) {
+      if (!this.deploymentDefault || this.db.prepare(
+        'SELECT 1 FROM embedding_provider_opt_outs WHERE user_id = ?'
+      ).get(userId)) return null
+      return {
+        kind: 'local', baseUrl: this.deploymentDefault.baseUrl,
+        model: this.deploymentDefault.model, batchSize: this.deploymentDefault.batchSize!,
+        hasApiKey: false, deploymentDefault: true
+      }
+    }
     return {
       kind: row.kind,
       baseUrl: row.base_url,
@@ -298,6 +314,7 @@ export class EmbeddingProviderService {
           batch_size = excluded.batch_size,
           updated_at = excluded.updated_at
       `).run(userId, kind, baseUrl, model, batchSize, Date.now())
+      this.db.prepare('DELETE FROM embedding_provider_opt_outs WHERE user_id = ?').run(userId)
       if (apiKey !== undefined) this.secrets.set(userId, API_KEY_SECRET, apiKey)
       else if (body.clearApiKey === true || kindChanged) this.secrets.remove(userId, API_KEY_SECRET)
     })()
@@ -307,6 +324,8 @@ export class EmbeddingProviderService {
   remove(userId: string): void {
     this.db.transaction(() => {
       this.db.prepare('DELETE FROM embedding_provider_configs WHERE user_id = ?').run(userId)
+      // Disconnect is an explicit opt-out, including when a deployment default exists.
+      this.db.prepare('INSERT OR IGNORE INTO embedding_provider_opt_outs (user_id) VALUES (?)').run(userId)
       this.secrets.remove(userId, API_KEY_SECRET)
     })()
   }
@@ -314,7 +333,7 @@ export class EmbeddingProviderService {
   credentials(userId: string): { config: EmbeddingProviderConfig; apiKey: string | null } {
     const config = this.get(userId)
     if (!config) throw new SemanticStateError('Configure an embedding provider in Settings first')
-    const apiKey = this.secrets.get(userId, API_KEY_SECRET)
+    const apiKey = config.deploymentDefault ? null : this.secrets.get(userId, API_KEY_SECRET)
     if (config.kind === 'openai-compatible' && !apiKey) {
       throw new SemanticStateError('The configured embedding provider needs an API key')
     }
@@ -580,8 +599,12 @@ export class SemanticIndexService {
 
   private async readStatus(userId: string, checkBuilding: boolean): Promise<SemanticIndexStatus> {
     const provider = this.providers.get(userId)
-    if (!provider) return {
-      state: 'unconfigured', chunkCount: 0, modules: [], model: null, updatedAt: null, lastError: null
+    if (!provider) {
+      const latest = this.latestRun(userId)
+      return {
+        state: 'unconfigured', chunkCount: 0, modules: [], model: null, updatedAt: null,
+        lastError: latest?.status === 'failed' ? latest.error : null
+      }
     }
     const modules = await this.eligibleModules(userId)
     const active = this.activeRun(userId)

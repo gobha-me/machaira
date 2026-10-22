@@ -1,5 +1,6 @@
 import type { MachairaDatabase } from './database.js'
 import type { SecretStore } from './secrets.js'
+import { parseDeploymentProvider, type DeploymentProviderConfig } from './deployment-providers.js'
 import {
   VoiceConfigError,
   parseVoiceOrder,
@@ -21,6 +22,7 @@ export interface TtsEndpointConfig {
 }
 
 export interface TtsConfig {
+  deploymentDefault?: boolean
   order: TtsTier[]
   local: TtsEndpointConfig | null
   cloud: TtsEndpointConfig | null
@@ -127,10 +129,15 @@ async function limitedAudio(response: Response): Promise<Buffer> {
 }
 
 export class TtsService {
+  private readonly deploymentDefault?: DeploymentProviderConfig
   constructor(
     private readonly db: MachairaDatabase,
-    private readonly secrets: SecretStore
-  ) {}
+    private readonly secrets: SecretStore,
+    deploymentDefault?: DeploymentProviderConfig
+  ) {
+    this.deploymentDefault = deploymentDefault === undefined
+      ? undefined : parseDeploymentProvider('tts', deploymentDefault)
+  }
 
   get(userId: string): TtsConfig {
     const row = this.db.prepare(`
@@ -140,9 +147,16 @@ export class TtsService {
         remote_audio_cache_size
       FROM tts_configs WHERE user_id = ?
     `).get(userId) as StoredTtsConfig | undefined
-    if (!row) return {
-      order: ['browser'], local: null, cloud: null,
-      remoteAudioCacheSize: DEFAULT_REMOTE_AUDIO_CACHE_SIZE
+    if (!row) {
+      if (this.deploymentDefault) return {
+        deploymentDefault: true, order: ['local', 'browser'], cloud: null,
+        remoteAudioCacheSize: DEFAULT_REMOTE_AUDIO_CACHE_SIZE,
+        local: {
+          provider: 'openai-compatible', baseUrl: this.deploymentDefault.baseUrl,
+          model: this.deploymentDefault.model, voice: this.deploymentDefault.voice!, hasApiKey: false
+        }
+      }
+      return { order: ['browser'], local: null, cloud: null, remoteAudioCacheSize: DEFAULT_REMOTE_AUDIO_CACHE_SIZE }
     }
     let order: TtsTier[] = ['browser']
     try {
@@ -256,7 +270,7 @@ export class TtsService {
     if (!config.order.includes(tier)) throw new TtsInputError(`${tier} TTS is not enabled`)
     const selected = config[tier]
     if (!selected) throw new TtsInputError(`${tier} TTS is not configured`)
-    const apiKey = this.secrets.get(userId, tier === 'local' ? LOCAL_KEY : CLOUD_KEY)
+    const apiKey = config.deploymentDefault ? null : this.secrets.get(userId, tier === 'local' ? LOCAL_KEY : CLOUD_KEY)
     if (tier === 'cloud' && !apiKey) throw new TtsInputError('The cloud TTS provider needs an API key')
 
     const timeoutSignal = AbortSignal.timeout(60_000)

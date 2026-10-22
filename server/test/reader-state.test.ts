@@ -84,10 +84,10 @@ it('migrates an existing v10 database without losing users and persists reader s
   try {
     const initial = openDatabase(filename)
     initial.exec("INSERT INTO users VALUES ('reader', 'Reader', 'reader', 'hash', 'member', NULL, 1)")
-    initial.exec('DROP TABLE reading_cursors; DROP TABLE user_preferences; DELETE FROM schema_migrations WHERE version = 11')
+    initial.exec('DROP TABLE reading_cursors; DROP TABLE user_preferences; DROP TABLE embedding_provider_opt_outs; DELETE FROM schema_migrations WHERE version >= 11')
     initial.close()
     const migrated = openDatabase(filename)
-    assert.equal((migrated.prepare('SELECT MAX(version) AS version FROM schema_migrations').get() as { version: number }).version, 11)
+    assert.equal((migrated.prepare('SELECT MAX(version) AS version FROM schema_migrations').get() as { version: number }).version, 12)
     migrated.prepare('INSERT INTO reading_cursors VALUES (?, ?, ?, ?, ?)').run('reader', 'WEB', 'Gen', 2, 100)
     migrated.prepare('INSERT INTO user_preferences VALUES (?, ?, ?)').run('reader', '{"theme":"ink"}', 100)
     migrated.close()
