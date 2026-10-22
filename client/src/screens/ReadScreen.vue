@@ -170,6 +170,7 @@ const wordStudyOn = ref(false)
 const toolsOpen = ref(false)
 const connectionsOpen = ref(false)
 const readingEl = ref<HTMLElement | null>(null)
+const toolsEl = ref<HTMLElement | null>(null)
 const connectionsPanel = ref<InstanceType<typeof ConnectionsPanel> | null>(null)
 const toolsToggleEl = ref<HTMLButtonElement | null>(null)
 const toolsCloseEl = ref<HTMLButtonElement | null>(null)
@@ -757,6 +758,7 @@ async function menuNote() {
         <!-- eslint-disable-next-line vuejs-accessibility/no-static-element-interactions -- Handle Escape bubbling from passage-tool controls. -->
         <aside
           id="passage-tools"
+          ref="toolsEl"
           class="rail-side"
           :class="{ open: toolsOpen }"
           aria-label="Passage tools"
@@ -919,6 +921,7 @@ async function menuNote() {
 
     <TextSelectionActions
       :root="selectionRoot"
+      :avoid="toolsOpen ? toolsEl : null"
       @open="dismiss"
       @word-study="selectionWordStudy"
       @note="selectionNote"
@@ -1289,7 +1292,7 @@ h1 {
   text-wrap: pretty;
 }
 .verse {
-  cursor: pointer;
+  cursor: text;
   border-radius: 3px;
   padding: 1px 3px;
   transition: background 0.15s;
@@ -1297,7 +1300,7 @@ h1 {
 .vnum {
   border: 0;
   background: transparent;
-  padding: 0 2px;
+  padding: 4px 6px;
   vertical-align: super;
   cursor: pointer;
   font-size: 0.58em;

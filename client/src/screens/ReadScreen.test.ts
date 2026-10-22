@@ -81,6 +81,75 @@ function textAction(label: string) {
 }
 
 describe('word and phrase selection actions', () => {
+  it('cancels a pending tagged-word lookup for double-click selection, Escape, and navigation', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const lookup = vi.spyOn(api, 'strongs').mockRejectedValue(new Error('unavailable'))
+    const word = wrapper.get('button.wtap')
+    await word.trigger('click', { detail: 1 })
+    expect(wrapper.get('.rail-side').classes()).not.toContain('open')
+    await selectText(word.element.firstChild!, 0)
+    await word.trigger('click', { detail: 2 })
+    await vi.advanceTimersByTimeAsync(600)
+    expect(lookup).not.toHaveBeenCalled()
+    expect(textActions()).not.toBeNull()
+    expect(useReader().selectedVerses).toEqual([])
+    window.getSelection()!.removeAllRanges()
+    await word.trigger('click', { detail: 1 })
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await vi.advanceTimersByTimeAsync(600)
+    expect(lookup).not.toHaveBeenCalled()
+    await word.trigger('click', { detail: 1 })
+    useReader().chapter = 2
+    await vi.advanceTimersByTimeAsync(600)
+    expect(lookup).not.toHaveBeenCalled()
+  })
+
+  it('retains single-click tagged-word lookup after the double-click interval, including failures', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const lookup = vi.spyOn(api, 'strongs').mockRejectedValue(new Error('unavailable'))
+    await wrapper.get('button.wtap').trigger('click', { detail: 1 })
+    await vi.advanceTimersByTimeAsync(500)
+    await flushPromises()
+    expect(lookup).toHaveBeenCalledExactlyOnceWith('G3056')
+    expect(useReader().selectedVerses).toEqual([])
+    expect(wrapper.get('[role="alert"]').text()).toContain('No entry for G3056')
+  })
+
+  it.each([false, true])('double-clicks prose without changing an existing verse selection (Strong’s display: %s)', async (showStrongs) => {
+    useSettings().showStrongs = showStrongs
+    useReader().selectVerse(2)
+    await flushPromises()
+    const prose = wrapper.get('[data-selection-text]')
+    // The first click precedes native word selection. Testing only detail=2 misses the bug.
+    await prose.trigger('click', { detail: 1 })
+    expect(useReader().selectedVerses).toEqual([2])
+    const word = firstText(prose.element)
+    await selectText(word, 7, word, 16)
+    await prose.trigger('click', { detail: 2 })
+    await prose.trigger('dblclick', { detail: 2 })
+    expect(useReader().selectedVerses).toEqual([2])
+    expect(textActions()).not.toBeNull()
+    expect(window.getSelection()!.toString()).toBe('beginning')
+  })
+
+  it('selects and extends through the gutter while leaving plain and Shift prose clicks quiet', async () => {
+    const reader = useReader()
+    const prose = wrapper.findAll('[data-selection-text]')
+    await prose[0].trigger('click', { detail: 1 })
+    expect(reader.selectedVerses).toEqual([])
+    await wrapper.findAll('.verse')[0].trigger('click', { detail: 1 })
+    expect(reader.selectedVerses).toEqual([1])
+    expect(wrapper.findAll('.verse')[1].attributes('style')).toContain('opacity: 0.7')
+    const shiftDown = new MouseEvent('mousedown', { shiftKey: true, bubbles: true, cancelable: true })
+    prose[1].element.dispatchEvent(shiftDown)
+    expect(shiftDown.defaultPrevented).toBe(false)
+    await prose[1].trigger('click', { shiftKey: true, detail: 1 })
+    expect(reader.selectedVerses).toEqual([1])
+    await wrapper.findAll('.verse')[1].trigger('click', { shiftKey: true, detail: 1 })
+    expect(reader.selectedVerses).toEqual([1, 2])
+    expect(wrapper.findAll('.verse').every((verse) => verse.attributes('style')?.includes('opacity: 1'))).toBe(true)
+  })
+
   it('searches partial text across verses without changing the verse selection or blocking native copy', async () => {
     const related = vi.spyOn(useUi(), 'findRelated').mockImplementation(() => {})
     const verses = wrapper.findAll('[data-selection-text]')

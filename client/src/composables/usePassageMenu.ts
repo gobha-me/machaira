@@ -1,4 +1,4 @@
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useReader } from '../stores/reader'
 import { crossReferencesForVerses } from '../utils/crossReferences'
 import { hasNativeTextSelection } from '../utils/textSelection'
@@ -10,9 +10,7 @@ import {
 } from '../utils/longPress'
 
 interface UsePassageMenuOptions {
-  // Plain (non-shift) tap on a Strong's-tagged word. The composable owns the shift case — it
-  // extends the selection rather than letting a .stop'd word span swallow the gesture — so each
-  // surface supplies only its own lookup: Read opens the rail card, Study fills the lexicon panel.
+  // A tagged-word lookup never changes the verse selection.
   onWordTap?: (verse: number, strongs: string[]) => void | Promise<void>
 }
 
@@ -56,7 +54,7 @@ export function usePassageMenu(opts: UsePassageMenuOptions = {}) {
   // Bring the selected passage forward by dimming the rest, whenever a selection is active.
   function verseOpacity(n: number): number {
     if (reader.selectedVerse == null) return 1
-    return reader.selectedVerses.includes(n) ? 1 : 0.4
+    return reader.selectedVerses.includes(n) ? 1 : 0.7
   }
 
   // A highlight wins over the selection tint; the tint marks the brought-forward range.
@@ -83,14 +81,11 @@ export function usePassageMenu(opts: UsePassageMenuOptions = {}) {
     keyboardOpener = null
   }
 
-  // Left click: quiet select-first — bring the verse forward without opening the menu, so a focus
-  // click doesn't cover the text (#27). Clicking the lone selected verse again toggles it back off
-  // (selectVerse). Shift+left-click extends the range and stays just as quiet: extending is a
-  // selection gesture, not a request for the menu, and popping it here would cover the passage the
-  // user just selected — the same complaint #27 raised about the plain click (#33). It dismisses
-  // rather than doing nothing, because a menu already open from a right-click is anchored at that
-  // earlier click point and would sit over the range as it grows.
+  // Only verse numbers and the surrounding gutter select verses. In particular, the first
+  // click of a prose double-click arrives before the browser creates its native word range.
+  // Shift extends quietly and dismisses any menu anchored to the previous range.
   function onVerseClick(n: number, e: MouseEvent) {
+    if (isProse(e)) return
     if (hasNativeTextSelection(e.currentTarget) || e.detail >= 2) return
     if (suppressesNativeTouchEvent(n)) return
     if (e.shiftKey && reader.selectedVerse != null) {
@@ -169,24 +164,38 @@ export function usePassageMenu(opts: UsePassageMenuOptions = {}) {
     longPress.end(e.pointerId)
   }
 
-  // Shift-drag on running prose would start a native text selection that fights the range
-  // gesture; suppress it on shift-mousedown only, leaving plain drag-to-copy intact.
-  function onVerseMouseDown(e: MouseEvent) {
-    if (e.shiftKey) e.preventDefault()
+  function isProse(e: MouseEvent): boolean {
+    return e.target instanceof Element && !!e.target.closest('[data-selection-text]')
   }
 
-  // Word spans keep @click.stop so a plain lookup doesn't also re-select the verse, which means
-  // the shift gesture has to be forwarded here rather than bubbling to onVerseClick.
-  function onWordClick(n: number, strongs: string[], e: MouseEvent) {
-    if (hasNativeTextSelection(e.currentTarget) || e.detail >= 2) return
-    if (e.shiftKey) {
-      onVerseClick(n, e)
-      return
-    }
-    void opts.onWordTap?.(n, strongs)
+  // Prevent native range extension only on verse controls; prose keeps Shift+click selection.
+  function onVerseMouseDown(e: MouseEvent) {
+    if (e.shiftKey && !isProse(e)) e.preventDefault()
   }
+
+  // Keep tagged-word lookups independent of verse selection, including Shift+click.
+  let wordTapTimer: ReturnType<typeof setTimeout> | null = null
+  function cancelWordTap() {
+    if (wordTapTimer !== null) clearTimeout(wordTapTimer)
+    wordTapTimer = null
+  }
+  function onWordClick(n: number, strongs: string[], e: MouseEvent) {
+    cancelWordTap()
+    if (hasNativeTextSelection(e.currentTarget) || e.detail >= 2) return
+    if (e.shiftKey) return
+    if (e.detail === 0) { void opts.onWordTap?.(n, strongs); return }
+    const target = e.currentTarget
+    // Let a native double-click finish before a mouse lookup can open a drawer and move
+    // the word. Keyboard activation remains immediate; native ranges win over this timer.
+    wordTapTimer = setTimeout(() => {
+      wordTapTimer = null
+      if (!hasNativeTextSelection(target)) void opts.onWordTap?.(n, strongs)
+    }, 500)
+  }
+  watch(() => [reader.moduleName, reader.book, reader.chapter, reader.data, reader.loadingChapter, reader.error], cancelWordTap, { flush: 'sync' })
 
   function onSelectionKey(e: KeyboardEvent) {
+    if (e.key === 'Escape') cancelWordTap()
     const el = document.activeElement
     if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return
     if (e.key === 'Escape' && reader.selectedVerse != null) {
@@ -197,6 +206,7 @@ export function usePassageMenu(opts: UsePassageMenuOptions = {}) {
   onMounted(() => window.addEventListener('keydown', onSelectionKey))
   onUnmounted(() => {
     window.removeEventListener('keydown', onSelectionKey)
+    cancelWordTap()
     longPress.cancel()
   })
 
