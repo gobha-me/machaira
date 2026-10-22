@@ -58,9 +58,53 @@ const MAX_AUDIO_BYTES = 10 * 1024 * 1024
 const DEFAULT_REMOTE_AUDIO_CACHE_SIZE = 4
 const MIN_REMOTE_AUDIO_CACHE_SIZE = 3
 const MAX_REMOTE_AUDIO_CACHE_SIZE = 8
+// Bound memory and wait time while allowing the client's read-ahead requests.
+export const MAX_BUNDLED_TTS_QUEUE_SIZE = 8
 
 export const TtsInputError = VoiceConfigError
 export class TtsProviderError extends Error {}
+export class TtsQueueFullError extends Error {}
+
+class BundledTtsQueue {
+  private active = false
+  private readonly waiting: Array<() => void> = []
+
+  async acquire(signal?: AbortSignal): Promise<() => void> {
+    if (signal?.aborted) throw new TtsProviderError('TTS request was cancelled')
+    if (!this.active) {
+      this.active = true
+      return this.releaseSlot()
+    }
+    if (this.waiting.length >= MAX_BUNDLED_TTS_QUEUE_SIZE) {
+      throw new TtsQueueFullError('Bundled TTS queue is full; please try again later')
+    }
+    return new Promise((resolve, reject) => {
+      const start = () => {
+        signal?.removeEventListener('abort', cancel)
+        resolve(this.releaseSlot())
+      }
+      const cancel = () => {
+        const index = this.waiting.indexOf(start)
+        if (index !== -1) this.waiting.splice(index, 1)
+        signal?.removeEventListener('abort', cancel)
+        reject(new TtsProviderError('TTS request was cancelled while queued'))
+      }
+      this.waiting.push(start)
+      signal?.addEventListener('abort', cancel, { once: true })
+    })
+  }
+
+  private releaseSlot(): () => void {
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      const next = this.waiting.shift()
+      if (next) next()
+      else this.active = false
+    }
+  }
+}
 
 function parseEndpoint(value: unknown, tier: 'local' | 'cloud'): EndpointInput | null {
   if (value == null) return null
@@ -130,6 +174,8 @@ async function limitedAudio(response: Response): Promise<Buffer> {
 
 export class TtsService {
   private readonly deploymentDefault?: DeploymentProviderConfig
+  // One service per app/pod: all accounts share the bundled provider's CPU budget.
+  private readonly bundledQueue = new BundledTtsQueue()
   constructor(
     private readonly db: MachairaDatabase,
     private readonly secrets: SecretStore,
@@ -273,6 +319,26 @@ export class TtsService {
     const apiKey = config.deploymentDefault ? null : this.secrets.get(userId, tier === 'local' ? LOCAL_KEY : CLOUD_KEY)
     if (tier === 'cloud' && !apiKey) throw new TtsInputError('The cloud TTS provider needs an API key')
 
+    // Match the endpoint, not deploymentDefault: saving account preferences for the
+    // same bundled provider must not bypass serialization. External providers keep
+    // their own concurrency policy.
+    const bundled = this.deploymentDefault?.source === 'bundled'
+      && voiceEndpoint(selected.baseUrl, 'audio/speech') === voiceEndpoint(this.deploymentDefault.baseUrl, 'audio/speech')
+    const release = bundled ? await this.bundledQueue.acquire(signal) : undefined
+    try {
+      return await this.requestSpeech(selected, apiKey, text, signal)
+    } finally {
+      release?.()
+    }
+  }
+
+  private async requestSpeech(
+    selected: TtsEndpointConfig,
+    apiKey: string | null,
+    text: string,
+    signal?: AbortSignal
+  ): Promise<{ audio: Buffer; contentType: string }> {
+    // Queue waiting does not consume the provider's synthesis timeout.
     const timeoutSignal = AbortSignal.timeout(60_000)
     const combinedSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal
     const headers: Record<string, string> = {
@@ -280,9 +346,9 @@ export class TtsService {
       'content-type': 'application/json'
     }
     if (apiKey) headers.authorization = `Bearer ${apiKey}`
-    let response: Response
     try {
-      response = await fetch(voiceEndpoint(selected.baseUrl, 'audio/speech'), {
+      combinedSignal.throwIfAborted()
+      const response = await fetch(voiceEndpoint(selected.baseUrl, 'audio/speech'), {
         method: 'POST',
         redirect: 'error',
         signal: combinedSignal,
@@ -295,24 +361,26 @@ export class TtsService {
           speed: 1
         })
       })
+      if (!response.ok) {
+        await response.body?.cancel().catch(() => undefined)
+        throw new TtsProviderError(`TTS provider rejected the request (HTTP ${response.status})`)
+      }
+      const contentType = response.headers.get('content-type')?.split(';', 1)[0].trim().toLowerCase() ?? ''
+      if (!contentType.startsWith('audio/')) {
+        await response.body?.cancel().catch(() => undefined)
+        throw new TtsProviderError('TTS provider did not return audio')
+      }
+      const declaredLength = Number(response.headers.get('content-length') ?? 0)
+      if (Number.isFinite(declaredLength) && declaredLength > MAX_AUDIO_BYTES) {
+        await response.body?.cancel().catch(() => undefined)
+        throw new TtsProviderError('TTS provider returned oversized audio')
+      }
+      const audio = await limitedAudio(response)
+      return { audio, contentType }
     } catch (error) {
       if (combinedSignal.aborted) throw new TtsProviderError('TTS request timed out or was cancelled')
+      if (error instanceof TtsProviderError) throw error
       throw new TtsProviderError(`Could not reach TTS provider: ${(error as Error).message}`)
     }
-    if (!response.ok) {
-      await response.body?.cancel().catch(() => undefined)
-      throw new TtsProviderError(`TTS provider rejected the request (HTTP ${response.status})`)
-    }
-    const contentType = response.headers.get('content-type')?.split(';', 1)[0].trim().toLowerCase() ?? ''
-    if (!contentType.startsWith('audio/')) {
-      throw new TtsProviderError('TTS provider did not return audio')
-    }
-    const declaredLength = Number(response.headers.get('content-length') ?? 0)
-    if (Number.isFinite(declaredLength) && declaredLength > MAX_AUDIO_BYTES) {
-      await response.body?.cancel().catch(() => undefined)
-      throw new TtsProviderError('TTS provider returned oversized audio')
-    }
-    const audio = await limitedAudio(response)
-    return { audio, contentType }
   }
 }
