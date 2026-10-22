@@ -283,8 +283,10 @@ onScopeDispose(() => { navigationGeneration += 1 })
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.head { display: flex; align-items: center; gap: 8px; }
-h2 { flex: 1; margin: 0; font-size: 15px; }
+.head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+/* Move controls to another row before the inherited overflow-wrap can split the title. */
+h2 { flex: 1 0 auto; margin: 0; font-size: 15px; white-space: nowrap; }
+.head button { flex-shrink: 0; white-space: nowrap; }
 h3 { font-size: 13px; margin: 16px 0 8px; }
 p { font-size: 13px; line-height: 1.5; color: var(--muted); }
 .reference, .warning { font-size: 11px; }
