@@ -251,7 +251,8 @@ describe('hash navigation and passage URLs', () => {
     expect(api.semanticSearch).toHaveBeenCalledExactlyOnceWith('beginning', ['WEB'], 50, 'scripture')
     if (outcome === 'success') expect(app.get('.result').text()).toContain('Genesis 1:1')
     else {
-      expect(app.get('[role="alert"]').text()).toBe('Search failed: Search offline')
+      expect(app.get('[role="alert"] p').text()).toBe('Search failed: Search offline. Please try again.')
+      expect(app.get('[role="alert"] button').text()).toBe('Retry')
       expect(app.text()).not.toContain('No matches')
       expect(app.find('.hint').exists()).toBe(false)
     }
