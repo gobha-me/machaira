@@ -48,7 +48,7 @@ const activeTranslation = computed(() =>
 const activeTranslationLabel = computed(() => {
   const module = activeTranslation.value
   if (!module) return reader.moduleName ?? 'Translation'
-  return `${module.name} — ${module.description}`
+  return `${module.label} — ${module.description} (${module.name})`
 })
 
 onMounted(() => {
@@ -521,7 +521,7 @@ async function menuNote() {
           :aria-expanded="transOpen"
           @click="openTranslationPicker"
         >
-          <span class="chip-label">{{ reader.moduleName }}</span><span class="caret">▾</span>
+          <span class="chip-label">{{ activeTranslation?.label ?? reader.moduleName }}</span><span class="caret">▾</span>
         </button>
         <div
           v-if="transOpen"
@@ -533,14 +533,14 @@ async function menuNote() {
             :key="m.name"
             class="trans-item hover-soft"
             :title="`${m.name} — ${m.description}`"
-            :aria-label="`${m.name}: ${m.description}`"
+            :aria-label="`${m.label}: ${m.description}`"
             @click="pickModule(m.name)"
           >
             <span
               class="trans-mark"
               :style="{ background: reader.moduleName === m.name ? 'var(--accent)' : 'transparent' }"
             />
-            <span class="trans-tag">{{ m.name }}</span>
+            <span class="trans-tag">{{ m.label }}</span>
             <span class="trans-name">{{ m.description }}</span>
           </button>
           <div class="trans-foot">

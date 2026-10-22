@@ -154,7 +154,7 @@ const embeddingBatchSizeValid = computed(() => Number.isSafeInteger(embeddingBat
 const defaultModuleLabel = computed(() => {
   if (!settings.defaultModuleName) return 'Automatic (WEB)'
   const module = reader.installedBibles.find((item) => item.name === settings.defaultModuleName)
-  return module ? `${module.name} — ${module.description}` : settings.defaultModuleName
+  return module ? `${module.label} — ${module.description}` : settings.defaultModuleName
 })
 
 const PROVIDER_DEFAULTS: Record<AiProviderKind, string> = {
@@ -930,7 +930,7 @@ async function rebuildSemanticIndex(): Promise<void> {
               :key="m.name"
               :value="m.name"
             >
-              {{ m.name }} — {{ m.description }}
+              {{ m.label }} — {{ m.description }}
             </option>
           </select>
         </div>
@@ -993,7 +993,7 @@ async function rebuildSemanticIndex(): Promise<void> {
             :title="`${m.name} — ${m.description}`"
           >
             <div class="row-title">
-              {{ m.name }}
+              {{ m.label }}
               <span
                 v-if="m.name === reader.effectiveDefaultModule"
                 class="badge"

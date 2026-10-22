@@ -421,6 +421,125 @@ describe('reader position', () => {
     expect(reader.data?.verses.map((verse) => verse.n)).toEqual([1, 2, 3])
   })
 
+  it.each(['John', 'john', 'Jn', 'Jn.'])('resolves foreign translation links by book name or alias %s in the configured default', async (book) => {
+    prepareLibrary('WEB', 'LSV')
+    useSettings().defaultModuleName = 'LSV'
+    mockReaderApi({ WEB: standardBooks, LSV: standardBooks })
+    vi.mocked(api.chapter).mockResolvedValue(chapterWithVerses('LSV', 'John', 3, [16, 17, 18]))
+    const reader = useReader()
+    reader.activateUser('user-a')
+
+    const result = await reader.init({ moduleName: 'ForeignBible', book, chapter: 3, verseStart: 16, verseEnd: 18 })
+
+    expect(result).toEqual({ ok: true, notice: expect.stringContaining('default translation, LSV') })
+    expect([reader.moduleName, reader.book, reader.chapter]).toEqual(['LSV', 'John', 3])
+    expect(reader.selectedVerses).toEqual([16, 17, 18])
+    expect(api.books).toHaveBeenCalledExactlyOnceWith('LSV')
+    expect(api.chapter).toHaveBeenCalledExactlyOnceWith('LSV', 'John', 3)
+    expect(JSON.parse(localStorage.getItem('sword.reader.pos.v2:user-a')!).book).toBe('John')
+  })
+
+  it.each(['books failure', 'chapter failure', 'different canon', 'wrong chapter', 'missing verse'])('tries the default after a requested translation has %s', async (failure) => {
+    prepareLibrary('KJV', 'LSV')
+    useSettings().defaultModuleName = 'LSV'
+    mockReaderApi({ KJV: standardBooks, LSV: standardBooks })
+    vi.mocked(api.chapter).mockImplementation(async (module) => chapterWithVerses(module, 'John', 3, [16, 17, 18]))
+    if (failure === 'books failure') vi.mocked(api.books).mockRejectedValueOnce(new Error('Unavailable'))
+    if (failure === 'chapter failure') vi.mocked(api.chapter).mockRejectedValueOnce(new Error('Unavailable'))
+    if (failure === 'different canon') vi.mocked(api.books).mockResolvedValueOnce(standardBooks.filter((book) => book.code !== 'John'))
+    if (failure === 'wrong chapter') vi.mocked(api.chapter).mockResolvedValueOnce(chapterWithVerses('KJV', 'Gen', 1, [16, 17, 18]))
+    if (failure === 'missing verse') vi.mocked(api.chapter).mockResolvedValueOnce(chapterWithVerses('KJV', 'John', 3, [16, 18]))
+    const reader = useReader()
+    reader.activateUser('user-a')
+
+    expect(await reader.openRoute({ moduleName: 'KJV', book: 'John', chapter: 3, verseStart: 16, verseEnd: 18 }, undefined, { fallbackToDefault: true }))
+      .toEqual({ ok: true, notice: expect.stringContaining('default translation, LSV') })
+    expect([reader.moduleName, reader.book, reader.chapter]).toEqual(['LSV', 'John', 3])
+    expect(reader.selectedVerses).toEqual([16, 17, 18])
+  })
+
+  it.each([
+    { book: 'Unknown', chapter: 3, verseStart: 16, verseEnd: 16 },
+    { book: 'Jo', chapter: 3, verseStart: 16, verseEnd: 16 },
+    { book: 'John', chapter: 22, verseStart: 16, verseEnd: 16 },
+    { book: 'John', chapter: 0, verseStart: 16, verseEnd: 16 },
+    { book: 'John', chapter: NaN, verseStart: 16, verseEnd: 16 },
+    { book: 'John', chapter: 3, verseStart: 18, verseEnd: 16 },
+    { book: 'John', chapter: 3, verseStart: 0, verseEnd: 16 },
+    { book: 'John', chapter: 3, verseStart: 16, verseEnd: Number.MAX_SAFE_INTEGER },
+    { book: 'John', chapter: 3, verseStart: null, verseEnd: 16 }
+  ])('never commits or saves an unresolvable foreign passage %j', async (target) => {
+    prepareLibrary('WEB')
+    mockReaderApi()
+    const reader = useReader()
+    reader.activateUser('user-a')
+    await reader.init()
+    const before = JSON.parse(JSON.stringify(reader.$state))
+    const cached = localStorage.getItem('sword.reader.pos.v2:user-a')
+    vi.mocked(api.chapter).mockResolvedValue(chapterWithVerses('WEB', 'John', 3, [16, 18]))
+
+    expect(await reader.openRoute({ moduleName: 'ForeignBible', ...target }, undefined, { fallbackToDefault: true })).toEqual({
+      ok: false, error: 'This passage link is not available in your library.'
+    })
+    expect(reader.$state).toEqual(before)
+    expect(localStorage.getItem('sword.reader.pos.v2:user-a')).toBe(cached)
+  })
+
+  it('does not try a fallback after an obsolete linked request finishes', async () => {
+    prepareLibrary('WEB', 'KJV')
+    mockReaderApi({ WEB: standardBooks, KJV: standardBooks })
+    const reader = useReader()
+    reader.activateUser('user-a')
+    await reader.init()
+    const books = deferred<BookEntry[]>()
+    vi.mocked(api.books).mockReturnValueOnce(books.promise)
+    const obsolete = reader.openRoute({ moduleName: 'KJV', book: 'John', chapter: 3, verseStart: null, verseEnd: null }, undefined, { fallbackToDefault: true })
+    await reader.setChapter(2)
+    books.resolve([])
+
+    expect((await obsolete).ok).toBe(false)
+    expect([reader.moduleName, reader.book, reader.chapter]).toEqual(['WEB', 'Gen', 2])
+    expect(api.chapter).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the existing passage if the default translation fails or is removed during recovery', async () => {
+    prepareLibrary('WEB', 'KJV')
+    mockReaderApi({ WEB: standardBooks, KJV: standardBooks })
+    const reader = useReader()
+    reader.activateUser('user-a')
+    await reader.init()
+    const before = JSON.parse(JSON.stringify(reader.$state))
+    vi.mocked(api.books).mockRejectedValueOnce(new Error('Source unavailable'))
+    vi.mocked(api.chapter).mockRejectedValueOnce(new Error('Default unavailable'))
+    const target = { moduleName: 'KJV', book: 'John', chapter: 3, verseStart: null, verseEnd: null }
+    expect((await reader.openRoute(target, undefined, { fallbackToDefault: true })).ok).toBe(false)
+    expect(reader.$state).toEqual(before)
+
+    const pending = deferred<ChapterPayload>()
+    vi.mocked(api.chapter).mockReturnValueOnce(pending.promise)
+    const recovery = reader.openRoute({ ...target, moduleName: 'ForeignBible' }, undefined, { fallbackToDefault: true })
+    prepareLibrary('KJV')
+    pending.resolve(chapterWithVerses('WEB', 'John', 3, [16]))
+    expect((await recovery).ok).toBe(false)
+    expect(reader.$state).toEqual(before)
+  })
+
+  it('keeps internal reference failures in their requested translation unless URL recovery is enabled', async () => {
+    prepareLibrary('WEB', 'KJV')
+    mockReaderApi({ WEB: standardBooks, KJV: standardBooks })
+    const reader = useReader()
+    reader.activateUser('user-a')
+    await reader.init()
+    vi.mocked(api.chapter).mockRejectedValueOnce(new Error('Cannot read KJV'))
+    vi.mocked(api.books).mockClear()
+    vi.mocked(api.chapter).mockClear()
+
+    expect((await reader.openRoute({ moduleName: 'KJV', book: 'John', chapter: 3, verseStart: 16, verseEnd: 16 })).ok).toBe(false)
+    expect(api.books).toHaveBeenCalledExactlyOnceWith('KJV')
+    expect(api.chapter).toHaveBeenCalledExactlyOnceWith('KJV', 'John', 3)
+    expect([reader.moduleName, reader.book, reader.chapter]).toEqual(['WEB', 'Gen', 1])
+  })
+
   it('keeps the current passage unchanged when a target is unavailable', async () => {
     prepareLibrary('WEB')
     mockReaderApi()

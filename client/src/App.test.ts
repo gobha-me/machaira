@@ -180,6 +180,59 @@ describe('hash navigation and passage URLs', () => {
     vi.mocked(api.chapter).mockImplementation(async (module, _book, chapter) => passage(chapter, module))
   })
 
+  it.each([
+    ['ForeignBible', 'Jn'], ['ForeignBible', 'john'], ['ForeignBible', 'John'],
+    ['ForeignBible', '1%20John'], ['Geneva%201599', 'Jn.']
+  ])('recovers a foreign deep link from %s with book %s before restoring a saved Genesis cursor', async (module, book) => {
+    vi.mocked(api.catalog).mockResolvedValue({
+      modules: ['WEB', 'LSV'].map((name) => ({ ...pathologicalModule, name, installed: true })),
+      diagnostics: { repositories: [], usedCachedCatalog: false, refreshedAt: 1 }
+    })
+    vi.mocked(api.preferences).mockResolvedValue({ preferences: { defaultModuleName: 'LSV' }, updated_at: 10 })
+    vi.mocked(api.readingCursor).mockResolvedValue({ moduleName: 'WEB', book: 'Gen', chapter: 4, updated_at: 10 })
+    const code = book === '1%20John' ? '1John' : 'John'
+    const name = code === '1John' ? '1 John' : 'John'
+    vi.mocked(api.books).mockResolvedValue([{ code, name, section: 'nt', chapters: 21 }])
+    vi.mocked(api.chapter).mockResolvedValue({ ...passage(3, 'LSV'), book: code, bookName: name })
+
+    const app = await startApp(`/read/${module}/${book}/3/1-3`)
+
+    expect(app.get('.read h1').text()).toBe(`${name} 3`)
+    expect(app.get('.feature-errors[role="status"]').text()).toContain(`Opened ${name} 3:1–3 in your default translation, LSV.`)
+    expect(useReader().selectedVerses).toEqual([1, 2, 3])
+    expect(router.currentRoute.value.path).toBe(`/read/LSV/${code}/3/1-3`)
+    expect(api.chapter).toHaveBeenCalledExactlyOnceWith('LSV', code, 3)
+    expect(JSON.parse(localStorage.getItem('sword.reader.pos.v2:reader')!).book).toBe(code)
+  })
+
+  it('resolves an installed translation book alias and replaces the URL with its canonical code', async () => {
+    const app = await startApp('/read/WEB/Genesis/2/1-3')
+    expect(app.get('.read h1').text()).toBe('Genesis 2')
+    expect(app.get('.feature-errors[role="status"]').text()).toContain('Resolved this passage link to Genesis 2:1–3')
+    expect(router.currentRoute.value.path).toBe('/read/WEB/Gen/2/1-3')
+    expect(api.chapter).toHaveBeenCalledExactlyOnceWith('WEB', 'Gen', 2)
+  })
+
+  it('recovers a foreign link during navigation and retains its notice after canonicalizing the URL', async () => {
+    const app = await startApp()
+    await router.push('/read/ForeignBible/Genesis/3/1-3')
+    await flushPromises()
+    expect(app.get('.read h1').text()).toBe('Genesis 3')
+    expect(router.currentRoute.value.path).toBe('/read/WEB/Gen/3/1-3')
+    expect(app.get('.feature-errors[role="status"]').text()).toContain('default translation')
+    expect(useReader().selectedVerses).toEqual([1, 2, 3])
+  })
+
+  it('keeps the current chapter and shows a notice for malformed navigation instead of silently resetting it', async () => {
+    const app = await startApp('/read/WEB/Gen/3/1-3')
+    await router.push('/read/WEB/Gen/0')
+    await flushPromises()
+    expect(app.get('.read h1').text()).toBe('Genesis 3')
+    expect(app.get('.feature-errors[role="status"]').text()).toContain('This passage link is not available')
+    expect(router.currentRoute.value.path).toBe('/read/WEB/Gen/3/1-3')
+    expect(api.chapter).toHaveBeenCalledOnce()
+  })
+
   it('opens a hash deep link after a slow newer server cursor instead of displaying or saving that cursor', async () => {
     const saved = deferred<Awaited<ReturnType<typeof api.readingCursor>>>()
     vi.mocked(api.readingCursor).mockReturnValueOnce(saved.promise)

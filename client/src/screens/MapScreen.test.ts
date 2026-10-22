@@ -12,6 +12,7 @@ import { useReader } from '../stores/reader'
 import { useSemanticIndex } from '../stores/semanticIndex'
 import { createAppRouter } from '../router'
 import MapScreen from './MapScreen.vue'
+import { pathologicalModule } from '../test/fixtures/moduleInfo'
 
 // Real dataset row from the bundled OpenBible snapshot, not production fallback data.
 const graph: CrossReferenceMapPayload = {
@@ -37,6 +38,15 @@ async function render(installed = true) {
 function button(label: string) { return [...document.querySelectorAll('button')].find((element) => element.textContent?.trim() === label)! }
 
 describe('cross-reference map failure paths and keyboard alternative', () => {
+  it('uses a friendly translation label even when the catalog has no abbreviation or description', async () => {
+    const { wrapper } = await render()
+    useLibrary().modules = [{ ...pathologicalModule, name: 'enggnv1599eb', installed: true, abbreviation: '', description: '' }]
+    await flushPromises()
+    const option = wrapper.get('#map-translation option')
+    expect(option.text()).toBe('Geneva 1599')
+    expect(option.attributes('value')).toBe('enggnv1599eb')
+  })
+
   it('shows the full map without an index or Bible and disables unavailable actions', async () => {
     const similarity = vi.spyOn(api, 'mapSimilarity')
     const { wrapper } = await render(false)

@@ -38,11 +38,13 @@ export function useReaderRouting(ready: Ref<boolean>) {
     await router.isReady()
     const route = router.currentRoute.value
     const target = readPassage(route)
-    await reader.init(target ?? undefined)
+    const result = await reader.init(target ?? undefined)
     if (initialization !== initializationGeneration || userId !== reader.activeUserId) return
-    if (route === router.currentRoute.value && target && !matches(target)) {
-      routeError.value = 'This passage link is not available in your library.'
-      await router.replace(landingRoute())
+    if (route === router.currentRoute.value) {
+      const malformed = route.name === 'read' && Object.values(route.params).some(Boolean) && !target
+      routeError.value = result?.ok ? result.notice ?? null
+        : result?.error ?? (malformed || (target && !matches(target)) ? 'This passage link is not available in your library.' : null)
+      if ((target && !matches(target)) || malformed) await router.replace(landingRoute())
     }
   }
 
@@ -60,14 +62,15 @@ export function useReaderRouting(ready: Ref<boolean>) {
     if (target && !matches(target)) {
       openingRoute = true
       routeError.value = null
-      const result = await reader.openRoute(target, () => request === generation)
+      const result = await reader.openRoute(target, () => request === generation, { fallbackToDefault: true })
       if (request !== generation) return
       openingRoute = false
-      if (!result.ok) {
-        routeError.value = result.error
-        await router.replace(landingRoute())
-      }
+      routeError.value = result.ok ? result.notice ?? null : result.error
+      if (!result.ok || !matches(target)) await router.replace(landingRoute())
     } else if (!target && passage.value) {
+      if (Object.values(route.params).some(Boolean)) {
+        routeError.value = 'This passage link is not available in your library.'
+      }
       await router.replace(landingRoute())
     }
   }, { flush: 'sync' })

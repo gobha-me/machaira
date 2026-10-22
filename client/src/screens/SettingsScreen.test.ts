@@ -11,6 +11,8 @@ import SettingsScreen from './SettingsScreen.vue'
 import { useSemanticIndex } from '../stores/semanticIndex'
 import { useSttProvider } from '../stores/sttProvider'
 import { useUi } from '../stores/ui'
+import { useLibrary } from '../stores/library'
+import { pathologicalModule } from '../test/fixtures/moduleInfo'
 
 vi.mock('../services/db', () => ({
   exportAll: vi.fn(),
@@ -132,6 +134,19 @@ async function selectOpenOption(wrapper: VueWrapper, inputId: string, query: str
 }
 
 describe('Settings provider controls', () => {
+  it('labels translation choices with friendly names while keeping IDs as option values', async () => {
+    const pinia = createPinia()
+    useLibrary(pinia).modules = [{ ...pathologicalModule, name: 'enggnv1599eb', installed: true, abbreviation: '', description: '' }]
+    const wrapper = mount(SettingsScreen, { global: { plugins: [pinia] } })
+    try {
+      const option = wrapper.get('[aria-label="Default translation"] option[value="enggnv1599eb"]')
+      expect(option.text()).toContain('Geneva 1599')
+      expect(wrapper.findAll('.row-title').some((row) => row.text().includes('Geneva 1599'))).toBe(true)
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
   it('labels active deployment defaults, scrolls to Semantic search, and permits account overrides and opt-out', async () => {
     const pinia = createPinia()
     const semantic = useSemanticIndex(pinia)

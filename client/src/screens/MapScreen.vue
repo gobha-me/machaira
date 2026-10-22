@@ -7,6 +7,7 @@ import { useLibrary } from '../stores/library'
 import { useReader } from '../stores/reader'
 import { useSemanticIndex } from '../stores/semanticIndex'
 import { passageRoute } from '../router'
+import { moduleLabel } from '../utils/moduleLabel'
 import CrossReferenceMapCanvas from '../components/CrossReferenceMapCanvas.vue'
 
 const library = useLibrary(), reader = useReader(), semantic = useSemanticIndex(), router = useRouter()
@@ -154,7 +155,7 @@ async function open(reference: string) {
             :key="module.name"
             :value="module.name"
           >
-            {{ module.name }}
+            {{ moduleLabel(module) }}
           </option>
         </select>
       </div>
