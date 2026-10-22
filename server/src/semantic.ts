@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { setTimeout as delay } from 'node:timers/promises'
+import timers from 'node:timers/promises'
 import type { MachairaDatabase } from './database.js'
 import type { SecretStore } from './secrets.js'
 import { bookCode, bookReferenceNames, isDeuterocanonicalBook } from '@machaira/scripture'
@@ -114,6 +114,7 @@ const MAX_EMBEDDING_BATCH_SIZE = 64
 const MAX_DIMENSION = 8192
 const EMBEDDING_RETRIES = 2
 const EMBEDDING_RETRY_DELAY_MS = 500
+const MAX_EMBEDDING_RETRY_DELAY_MS = 30_000
 const CANONICAL_BOOKS = [...new Set(bookReferenceNames().map(bookCode)
   .filter((code): code is string => code !== null && !isDeuterocanonicalBook(code)))]
 
@@ -124,7 +125,8 @@ export class EmbeddingProviderError extends Error {
     message: string,
     readonly status?: number,
     readonly responseBody?: string,
-    readonly timedOut = false
+    readonly timedOut = false,
+    readonly retryAfterMs?: number
   ) {
     super(message)
     this.name = 'EmbeddingProviderError'
@@ -362,7 +364,9 @@ export async function requestEmbeddings(
     throw new EmbeddingProviderError(
       `Embedding provider rejected the request (${response.status}): ${detail || response.statusText}`,
       response.status,
-      detail
+      detail,
+      false,
+      embeddingRetryAfterMs(response.headers.get('retry-after'))
     )
   }
   let payload: unknown
@@ -405,6 +409,18 @@ interface AdaptiveEmbeddingResult {
   reducedBatchSize: number | null
 }
 
+function embeddingRetryAfterMs(header: string | null): number | undefined {
+  if (header === null) return undefined
+  const value = header.trim()
+  // Retry-After accepts unsigned integer seconds or an HTTP date. Other numeric
+  // forms must not fall through to Date.parse (which also accepts e.g. "-1").
+  const milliseconds = /^\d+$/.test(value)
+    ? Number(value) * 1000
+    : Number.isNaN(Number(value)) ? Date.parse(value) - Date.now() : NaN
+  if (Number.isNaN(milliseconds)) return undefined
+  return Math.min(MAX_EMBEDDING_RETRY_DELAY_MS, Math.max(0, milliseconds))
+}
+
 function isTransientEmbeddingError(error: unknown): error is EmbeddingProviderError {
   return error instanceof EmbeddingProviderError && (
     error.timedOut || error.status === 429 || (error.status !== undefined && error.status >= 500 && error.status <= 599)
@@ -425,10 +441,11 @@ async function requestEmbeddingsWithRetries(
       if (attempt === EMBEDDING_RETRIES) {
         throw new EmbeddingProviderError(
           `Embedding request failed after ${attempt + 1} attempts at batch size ${inputs.length} (retry limit reached): ${error.message}`,
-          error.status, error.responseBody, error.timedOut
+          error.status, error.responseBody, error.timedOut, error.retryAfterMs
         )
       }
-      await delay(EMBEDDING_RETRY_DELAY_MS * 2 ** attempt, undefined, { signal })
+      const backoff = EMBEDDING_RETRY_DELAY_MS * 2 ** attempt
+      await timers.setTimeout(Math.max(backoff, error.retryAfterMs ?? 0), undefined, { signal })
     }
   }
 }
@@ -464,10 +481,14 @@ async function requestEmbeddingsAdaptive(
   try {
     return { vectors: await requestEmbeddingsWithRetries(credentials, inputs, signal), reducedBatchSize: null }
   } catch (error) {
-    if ((!isBatchLimitError(error) && !isTransientEmbeddingError(error)) || inputs.length === 1 || signal?.aborted) throw error
+    if (!(error instanceof EmbeddingProviderError) || (!error.timedOut && !isBatchLimitError(error))
+      || inputs.length === 1 || signal?.aborted) throw error
 
-    // Retry transient failures at each size before splitting. Halving down to one
-    // input bounds the total attempts even when the provider never recovers.
+    // Only timeouts and explicit batch limits suggest smaller batches can help.
+    // A permanently timing-out batch of size n takes at most
+    // (EMBEDDING_RETRIES + 1) * (floor(log2(n)) + 1) requests: each level halves
+    // with floor, and the first failing sub-batch throws before any sibling runs.
+    // For n = 8: three attempts each at 8, 4, 2, 1 = 12 requests, not a full tree.
     const chunkSize = (isBatchLimitError(error) ? reportedBatchLimit(error, inputs.length) : null)
       ?? Math.max(1, Math.floor(inputs.length / 2))
     const vectors: number[][] = []
