@@ -123,20 +123,20 @@ const visibleScreens = computed(() => SCREENS.filter((s) => s.id !== 'plan' || p
     flex-direction: row;
     gap: 0;
     min-width: 0;
+    overflow-x: auto;
   }
   .rail-btn {
-    flex: 1 1 0;
-    min-width: 0;
+    flex: 1 0 auto;
+    width: auto;
+    min-width: 44px;
     min-height: 58px;
     gap: 5px;
-    padding: 8px 1px 7px;
+    padding: 8px 10px 7px;
   }
   .rail-label {
-    max-width: 100%;
-    overflow: hidden;
-    font-size: clamp(7.5px, 2.3vw, 9px);
-    letter-spacing: 0.04em;
-    text-overflow: clip;
+    font-size: 12px;
+    letter-spacing: normal;
+    text-transform: none;
     white-space: nowrap;
   }
 }

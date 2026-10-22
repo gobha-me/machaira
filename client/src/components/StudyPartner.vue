@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { ScriptureTarget } from '@machaira/scripture'
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useAiProvider } from '../stores/aiProvider'
 import { useChatConversations } from '../stores/chatConversations'
 import { useSettings } from '../stores/settings'
@@ -27,12 +27,35 @@ const copyFeedback = ref<Record<string, { kind: 'success' | 'error'; text: strin
 const referenceErrors = ref<Record<string, string>>({})
 
 const messages = computed(() => chats.current?.messages ?? [])
+let pinnedToBottom = true
+let bodyResizeObserver: ResizeObserver | undefined
+
+function trackScroll(): void {
+  const body = bodyEl.value
+  // A hidden mobile pane has no geometry; keep its previous reading position.
+  if (!body || body.clientHeight === 0) return
+  pinnedToBottom = body.scrollHeight - body.clientHeight - body.scrollTop <= 24
+}
+
+function followBottom(): void {
+  const body = bodyEl.value
+  if (pinnedToBottom && body && body.clientHeight > 0) body.scrollTop = body.scrollHeight
+}
+
+onMounted(() => {
+  followBottom()
+  // Also follow when a hidden mobile pane opens, or the composer viewport resizes.
+  bodyResizeObserver = new ResizeObserver(followBottom)
+  if (bodyEl.value) bodyResizeObserver.observe(bodyEl.value)
+})
+onBeforeUnmount(() => bodyResizeObserver?.disconnect())
 
 watch(
-  () => messages.value.map((item) => `${item.id}:${item.content.length}:${item.status}`).join('|'),
-  async () => {
+  [() => chats.activeId, () => messages.value.map((item) => `${item.id}:${item.content.length}:${item.status}`).join('|')],
+  async ([id], [previousId]) => {
+    if (id !== previousId) pinnedToBottom = true
     await nextTick()
-    if (bodyEl.value) bodyEl.value.scrollTop = bodyEl.value.scrollHeight
+    followBottom()
   }
 )
 
@@ -184,7 +207,7 @@ async function openScripture(messageId: string, target: ScriptureTarget): Promis
       <span class="model">{{ aiProvider.provider?.model ?? 'not connected' }}</span>
     </div>
 
-    <div ref="bodyEl" class="partner-body" :class="{ chatting: messages.length }">
+    <div ref="bodyEl" class="partner-body" :class="{ chatting: messages.length }" @scroll="trackScroll">
       <div v-if="aiProvider.loading && !aiProvider.ready" class="disabled-note">
         <div class="dn-title serif">Connecting…</div>
       </div>
@@ -271,13 +294,14 @@ async function openScripture(messageId: string, target: ScriptureTarget): Promis
         :disabled="!aiProvider.provider || chats.sending || chats.loading"
       />
       <button v-if="chats.sending" type="button" class="send cancel" title="Stop response" @click="chats.stop">■</button>
-      <button v-else type="submit" class="send" :disabled="!aiProvider.provider || chats.loading || !chats.draft.trim() || !passage.content">→</button>
+      <button v-else type="submit" class="send" aria-label="Send question" :disabled="!aiProvider.provider || chats.loading || !chats.draft.trim() || !passage.content">→</button>
     </form>
   </aside>
 </template>
 
 <style scoped>
-.partner { width: clamp(320px, 40vw, 430px); flex-shrink: 0; display: flex; flex-direction: column; background: var(--card); }
+.partner { width: clamp(320px, 40vw, 430px); min-height: 0; flex-shrink: 0; display: flex; flex-direction: column; background: var(--card); }
+.partner button, .partner input { min-width: 44px; min-height: 44px; }
 .partner-topbar { height: 58px; flex-shrink: 0; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 10px; padding: 0 16px; position: relative; }
 .mark { width: 8px; height: 8px; background: var(--accent); transform: rotate(45deg); flex-shrink: 0; }
 .ptitle { font-size: 14px; font-weight: 700; }
@@ -286,7 +310,7 @@ async function openScripture(messageId: string, target: ScriptureTarget): Promis
 .history-wrap { position: relative; }
 .history-toggle { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 11px; }
 .history-toggle:disabled { opacity: .45; cursor: default; }
-.history-menu { position: absolute; z-index: 20; top: calc(100% + 12px); right: 0; width: min(310px, 82vw); max-height: 420px; overflow-y: auto; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); box-shadow: 0 16px 45px #0003; }
+.history-menu { position: absolute; z-index: 20; top: calc(100% + 6px); right: 0; width: min(310px, 82vw); max-height: min(420px, 55dvh); overflow-y: auto; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); box-shadow: 0 16px 45px #0003; }
 .new-chat { width: 100%; margin-bottom: 6px; padding: 9px 10px; border: 1px dashed var(--line); border-radius: 7px; background: none; color: var(--accent); font-weight: 600; cursor: pointer; text-align: left; }
 .history-empty { padding: 12px 8px; color: var(--muted); font-size: 11.5px; }
 .history-item { display: flex; align-items: center; border-radius: 7px; }
@@ -294,12 +318,12 @@ async function openScripture(messageId: string, target: ScriptureTarget): Promis
 .history-select { min-width: 0; flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 9px 8px; border: 0; background: none; color: var(--ink); cursor: pointer; text-align: left; }
 .history-select span { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 600; }
 .history-select small { color: var(--muted); font-size: 10px; }
-.history-action { width: 28px; height: 28px; border: 0; border-radius: 5px; background: none; color: var(--muted); cursor: pointer; }
+.history-action { width: 44px; height: 44px; flex-shrink: 0; border: 0; border-radius: 5px; background: none; color: var(--muted); cursor: pointer; }
 .history-action.danger:hover { color: #a23b32; }
 .rename-form { display: flex; flex-wrap: wrap; gap: 5px; padding: 7px; }
 .rename-form input { width: 100%; box-sizing: border-box; border: 1px solid var(--line); border-radius: 6px; padding: 7px; background: var(--card); color: var(--ink); }
 .rename-form button { border: 0; background: none; color: var(--accent); cursor: pointer; font-size: 10.5px; }
-.partner-body { flex: 1; overflow-y: auto; padding: 20px; display: flex; align-items: center; justify-content: center; }
+.partner-body { flex: 1; min-height: 0; overflow-y: auto; overflow-anchor: none; overscroll-behavior-y: contain; padding: 20px; display: flex; align-items: center; justify-content: center; }
 .partner-body.chatting { display: block; padding: 18px 16px 28px; }
 .disabled-note { text-align: center; max-width: 300px; }
 .dn-title { font-size: 18px; margin-bottom: 8px; }
@@ -326,13 +350,16 @@ async function openScripture(messageId: string, target: ScriptureTarget): Promis
 .chat-error { color: #a23b32; font-size: 12px; }
 .composer { flex-shrink: 0; border-top: 1px solid var(--line); padding: 14px 20px; display: flex; align-items: center; gap: 10px; }
 .composer input { flex: 1; min-width: 0; background: var(--paper); border: 1px solid var(--line); border-radius: 9px; padding: 11px 13px; font-size: 13px; color: var(--ink); outline: none; }
-.send { width: 40px; height: 40px; border-radius: 9px; background: var(--accent); color: var(--on-accent); border: none; font-size: 16px; cursor: pointer; }
+.send { width: 44px; height: 44px; flex-shrink: 0; border-radius: 9px; background: var(--accent); color: var(--on-accent); border: none; font-size: 16px; cursor: pointer; }
 .send.cancel { font-size: 11px; }
 .send:disabled, .composer input:disabled { opacity: .5; cursor: not-allowed; }
 @keyframes pulse { to { opacity: .35; } }
 @media (max-width: 768px) {
-  .partner { width: 100%; min-height: 70dvh; border-top: 1px solid var(--line); }
-  .partner-body { min-height: 320px; }
+  .partner { width: 100%; flex: 1; }
+  .model { display: none; }
+  .history-wrap { position: static; }
+  .history-menu { right: 14px; top: calc(100% - 4px); width: min(340px, calc(100vw - 28px)); }
   .composer { padding: 12px 14px; }
+  .composer input { font-size: 16px; }
 }
 </style>

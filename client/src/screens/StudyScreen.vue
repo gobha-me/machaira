@@ -16,6 +16,7 @@ import StudyPartner from '../components/StudyPartner.vue'
 
 const reader = useReader()
 const ui = useUi()
+const mobileView = ref<'passage' | 'partner'>('passage')
 
 const {
   focus,
@@ -145,7 +146,11 @@ function menuNote() {
 </script>
 
 <template>
-  <div class="study">
+  <div class="study" :class="{ 'partner-open': mobileView === 'partner' }">
+    <nav class="study-views" aria-label="Study view">
+      <button :aria-pressed="mobileView === 'passage'" @click="mobileView = 'passage'">Passage</button>
+      <button :aria-pressed="mobileView === 'partner'" @click="mobileView = 'partner'">Study partner</button>
+    </nav>
     <!-- left: compare + word study -->
     <div class="left">
       <div class="topbar">
@@ -302,9 +307,11 @@ function menuNote() {
 <style scoped>
 .study {
   flex: 1;
+  min-height: 0;
   display: flex;
   overflow: hidden;
 }
+.study-views { display: none; }
 .left {
   flex: 1.2;
   min-width: 0;
@@ -526,13 +533,37 @@ function menuNote() {
 }
 @media (max-width: 768px) {
   .study {
-    display: block;
-    overflow-y: auto;
+    flex-direction: column;
+  }
+  .study-views {
+    display: flex;
+    flex-shrink: 0;
+    padding: 6px 14px;
+    gap: 8px;
+    border-bottom: 1px solid var(--line);
+  }
+  .study-views button {
+    flex: 1;
+    min-height: 44px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--card);
+    color: var(--muted);
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .study-views button[aria-pressed='true'] {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--on-accent);
   }
   .left {
-    min-height: 100%;
+    min-height: 0;
     border-right: 0;
   }
+  .study:not(.partner-open) > :deep(.partner),
+  .study.partner-open > .left { display: none; }
+  .left button { min-height: 44px; min-width: 44px; }
   .topbar {
     height: auto;
     min-height: 58px;
@@ -551,7 +582,7 @@ function menuNote() {
     height: 44px;
   }
   .scroll {
-    overflow: visible;
+    min-height: 0;
     padding: 20px 16px 56px;
   }
   .cverse {
