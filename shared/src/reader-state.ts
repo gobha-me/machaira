@@ -16,6 +16,7 @@ export interface ReaderPreferences {
   alwaysCite: boolean
   showFootnotes: boolean
   showStrongs: boolean
+  studyPartnerOpen: boolean
   defaultModuleName: string | null
   compareModuleNames: string[] | null
   commentaryModuleName: string | null
@@ -61,6 +62,7 @@ export function parsePreferences(value: unknown): Partial<ReaderPreferences> | n
     alwaysCite: (input) => typeof input === 'boolean',
     showFootnotes: (input) => typeof input === 'boolean',
     showStrongs: (input) => typeof input === 'boolean',
+    studyPartnerOpen: (input) => typeof input === 'boolean',
     defaultModuleName: (input) => input === null || validModuleName(input),
     compareModuleNames: (input) => input === null || (Array.isArray(input) && input.length <= 128 && input.every(validModuleName)),
     commentaryModuleName: (input) => input === null || validModuleName(input)

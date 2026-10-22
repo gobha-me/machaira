@@ -6,6 +6,7 @@ import App from './App.vue'
 import ReadScreen from './screens/ReadScreen.vue'
 import { api, type ChapterPayload } from './services/api'
 import { readingPlanDb } from './services/db'
+import * as db from './services/db'
 import { useAuth } from './stores/auth'
 import { useNotes } from './stores/notes'
 import { useSettings } from './stores/settings'
@@ -14,6 +15,9 @@ import { createAppRouter } from './router'
 import { createMemoryHistory, createWebHashHistory, type Router, type RouterHistory } from 'vue-router'
 import { useReader } from './stores/reader'
 import SearchScreen from './screens/SearchScreen.vue'
+import { useChatConversations } from './stores/chatConversations'
+import { useReadingPlan } from './stores/readingPlan'
+import { useAiProvider } from './stores/aiProvider'
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -100,6 +104,76 @@ async function navigate(app: VueWrapper, label: string) {
   await app.findAll('.rail-btn').find((button) => button.text() === label)!.trigger('click')
   await flushPromises()
 }
+
+describe('global Study partner', () => {
+  it('keeps one conversation and draft through every page, including Study, and remembers a closed drawer', async () => {
+    vi.spyOn(db, 'legacyPersonalData').mockResolvedValue({ notes: [], highlights: [] })
+    const app = await startApp()
+    const chats = useChatConversations()
+    chats.activeId = 'saved'
+    chats.current = { id: 'saved', title: 'Saved', createdAt: 1, updatedAt: 1, messages: [] }
+    chats.draft = 'Unfinished question'
+    await app.get('.global-toolbar button').trigger('click')
+    useReadingPlan().enabled = true
+    for (const path of ['/search', '/library', '/journal', '/settings', '/study', '/plan', '/read']) {
+      await router.push(path)
+      await flushPromises()
+      expect(app.findAll('.partner')).toHaveLength(1)
+      expect(app.get('.global-toolbar button').attributes('aria-expanded')).toBe('true')
+      expect(chats.activeId).toBe('saved')
+      expect(chats.draft).toBe('Unfinished question')
+    }
+    await app.get('.close-partner').trigger('click')
+    await router.push('/search')
+    await flushPromises()
+    expect(app.find('.partner').exists()).toBe(false)
+    expect(JSON.parse(localStorage.getItem('sword.settings.v1:reader')!).preferences.studyPartnerOpen).toBe(false)
+    await app.get('.global-toolbar button').trigger('click')
+    expect(chats.activeId).toBe('saved')
+    expect(chats.draft).toBe('Unfinished question')
+  })
+
+  it('updates the live context chip and sends the latest passage without losing a failed request', async () => {
+    vi.mocked(api.chapter).mockImplementation(async (module, _book, chapter) => ({
+      ...passage(chapter, module),
+      verses: [{ n: 1, text: 'In the beginning, God created the heavens and the earth.', segments: [], notes: [], crossReferences: [] }]
+    }))
+    const app = await startApp()
+    useAiProvider().provider = { kind: 'local', baseUrl: 'http://localhost:11434/v1', model: 'configured', hasApiKey: false }
+    const chats = useChatConversations()
+    const send = vi.spyOn(chats, 'send').mockImplementation(async () => { chats.error = 'Provider offline' })
+    await app.get('.global-toolbar button').trigger('click')
+    const chip = () => app.get('.current-context')
+    expect(chip().attributes('role')).toBe('status')
+    expect(chip().text()).toBe('Context · Genesis 1 · WEB')
+    await router.push('/read/WEB/Gen/2/1')
+    await flushPromises()
+    expect(chip().text()).toBe('Context · Genesis 2:1 · WEB')
+    await router.push('/search')
+    await app.get('[aria-label="Ask the study partner"]').setValue('What does this mean?')
+    await app.get('.composer').trigger('submit')
+    expect(send).toHaveBeenCalledWith({
+      reference: 'Genesis 2:1', module: 'WEB', content: '1. In the beginning, God created the heavens and the earth.'
+    }, { alwaysCite: true, drawApocrypha: true })
+    expect(app.get('.chat-error').text()).toBe('Provider offline')
+    await app.get('.close-partner').trigger('click')
+    await app.get('.global-toolbar button').trigger('click')
+    expect(app.get('.chat-error').text()).toBe('Provider offline')
+    expect(chats.draft).toBe('What does this mean?')
+  })
+
+  it('restores the account preference and clears private chat state when switching accounts', async () => {
+    vi.mocked(api.preferences).mockResolvedValueOnce({ preferences: { studyPartnerOpen: true }, updated_at: 100 })
+    const app = await startApp()
+    expect(app.find('.partner').exists()).toBe(true)
+    useChatConversations().draft = 'Private question'
+    useAuth().user = { ...user, id: 'different-reader' }
+    await flushPromises()
+    expect(app.find('.partner').exists()).toBe(false)
+    expect(useChatConversations().draft).toBe('')
+    expect(app.text()).not.toContain('Private question')
+  })
+})
 
 describe('hash navigation and passage URLs', () => {
   beforeEach(() => {

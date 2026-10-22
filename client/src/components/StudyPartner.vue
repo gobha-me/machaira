@@ -12,7 +12,9 @@ import VoiceInputButton from './VoiceInputButton.vue'
 
 const props = defineProps<{
   passage: { reference: string; module: string; content: string }
+  closable?: boolean
 }>()
+const emit = defineEmits<{ close: [] }>()
 
 const aiProvider = useAiProvider()
 const chats = useChatConversations()
@@ -152,10 +154,18 @@ async function openScripture(messageId: string, target: ScriptureTarget): Promis
 </script>
 
 <template>
-  <aside class="partner">
+  <aside
+    class="partner"
+    aria-labelledby="study-partner-title"
+  >
     <div class="partner-topbar">
       <div class="mark" />
-      <span class="ptitle">Study partner</span>
+      <h2
+        id="study-partner-title"
+        class="ptitle"
+      >
+        Study partner
+      </h2>
       <div class="spacer" />
       <div class="history-wrap">
         <button
@@ -245,7 +255,25 @@ async function openScripture(messageId: string, target: ScriptureTarget): Promis
         </div>
       </div>
       <span class="model">{{ aiProvider.provider?.model ?? 'not connected' }}</span>
+      <button
+        v-if="closable"
+        type="button"
+        class="close-partner"
+        aria-label="Close study partner"
+        @click="emit('close')"
+      >
+        ×
+      </button>
     </div>
+
+    <p
+      class="current-context"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      {{ passage.content ? `Context · ${passage.reference} · ${passage.module}` : 'No passage context available. Open a passage to chat.' }}
+    </p>
 
     <div
       ref="bodyEl"
@@ -294,7 +322,10 @@ async function openScripture(messageId: string, target: ScriptureTarget): Promis
         <div class="dn-title serif">
           Ask about this passage
         </div>
-        <p :title="`${passage.reference} · ${passage.module}`">
+        <p
+          v-if="passage.content"
+          :title="`${passage.reference} · ${passage.module}`"
+        >
           {{ passage.reference }} from {{ passage.module }} is included as context.
           Conversations are saved to your account.
         </p>
@@ -445,7 +476,9 @@ async function openScripture(messageId: string, target: ScriptureTarget): Promis
 .partner button, .partner input { min-width: 44px; min-height: 44px; }
 .partner-topbar { height: 58px; flex-shrink: 0; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 10px; padding: 0 16px; position: relative; }
 .mark { width: 8px; height: 8px; background: var(--accent); transform: rotate(45deg); flex-shrink: 0; }
-.ptitle { font-size: 14px; font-weight: 700; }
+.ptitle { margin: 0; font-size: 14px; font-weight: 700; }
+.close-partner { flex-shrink: 0; border: 0; background: none; color: var(--ink); font-size: 22px; cursor: pointer; }
+.current-context { flex-shrink: 0; margin: 0; padding: 10px 16px; border-bottom: 1px solid var(--line); font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .spacer { flex: 1; }
 .model { color: var(--muted); font-size: 10.5px; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .history-wrap { position: relative; }

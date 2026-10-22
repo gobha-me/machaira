@@ -636,6 +636,7 @@ async function menuNote() {
 
             <div
               ref="selectionRoot"
+              data-passage-context
               class="verses serif"
               :style="versesStyle"
             >

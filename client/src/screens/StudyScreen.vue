@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { useReader } from '../stores/reader'
 import { useUi } from '../stores/ui'
+import { useSettings } from '../stores/settings'
 import { useCompare } from '../composables/useCompare'
 import { useWordStudy } from '../composables/useWordStudy'
 import { useNotes } from '../composables/useNotes'
@@ -13,11 +14,10 @@ import StrongsCard from '../components/StrongsCard.vue'
 import CommentaryPanel from '../components/CommentaryPanel.vue'
 import ComparePanel from '../components/ComparePanel.vue'
 import CrossReferencesPanel from '../components/CrossReferencesPanel.vue'
-import StudyPartner from '../components/StudyPartner.vue'
 
 const reader = useReader()
 const ui = useUi()
-const mobileView = ref<'passage' | 'partner'>('passage')
+const settings = useSettings()
 
 const {
   focus,
@@ -74,16 +74,6 @@ const compareBoxEl = ref<HTMLElement | null>(null)
 const strongsBoxEl = ref<HTMLElement | null>(null)
 const commentaryBoxEl = ref<HTMLElement | null>(null)
 const crossReferencesBoxEl = ref<HTMLElement | null>(null)
-
-const passageContext = computed(() => {
-  const verses = (reader.data?.verses ?? [])
-    .filter((verse) => verse.n >= focus.value && verse.n <= focusEnd.value)
-  return {
-    reference: `${reader.bookName} ${reader.chapter}:${focusLabel.value}`,
-    module: reader.moduleName ?? '',
-    content: verses.map((verse) => `${verse.n}. ${verse.text}`).join('\n')
-  }
-})
 
 onMounted(async () => {
   if (!reader.ready) await reader.init()
@@ -164,23 +154,15 @@ function menuNote() {
 </script>
 
 <template>
-  <div
-    class="study"
-    :class="{ 'partner-open': mobileView === 'partner' }"
-  >
+  <div class="study">
     <nav
       class="study-views"
       aria-label="Study view"
     >
       <button
-        :aria-pressed="mobileView === 'passage'"
-        @click="mobileView = 'passage'"
-      >
-        Passage
-      </button>
-      <button
-        :aria-pressed="mobileView === 'partner'"
-        @click="mobileView = 'partner'"
+        :aria-expanded="settings.studyPartnerOpen"
+        aria-controls="study-partner"
+        @click="settings.toggle('studyPartnerOpen')"
       >
         Study partner
       </button>
@@ -295,6 +277,7 @@ function menuNote() {
         <div
           v-if="reader.data"
           ref="selectionRoot"
+          data-passage-context
           class="context serif"
         >
           <!-- eslint-disable-next-line vuejs-accessibility/click-events-have-key-events, vuejs-accessibility/no-static-element-interactions -- Prose gestures supplement the native verse-number and word buttons. -->
@@ -400,8 +383,6 @@ function menuNote() {
         </div>
       </div>
     </div>
-
-    <StudyPartner :passage="passageContext" />
 
     <TextSelectionActions
       :root="selectionRoot"
@@ -686,17 +667,10 @@ function menuNote() {
     font-size: 14px;
     cursor: pointer;
   }
-  .study-views button[aria-pressed='true'] {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: var(--on-accent);
-  }
   .left {
     min-height: 0;
     border-right: 0;
   }
-  .study:not(.partner-open) > :deep(.partner),
-  .study.partner-open > .left { display: none; }
   .left button { min-height: 44px; min-width: 44px; }
   .topbar {
     height: auto;
