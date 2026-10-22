@@ -9,7 +9,6 @@ import { api, ApiError, type DiscoveredModel, type ProviderDiscoveryResult, type
 import { useTtsProvider } from '../stores/ttsProvider'
 import SettingsScreen from './SettingsScreen.vue'
 import { useSemanticIndex } from '../stores/semanticIndex'
-import { useTtsProvider } from '../stores/ttsProvider'
 import { useSttProvider } from '../stores/sttProvider'
 import { useUi } from '../stores/ui'
 
