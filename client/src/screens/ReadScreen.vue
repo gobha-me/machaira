@@ -107,6 +107,7 @@ const {
   active: listening,
   playing,
   preparing: preparingAudio,
+  needsAudioGesture,
   preparedCount,
   preparationTarget,
   preparationProgress,
@@ -656,11 +657,12 @@ async function menuNote() {
       >←</button>
       <button
         class="play"
+        :class="{ recovery: needsAudioGesture }"
         :disabled="preparingAudio"
-        :title="preparingAudio ? 'Preparing audio' : playing ? 'Pause read-aloud' : listeningComplete ? 'Replay chapter' : 'Resume read-aloud'"
-        :aria-label="preparingAudio ? 'Preparing audio' : playing ? 'Pause read-aloud' : listeningComplete ? 'Replay chapter' : 'Resume read-aloud'"
+        :title="needsAudioGesture ? 'Tap to start audio' : preparingAudio ? 'Preparing audio' : playing ? 'Pause read-aloud' : listeningComplete ? 'Replay chapter' : 'Resume read-aloud'"
+        :aria-label="needsAudioGesture ? 'Tap to start audio' : preparingAudio ? 'Preparing audio' : playing ? 'Pause read-aloud' : listeningComplete ? 'Replay chapter' : 'Resume read-aloud'"
         @click="togglePlay"
-      >{{ playing ? '❚❚' : '▶' }}</button>
+      >{{ needsAudioGesture ? 'Tap to start audio' : playing ? '❚❚' : '▶' }}</button>
       <button
         class="seek"
         type="button"
@@ -1301,6 +1303,11 @@ h1 {
   cursor: pointer;
   font-size: 13px;
   flex-shrink: 0;
+}
+.play.recovery {
+  width: auto;
+  padding: 0 12px;
+  border-radius: 999px;
 }
 .seek {
   width: 30px;
