@@ -1,4 +1,4 @@
-import { computed, ref, watch, type Ref } from 'vue'
+import { computed, onScopeDispose, ref, watch, type Ref } from 'vue'
 import { api, type CommentaryEntry } from '../services/api'
 import { useReader } from '../stores/reader'
 import { useLibrary } from '../stores/library'
@@ -6,7 +6,7 @@ import { useSettings } from '../stores/settings'
 
 interface UseCommentaryOptions {
   // When false, load() is a no-op so a pane can host the panel lazily (Read opens it on
-  // demand; Study passes a constant-true ref).
+  // demand).
   active?: Ref<boolean>
 }
 
@@ -37,15 +37,16 @@ export function useCommentary(opts: UseCommentaryOptions = {}) {
     return installed[0] ?? null
   })
 
+  onScopeDispose(() => { seq += 1 })
+
   async function load() {
-    if (!active.value || !activeModule.value || !reader.book) {
-      entries.value = []
-      locked.value = false
-      return
-    }
     const s = ++seq
-    loading.value = true
+    entries.value = []
+    locked.value = false
     error.value = null
+    loading.value = false
+    if (!active.value || !activeModule.value || !reader.book) return
+    loading.value = true
     try {
       const res = await api.commentary(activeModule.value, reader.book, reader.chapter)
       if (s !== seq) return
@@ -63,15 +64,16 @@ export function useCommentary(opts: UseCommentaryOptions = {}) {
 
   function setModule(name: string) {
     settings.setCommentaryModule(name)
-    void load()
+    // The activeModule watcher loads the selected module once.
   }
 
   // Reload on module/chapter change (installing a commentary flips activeModule null→name).
   watch(
-    () => [activeModule.value, reader.book, reader.chapter],
+    () => [active.value, activeModule.value, reader.book, reader.chapter],
     () => {
-      if (active.value) void load()
-    }
+      void load()
+    },
+    { flush: 'sync' }
   )
 
   return {

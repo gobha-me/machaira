@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useReader } from '../stores/reader'
 import { useUi } from '../stores/ui'
-import { useSettings } from '../stores/settings'
 import { useCompare } from '../composables/useCompare'
 import { useWordStudy } from '../composables/useWordStudy'
 import { useNotes } from '../composables/useNotes'
@@ -13,11 +12,10 @@ import TextSelectionActions from '../components/TextSelectionActions.vue'
 import StrongsCard from '../components/StrongsCard.vue'
 import CommentaryPanel from '../components/CommentaryPanel.vue'
 import ComparePanel from '../components/ComparePanel.vue'
-import CrossReferencesPanel from '../components/CrossReferencesPanel.vue'
+import ConnectionsPanel from '../components/ConnectionsPanel.vue'
 
 const reader = useReader()
 const ui = useUi()
-const settings = useSettings()
 
 const {
   focus,
@@ -29,7 +27,8 @@ const {
   atStart,
   atEnd,
   syncFromSelection,
-  stepVerse
+  stepVerse,
+  verseNums
 } = useCompare({ keyboard: true, followSelection: true })
 
 const {
@@ -66,14 +65,46 @@ function selectionNote(reference: string, quote: string) {
   menuNote()
 }
 async function selectionWordStudy(keys: string[]) {
-  strongsBoxEl.value?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+  activeTab.value = 'word-study'
   await tapWord(keys)
 }
 
-const compareBoxEl = ref<HTMLElement | null>(null)
-const strongsBoxEl = ref<HTMLElement | null>(null)
-const commentaryBoxEl = ref<HTMLElement | null>(null)
-const crossReferencesBoxEl = ref<HTMLElement | null>(null)
+const tabs = [
+  { id: 'compare', label: 'Compare' },
+  { id: 'commentary', label: 'Commentary' },
+  { id: 'connections', label: 'Connections' },
+  { id: 'word-study', label: 'Word study' }
+] as const
+type StudyTab = typeof tabs[number]['id']
+const activeTab = ref<StudyTab>('compare')
+const notesOpen = ref(false)
+const passage = computed(() => ({ verseStart: focus.value, verseEnd: focusEnd.value }))
+const focusedVerses = computed(() => reader.data?.verses.filter(
+  (verse) => verse.n >= focus.value && verse.n <= focusEnd.value
+) ?? [])
+
+function pickVerse(event: Event, end = false) {
+  const value = Number((event.target as HTMLSelectElement).value)
+  if (!Number.isInteger(value) || !verseNums.value.includes(value)) return
+  const lo = end ? Math.min(focus.value, value) : value
+  const hi = end ? Math.max(focus.value, value) : value
+  // Set the range directly: picking the current verse must never toggle the selection off.
+  reader.selectedVerse = lo
+  reader.rangeEnd = hi === lo ? null : hi
+}
+
+function onTabKey(event: KeyboardEvent, index: number) {
+  let next: number
+  if (event.key === 'ArrowRight') next = (index + 1) % tabs.length
+  else if (event.key === 'ArrowLeft') next = (index + tabs.length - 1) % tabs.length
+  else if (event.key === 'Home') next = 0
+  else if (event.key === 'End') next = tabs.length - 1
+  else return
+  event.preventDefault()
+  event.stopPropagation()
+  activeTab.value = tabs[next].id
+  document.getElementById(`study-tab-${activeTab.value}`)?.focus()
+}
 
 onMounted(async () => {
   if (!reader.ready) await reader.init()
@@ -85,6 +116,7 @@ onMounted(async () => {
 // toggle-off branch and leaves a multi-verse range intact.
 async function studyWord(n: number, keys: string[]) {
   if (!reader.selectedVerses.includes(n)) reader.selectVerse(n)
+  activeTab.value = 'word-study'
   await tapWord(keys)
 }
 
@@ -97,9 +129,6 @@ const {
   menuOpen,
   selectionLabel,
   selectionHighlighted,
-  selectionCrossReferences,
-  crossReferencesAvailable,
-  crossReferencesReason,
   verseOpacity,
   verseBg,
   onVerseClick,
@@ -125,210 +154,268 @@ function cverseBg(n: number): string {
   return 'transparent'
 }
 
-// Study's cards all live in the one scrolling column, so its menu actions reveal rather than
-// open — compare is already in step with the selection by the time the menu is up.
-function menuWordStudy() {
-  strongsBoxEl.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+// Passage actions reveal the corresponding tab without adding another panel to the page.
+function revealTab(tab: StudyTab) {
+  activeTab.value = tab
   dismiss()
+  void nextTick(() => document.getElementById(`study-tab-${tab}`)?.focus())
 }
-function menuCompare() {
-  compareBoxEl.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-  dismiss()
-}
-function menuCommentary() {
-  commentaryBoxEl.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-  dismiss()
-}
-function menuCrossReferences() {
-  crossReferencesBoxEl.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-  dismiss()
-}
+function menuWordStudy() { revealTab('word-study') }
+function menuCompare() { revealTab('compare') }
+function menuCommentary() { revealTab('commentary') }
+function menuCrossReferences() { revealTab('connections') }
 function menuHighlight() {
   void reader.toggleHighlightRange(reader.selectedVerses)
   dismiss()
 }
 function menuNote() {
-  focusComposer()
+  notesOpen.value = true
+  void nextTick(focusComposer)
   dismiss()
 }
 </script>
 
 <template>
   <div class="study">
-    <nav
-      class="study-views"
-      aria-label="Study view"
-    >
-      <button
-        :aria-expanded="settings.studyPartnerOpen"
-        aria-controls="study-partner"
-        @click="settings.toggle('studyPartnerOpen')"
-      >
-        Study partner
-      </button>
-    </nav>
-    <!-- left: compare + word study -->
-    <div class="left">
-      <div class="topbar">
-        <span class="ref">{{ reader.bookName }} {{ reader.chapter }}:{{ focusLabel }}</span>
-        <div class="stepper">
-          <button
-            class="step hover-ink"
-            :disabled="atStart"
-            title="Previous verse"
-            aria-label="Previous verse"
-            @click="stepVerse(-1)"
-          >
-            ‹
-          </button>
-          <button
-            class="step hover-ink"
-            :disabled="atEnd"
-            title="Next verse"
-            aria-label="Next verse"
-            @click="stepVerse(1)"
-          >
-            ›
-          </button>
-        </div>
-        <span class="sub">comparing {{ rows.length }} translation{{ rows.length === 1 ? '' : 's' }}</span>
-        <div class="spacer" />
+    <div class="topbar">
+      <div class="passage-heading">
+        <span class="eyebrow">Study passage</span>
+        <h1 class="ref">
+          {{ reader.bookName }} {{ reader.chapter }}:{{ focusLabel }}
+        </h1>
+      </div>
+      <div class="stepper">
         <button
-          class="back hover-ink"
-          @click="ui.go('read')"
+          class="step hover-ink"
+          :disabled="atStart"
+          title="Previous verse"
+          aria-label="Previous verse"
+          @click="stepVerse(-1)"
         >
-          ← Back to reading
+          ‹
+        </button>
+        <button
+          class="step hover-ink"
+          :disabled="atEnd"
+          title="Next verse"
+          aria-label="Next verse"
+          @click="stepVerse(1)"
+        >
+          ›
         </button>
       </div>
+      <div class="spacer" />
+      <button
+        class="back hover-ink"
+        @click="ui.go('read')"
+      >
+        ← Back to reading
+      </button>
+    </div>
 
-      <div class="scroll">
-        <div ref="compareBoxEl">
+    <div class="scroll">
+      <div class="verse-picker">
+        <label>Verse
+          <select
+            aria-label="From verse"
+            :value="focus"
+            :disabled="!verseNums.length"
+            @change="pickVerse($event)"
+          >
+            <option
+              v-for="n in verseNums"
+              :key="n"
+              :value="n"
+            >{{ n }}</option>
+          </select>
+        </label>
+        <label>through
+          <select
+            aria-label="Through verse"
+            :value="focusEnd"
+            :disabled="!verseNums.length"
+            @change="pickVerse($event, true)"
+          >
+            <option
+              v-for="n in verseNums"
+              :key="n"
+              :value="n"
+            >{{ n }}</option>
+          </select>
+        </label>
+        <span class="sub">{{ reader.moduleName }}</span>
+      </div>
+      <div
+        v-if="reader.data"
+        ref="selectionRoot"
+        data-passage-context
+        class="context serif"
+      >
+        <!-- eslint-disable-next-line vuejs-accessibility/click-events-have-key-events, vuejs-accessibility/no-static-element-interactions -- Prose gestures supplement the native verse-number and word buttons. -->
+        <span
+          v-for="v in focusedVerses"
+          :key="v.n"
+          class="cverse"
+          :data-verse="v.n"
+          :style="{ background: cverseBg(v.n), opacity: verseOpacity(v.n) }"
+          @mousedown="onVerseMouseDown"
+          @pointerdown="onVersePointerDown(v.n, $event)"
+          @pointermove="onVersePointerMove"
+          @pointerup="onVersePointerEnd"
+          @pointercancel="onVersePointerEnd"
+          @click="onVerseClick(v.n, $event)"
+          @contextmenu="onVerseContext(v.n, $event)"
+        ><button
+          type="button"
+          class="cvnum"
+          :aria-label="`Select verse ${v.n}`"
+          :aria-pressed="reader.selectedVerses.includes(v.n)"
+          aria-keyshortcuts="Shift+F10"
+          @click.stop="onVerseClick(v.n, $event)"
+          @keydown="onVerseKeydown(v.n, $event)"
+        >{{ v.n }}</button><span data-selection-text><template
+          v-for="(seg, i) in v.segments"
+          :key="i"
+        ><template v-if="seg.kind === 'word'">{{ segLead(v.segments, i) }}<button
+          type="button"
+          class="wtap"
+          :data-strongs="seg.strongs.join(' ')"
+          :aria-label="`Study ${seg.text} (${seg.strongs.join(', ')})`"
+          @click.stop="onWordClick(v.n, seg.strongs, $event)"
+        >{{ seg.text }}</button></template><template
+          v-else-if="seg.kind === 'note'"
+        /><template v-else>{{ segLead(v.segments, i) + seg.text }}</template></template></span>{{ ' ' }}</span>
+      </div>
+      <p
+        v-if="reader.highlightError"
+        class="error"
+      >
+        {{ reader.highlightError }}
+      </p>
+
+      <p
+        v-if="reader.error"
+        class="error"
+        role="alert"
+      >
+        {{ reader.error }}
+      </p>
+      <p
+        v-else-if="reader.loadingChapter"
+        class="loading"
+        role="status"
+      >
+        Loading passage…
+      </p>
+      <p
+        v-else-if="!focusedVerses.length"
+        class="empty"
+      >
+        Choose a passage in Read to begin studying.
+      </p>
+
+      <div
+        class="study-tabs"
+        role="tablist"
+        aria-label="Study tools"
+      >
+        <button
+          v-for="(tab, index) in tabs"
+          :id="`study-tab-${tab.id}`"
+          :key="tab.id"
+          type="button"
+          role="tab"
+          :aria-selected="activeTab === tab.id"
+          :aria-controls="`study-panel-${tab.id}`"
+          :tabindex="activeTab === tab.id ? 0 : -1"
+          @click="activeTab = tab.id"
+          @keydown="onTabKey($event, index)"
+        >
+          {{ tab.label }}
+        </button>
+      </div>
+      <section
+        v-for="tab in tabs"
+        v-show="activeTab === tab.id"
+        :id="`study-panel-${tab.id}`"
+        :key="tab.id"
+        role="tabpanel"
+        :aria-labelledby="`study-tab-${tab.id}`"
+        tabindex="0"
+        class="tool-panel"
+      >
+        <template v-if="activeTab === tab.id">
           <ComparePanel
+            v-if="tab.id === 'compare'"
             variant="page"
-            :rows="rows"
+            :rows="rows.filter((row) => row.verses.some((verse) => verse.text?.trim()))"
             :comparing="comparing"
             :error="compareError"
           />
-        </div>
-
-        <!-- Commentary (verse-by-verse notes from an installed commentary module) -->
-        <div ref="commentaryBoxEl">
-          <div class="section-label">
-            Commentary
-          </div>
-          <CommentaryPanel variant="page" />
-        </div>
-
-        <!-- Cross-references (real embedded notes from the active translation) -->
-        <div ref="crossReferencesBoxEl">
-          <div class="section-label">
-            Cross-references
-          </div>
-          <CrossReferencesPanel
+          <CommentaryPanel
+            v-else-if="tab.id === 'commentary'"
             variant="page"
-            :entries="selectionCrossReferences"
-            :module-name="reader.moduleName ?? ''"
-            :ref-label="selectionLabel"
-            :empty-reason="crossReferencesReason"
-            @open-reference="(target) => reader.moduleName && reader.openRef(reader.moduleName, target.book, target.chapter, target.verseStart ?? undefined, target.verseEnd ?? undefined)"
+            :passage="passage"
           />
-        </div>
-
-        <!-- Word study (tap a word in the passage below) -->
-        <div class="section-label">
-          Word study · Strong’s lexicon<template v-if="strongsKey">
-            · {{ strongsKey }}
-          </template>
-        </div>
-        <div
-          ref="strongsBoxEl"
-          class="strongs-box"
-        >
-          <p
-            v-if="strongsError"
-            class="strongs-error"
-          >
-            {{ strongsError }}
-          </p>
-          <div
-            v-else-if="strongsLoading"
-            class="loading"
-          >
-            Looking up…
-          </div>
-          <StrongsCard
-            v-else-if="strongs"
-            :entry="strongs"
-            class="strongs-result"
+          <ConnectionsPanel
+            v-else-if="tab.id === 'connections'"
+            variant="page"
+            :passage="passage"
+            :closable="false"
           />
-          <p
-            v-else
-            class="strongs-hint"
-          >
-            Tap any word in the passage below to open its Greek or Hebrew entry. Needs a
-            Strong’s-tagged translation (e.g. KJVA) and the Strong’s modules from the Library.
-          </p>
-        </div>
-
-        <!-- Context passage (real chapter text, click to refocus) -->
-        <div class="section-label">
-          Context · {{ reader.bookName }} {{ reader.chapter }}
-        </div>
-        <div
-          v-if="reader.data"
-          ref="selectionRoot"
-          data-passage-context
-          class="context serif"
-        >
-          <!-- eslint-disable-next-line vuejs-accessibility/click-events-have-key-events, vuejs-accessibility/no-static-element-interactions -- Prose gestures supplement the native verse-number and word buttons. -->
-          <span
-            v-for="v in reader.data.verses"
-            :key="v.n"
-            class="cverse"
-            :data-verse="v.n"
-            :style="{ background: cverseBg(v.n), opacity: verseOpacity(v.n) }"
-            @mousedown="onVerseMouseDown"
-            @pointerdown="onVersePointerDown(v.n, $event)"
-            @pointermove="onVersePointerMove"
-            @pointerup="onVersePointerEnd"
-            @pointercancel="onVersePointerEnd"
-            @click="onVerseClick(v.n, $event)"
-            @contextmenu="onVerseContext(v.n, $event)"
-          ><button
-            type="button"
-            class="cvnum"
-            :aria-label="`Select verse ${v.n}`"
-            :aria-pressed="reader.selectedVerses.includes(v.n)"
-            aria-keyshortcuts="Shift+F10"
-            @click.stop="onVerseClick(v.n, $event)"
-            @keydown="onVerseKeydown(v.n, $event)"
-          >{{ v.n }}</button><span data-selection-text><template
-            v-for="(seg, i) in v.segments"
-            :key="i"
-          ><template v-if="seg.kind === 'word'">{{ segLead(v.segments, i) }}<button
-            type="button"
-            class="wtap"
-            :data-strongs="seg.strongs.join(' ')"
-            :aria-label="`Study ${seg.text} (${seg.strongs.join(', ')})`"
-            @click.stop="onWordClick(v.n, seg.strongs, $event)"
-          >{{ seg.text }}</button></template><template
-            v-else-if="seg.kind === 'note'"
-          /><template v-else>{{ segLead(v.segments, i) + seg.text }}</template></template></span>{{ ' ' }}</span>
-        </div>
-        <p
-          v-if="reader.highlightError"
-          class="error"
-        >
-          {{ reader.highlightError }}
-        </p>
-
-        <!-- Notes: shared capability, anchored to the focused passage -->
-        <div class="section-label">
-          Notes<template v-if="noteAnchor">
-            · {{ noteAnchor }}
+          <template v-else>
+            <p
+              v-if="strongsKey"
+              class="sub"
+            >
+              Strong’s lexicon · {{ strongsKey }}
+            </p>
+            <div
+              :class="{ 'strongs-box': strongs }"
+            >
+              <p
+                v-if="strongsError"
+                class="strongs-error"
+              >
+                {{ strongsError }}
+              </p>
+              <div
+                v-else-if="strongsLoading"
+                class="loading"
+              >
+                Looking up…
+              </div>
+              <StrongsCard
+                v-else-if="strongs"
+                :entry="strongs"
+                class="strongs-result"
+              />
+              <p
+                v-else
+                class="strongs-hint"
+              >
+                Tap any word in the passage above to open its Greek or Hebrew entry. Needs a
+                Strong’s-tagged translation (e.g. KJVA) and the Strong’s modules from the Library.
+              </p>
+            </div>
           </template>
-        </div>
+        </template>
+      </section>
+
+      <details
+        class="notes-disclosure"
+        :open="notesOpen"
+        @toggle="notesOpen = ($event.target as HTMLDetailsElement).open"
+      >
+        <summary>
+          Notes<template v-if="passageNotes.length">
+            · {{ passageNotes.length }}
+          </template>
+        </summary>
         <div class="note-box">
+          <p class="sub">
+            {{ noteAnchor }}
+          </p>
           <input
             v-model="noteTitle"
             aria-label="Note title"
@@ -381,7 +468,7 @@ function menuNote() {
             </button>
           </div>
         </div>
-      </div>
+      </details>
     </div>
 
     <TextSelectionActions
@@ -395,8 +482,9 @@ function menuNote() {
       :ref-label="selectionLabel"
       :highlighted="selectionHighlighted"
       :pos="menuPos"
-      :cross-references-available="crossReferencesAvailable"
-      :cross-references-reason="crossReferencesReason"
+      :cross-references-available="true"
+      connections
+      cross-references-reason=""
       @word-study="menuWordStudy"
       @compare="menuCompare"
       @commentary="menuCommentary"
@@ -411,19 +499,13 @@ function menuNote() {
 .study {
   flex: 1;
   min-height: 0;
-  display: flex;
-  overflow: hidden;
-}
-.study-views { display: none; }
-.left {
-  flex: 1.2;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--line);
+  overflow: hidden;
 }
 .topbar {
-  height: 58px;
+  min-height: 78px;
   flex-shrink: 0;
   border-bottom: 1px solid var(--line);
   display: flex;
@@ -432,8 +514,9 @@ function menuNote() {
   padding: 0 22px;
 }
 .ref {
-  font-size: 14px;
-  font-weight: 700;
+  font-size: 24px;
+  font-weight: 600;
+  margin: 2px 0 0;
 }
 .stepper {
   display: flex;
@@ -475,14 +558,11 @@ function menuNote() {
 .scroll {
   flex: 1;
   overflow-y: auto;
-  padding: 24px 22px 60px;
-}
-.section-label {
-  font-size: 11px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--muted);
-  margin: 24px 0 12px;
+  padding: 20px 28px 48px;
+  width: 100%;
+  max-width: 960px;
+  box-sizing: border-box;
+  margin: 0 auto;
 }
 .strongs-box {
   background: var(--card);
@@ -505,8 +585,9 @@ function menuNote() {
   margin-top: 12px;
 }
 .context {
-  font-size: 16px;
-  line-height: 1.8;
+  font-size: 20px;
+  line-height: 1.75;
+  margin: 16px 0 28px;
   text-wrap: pretty;
 }
 .cverse {
@@ -646,41 +727,28 @@ function menuNote() {
   color: var(--muted);
   flex-shrink: 0;
 }
+.eyebrow { font-size: 10px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--muted); }
+.verse-picker { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--muted); }
+.verse-picker label { display: flex; align-items: center; gap: 8px; }
+.verse-picker select { padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--ink); font: inherit; }
+.verse-picker .sub { margin-left: auto; overflow-wrap: anywhere; min-width: 0; }
+.study-tabs { display: flex; border-bottom: 1px solid var(--line); gap: 6px; }
+.study-tabs button { flex: 1; min-height: 44px; padding: 12px 8px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted); cursor: pointer; font: inherit; font-size: 13px; white-space: nowrap; }
+.study-tabs button[aria-selected="true"] { border-bottom-color: var(--accent); color: var(--accent); font-weight: 700; }
+.tool-panel { padding: 20px 0 0; min-width: 0; }
+button:focus-visible, select:focus-visible, summary:focus-visible, .tool-panel:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.notes-disclosure { border-top: 1px solid var(--line); margin-top: 28px; padding-top: 16px; }
+.notes-disclosure summary { cursor: pointer; color: var(--muted); font-size: 13px; padding: 8px 0; }
+.note-box { margin-top: 12px; }
 @media (max-width: 768px) {
-  .study {
-    flex-direction: column;
-  }
-  .study-views {
-    display: flex;
-    flex-shrink: 0;
-    padding: 6px 14px;
-    gap: 8px;
-    border-bottom: 1px solid var(--line);
-  }
-  .study-views button {
-    flex: 1;
-    min-height: 44px;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    background: var(--card);
-    color: var(--muted);
-    font-size: 14px;
-    cursor: pointer;
-  }
-  .left {
-    min-height: 0;
-    border-right: 0;
-  }
-  .left button { min-height: 44px; min-width: 44px; }
+  .study-tabs { gap: 0; }
+  .study-tabs button { padding: 12px 5px; font-size: 12px; }
   .topbar {
     height: auto;
     min-height: 58px;
     flex-wrap: wrap;
     gap: 7px 9px;
     padding: 10px 14px;
-  }
-  .topbar .spacer {
-    display: none;
   }
   .topbar .back {
     margin-left: auto;
@@ -691,8 +759,12 @@ function menuNote() {
   }
   .scroll {
     min-height: 0;
-    padding: 20px 16px 56px;
+    padding: 16px 16px 32px;
   }
+  .ref { font-size: 21px; }
+  .context { font-size: 18px; }
+  .verse-picker select { min-height: 44px; }
+  .back { font-size: 12px; }
   .cverse {
     padding: 3px 2px;
   }

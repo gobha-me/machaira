@@ -1,18 +1,20 @@
 <script setup lang="ts">
-import { onMounted, nextTick, watch, type ComponentPublicInstance } from 'vue'
+import { computed, onMounted, nextTick, watch, type ComponentPublicInstance } from 'vue'
 import { useReader } from '../stores/reader'
 import { useCommentary } from '../composables/useCommentary'
 
 // Verse-keyed commentary notes for the current chapter, from one installed commentary module.
 // Shared by Read (rail card) and Study (page panel). The panel is only mounted while visible,
 // so it loads on mount and follows reader.book/chapter via the composable's watch. The verse
-// matching reader.selectedVerse is emphasized and scrolled into view.
-withDefaults(
+// matching reader.selectedVerse is emphasized and scrolled into view in the rail.
+// Study supplies an inclusive verse range instead of rendering the whole chapter.
+const props = withDefaults(
   defineProps<{
     variant?: 'rail' | 'page'
     closable?: boolean
+    passage?: { verseStart: number; verseEnd: number }
   }>(),
-  { variant: 'rail', closable: false }
+  { variant: 'rail', closable: false, passage: undefined }
 )
 
 defineEmits<{ (e: 'close'): void }>()
@@ -20,6 +22,17 @@ defineEmits<{ (e: 'close'): void }>()
 const reader = useReader()
 const { entries, loading, error, locked, activeModule, installedCommentaries, load, setModule } =
   useCommentary()
+
+// The SWORD endpoint returns a chapter; scope before rendering so unrelated notes never
+// enter Study's DOM. Read keeps the chapter view for its contextual rail.
+const visibleEntries = computed(() => entries.value.filter((entry) => entry.text.trim() && (
+  !props.passage || (entry.n >= props.passage.verseStart && entry.n <= props.passage.verseEnd)
+)))
+const passageLabel = computed(() => {
+  const range = props.passage
+  if (!range) return `${reader.bookName} ${reader.chapter}`
+  return `${reader.bookName} ${reader.chapter}:${range.verseStart}${range.verseEnd === range.verseStart ? '' : `–${range.verseEnd}`}`
+})
 
 onMounted(load)
 
@@ -40,7 +53,7 @@ watch(
   () => [reader.selectedVerse, entries.value.length] as const,
   () => {
     const v = reader.selectedVerse
-    if (v == null) return
+    if (v == null || props.variant === 'page') return
     void nextTick(() => entryEls.get(v)?.scrollIntoView({ block: 'nearest' }))
   }
 )
@@ -48,8 +61,8 @@ watch(
 
 <template>
   <div
-    class="commentary-card"
-    :class="variant"
+    class="commentary-panel"
+    :class="[variant, { 'commentary-card': variant === 'rail' || (!loading && !error && !locked && visibleEntries.length > 0) }]"
   >
     <div class="cc-head">
       <span
@@ -93,6 +106,12 @@ watch(
       class="cc-error"
     >
       {{ error }}
+      <button
+        class="cc-retry"
+        @click="load"
+      >
+        Retry commentary
+      </button>
     </p>
     <p
       v-else-if="!installedCommentaries.length"
@@ -108,17 +127,17 @@ watch(
       {{ activeModule }} is locked — its notes need an unlock key, so nothing can be shown.
     </p>
     <p
-      v-else-if="!entries.length"
+      v-else-if="!visibleEntries.length"
       class="cc-state"
     >
-      No notes in {{ activeModule }} for {{ reader.bookName }} {{ reader.chapter }}.
+      No notes in {{ activeModule }} for {{ passageLabel }}.
     </p>
     <div
       v-else
       class="cc-list"
     >
       <div
-        v-for="e in entries"
+        v-for="e in visibleEntries"
         :key="e.n"
         :ref="(el) => setEntryRef(e.n, el)"
         class="cc-entry"
@@ -238,4 +257,6 @@ watch(
 .page .cc-text {
   font-size: 15px;
 }
+.cc-retry { margin-left: 8px; color: var(--accent); background: var(--paper); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; cursor: pointer; }
+@media (max-width: 768px) { .cc-picker, .cc-retry { min-height: 44px; } }
 </style>
