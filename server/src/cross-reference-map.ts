@@ -112,19 +112,28 @@ export class CrossReferenceMapService {
   async similarities(userId: string, module: unknown, scope: unknown, semantic: Pick<SemanticIndexService, 'mapDistances'>) {
     const name = mapModule(module)
     const graph = this.graph(scope)
-    const mapped = await this.mapper(name, graph.nodes.filter((node) => node.chapter !== null)
-      .map((node) => `${node.book}.${node.chapter}.${node.verse ?? 1}`), 'from-canonical')
-    let index = 0
-    const nodes = graph.nodes.flatMap((node) => {
-      if (node.chapter === null) return [{ ...node }]
-      const targets = mapped[index++] ?? []
-      if (targets.length !== 1) return []
-      const target = targets[0]
-      if (node.verse === null) return [{ ...node, book: target.book, chapter: target.chapter }]
-      // Split verses share the aggregate ID, so their stored vectors contribute to one mean.
-      return Array.from({ length: target.verseEnd! - target.verseStart! + 1 }, (_, offset) =>
-        ({ ...node, book: target.book, chapter: target.chapter, verse: target.verseStart! + offset }))
-    })
+    const references: string[] = [], owners: CrossReferenceMapNode[] = []
+    for (const node of graph.nodes) {
+      if (node.chapter === null) continue
+      const first = node.verse ?? 1, last = node.verse ?? bounds[node.book][node.chapter - 1]
+      for (let verse = first; verse <= last; verse++) {
+        references.push(`${node.book}.${node.chapter}.${verse}`)
+        owners.push(node)
+      }
+    }
+    // Resolve every canonical verse, not just chapter one/endpoints: translations
+    // can merge Psalms, split chapters, or number headings. A chapter centroid must
+    // include exactly its mapped verses, rather than the entire receiving chapter.
+    const mapped = await this.mapper(name, references, 'from-canonical')
+    const nodes = graph.nodes.filter((node) => node.chapter === null)
+    for (const [index, targets] of mapped.entries()) {
+      const owner = owners[index]
+      for (const target of targets) {
+        for (let verse = target.verseStart!; verse <= target.verseEnd!; verse++) {
+          nodes.push({ ...owner, book: target.book, chapter: target.chapter, verse })
+        }
+      }
+    }
     return semantic.mapDistances(userId, name, nodes, graph.edges)
   }
 }

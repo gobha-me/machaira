@@ -973,7 +973,8 @@ export class SemanticIndexService {
     for (const node of nodes) {
       const key = `${node.book}/${node.chapter ?? ''}/${node.verse ?? ''}`
       const ids = byScope.get(key) ?? []
-      ids.push(node.id)
+      // Merged canonical verses may resolve to the same stored translation verse.
+      if (!ids.includes(node.id)) ids.push(node.id)
       byScope.set(key, ids)
     }
     const sums = new Map<string, { sum: Float64Array; count: number }>()

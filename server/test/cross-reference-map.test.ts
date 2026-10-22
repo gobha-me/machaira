@@ -76,6 +76,22 @@ describe('cross-reference map over the entire real snapshot', () => {
     assert.equal(await split.resolve('KJV', 'Gen.1.1'), null)
   })
 
+  it('maps chapter similarity by individual verses across merged Psalms instead of borrowing the whole receiving chapter', async () => {
+    const capture: Array<{ id: string; chapter: number | null; verse: number | null }> = []
+    await map.similarities('user-1', 'Synodal', { book: 'Ps' }, { async mapDistances(userId, module, nodes, edges) {
+      assert.equal(userId, 'user-1')
+      assert.equal(module, 'Synodal')
+      capture.push(...nodes)
+      return { state: 'ready', distances: edges.map(() => null) }
+    } })
+    const ninth = capture.filter((node) => node.id === 'Ps.9')
+    const tenth = capture.filter((node) => node.id === 'Ps.10')
+    assert.ok(ninth.length > 0 && tenth.length > 0)
+    assert.ok([...ninth, ...tenth].every((node) => node.chapter === 9 && node.verse !== null))
+    assert.ok(Math.max(...ninth.map((node) => node.verse!)) < Math.min(...tenth.map((node) => node.verse!)),
+      'two canonical Psalms must use disjoint portions of the merged translation chapter')
+  })
+
   it('keeps cold/warm query and response budgets for the real dataset (runs in the CI server suite)', (t) => {
     const coldRefs = new CrossReferenceService(':memory:')
     t.after(() => coldRefs.db.close())
