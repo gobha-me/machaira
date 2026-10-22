@@ -19,6 +19,8 @@
     "vue-router": "^4.6.4"
   },
   "devDependencies": {
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/user-event": "^14.6.8",
     "@vitejs/plugin-vue": "^5.2.1",
     "@vue/server-renderer": "^3.5.13",
     "@vue/test-utils": "^2.5.1",

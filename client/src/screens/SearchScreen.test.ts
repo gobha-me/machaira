@@ -2,6 +2,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
+import userEvent from '@testing-library/user-event'
+import { useReader } from '../stores/reader'
+import { useNotes } from '../stores/notes'
 import { api, type SearchHit } from '../services/api'
 import { useUi } from '../stores/ui'
 import { useLibrary } from '../stores/library'
@@ -35,9 +38,12 @@ beforeEach(() => {
   semantic.status.state = 'ready'
   vi.spyOn(semantic, 'load').mockResolvedValue()
   const router = createAppRouter(createMemoryHistory())
-  wrapper = mount(SearchScreen, { global: { plugins: [pinia, router], stubs: { VoiceInputButton: true } } })
+  wrapper = mount(SearchScreen, { attachTo: document.body, global: { plugins: [pinia, router], stubs: { VoiceInputButton: true } } })
 })
-afterEach(() => wrapper.unmount())
+afterEach(() => {
+  wrapper.unmount()
+  document.body.innerHTML = ''
+})
 async function search(query: string) {
   await wrapper.get('input.query').setValue(query)
   await wrapper.get('input.query').trigger('keydown.enter')
@@ -142,7 +148,10 @@ describe('search request ownership and scopes', () => {
     await search('second')
     await flushPromises()
     expect(wrapper.findAll('.result')).toHaveLength(0)
-    expect(wrapper.text()).toContain('offline')
+    expect(wrapper.get('[role="alert"]').text()).toContain('offline')
+    expect(wrapper.text()).not.toContain('No matches')
+    expect(wrapper.find('.count').exists()).toBe(false)
+    expect(wrapper.find('.hint').exists()).toBe(false)
     await wrapper.get('input.query').setValue('')
     expect(wrapper.text()).not.toContain('offline')
     expect(wrapper.find('.count').exists()).toBe(false)
@@ -191,5 +200,107 @@ describe('search request ownership and scopes', () => {
     expect(wrapper.text()).toContain('Current meaning result')
     expect(wrapper.text()).not.toContain('Obsolete exact result')
     expect(wrapper.text()).toContain('top 50 corpus matches')
+  })
+})
+
+
+describe('search accessibility', () => {
+  it('labels the query and exposes mode/scope state through keyboard toggles', async () => {
+    const user = userEvent.setup()
+    expect(wrapper.get('input.query').attributes('aria-label')).toBe('Search words or phrases')
+    const modes = wrapper.findAll('button.mode')
+    expect(modes.map((button) => button.attributes('aria-pressed'))).toEqual(['true', 'false'])
+    ;(modes[1].element as HTMLElement).focus()
+    await user.keyboard(' ')
+    expect(modes.map((button) => button.attributes('aria-pressed'))).toEqual(['false', 'true'])
+    const notesScope = wrapper.findAll('button.scope').at(-1)!
+    ;(notesScope.element as HTMLElement).focus()
+    await user.keyboard('{Enter}')
+    expect(notesScope.attributes('aria-pressed')).toBe('true')
+    expect(wrapper.findAll('button.scope').slice(0, -1).every((button) => button.attributes('aria-pressed') === 'false')).toBe(true)
+    expect(modes[0].attributes('aria-pressed')).toBe('true')
+    expect(modes[1].attributes('disabled')).toBeDefined()
+    ;(modes[1].element as HTMLElement).focus()
+    await user.keyboard(' ')
+    expect(modes[1].attributes('aria-pressed')).toBe('false')
+  })
+
+  it('keeps idle, loading, failure, and empty states mutually exclusive, including blank input', async () => {
+    const pending = deferred<SearchHit[]>()
+    const request = vi.spyOn(api, 'search').mockReturnValueOnce(pending.promise).mockResolvedValueOnce([])
+    await search('   ')
+    expect(request).not.toHaveBeenCalled()
+    expect(wrapper.find('.hint').exists()).toBe(true)
+    await search('word')
+    expect(wrapper.get('[role="status"]').text()).toBe('Searching…')
+    expect(wrapper.find('.hint').exists()).toBe(false)
+    pending.reject(new Error('Unavailable'))
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toContain('Unavailable')
+    expect(wrapper.text()).not.toContain('No matches')
+    expect(wrapper.find('.hint').exists()).toBe(false)
+    await wrapper.get('input.query').trigger('keydown.enter')
+    await flushPromises()
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('No matches')
+    expect(wrapper.find('.hint').exists()).toBe(false)
+    await search('')
+    expect(wrapper.find('.hint').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('No matches')
+  })
+
+  it.each([null, new Error('')])('announces a useful error for an uninformative rejection (%s)', async (error) => {
+    vi.spyOn(api, 'search').mockRejectedValueOnce(error)
+    await search('word')
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toContain('Search failed. Please try again.')
+    expect(wrapper.text()).not.toContain('No matches')
+  })
+
+  it.each(['{Enter}', ' '])('opens scripture and journal results with %s', async (key) => {
+    const user = userEvent.setup()
+    vi.spyOn(api, 'search').mockResolvedValue([hit('In the beginning')])
+    const open = vi.spyOn(useReader(), 'openRef').mockResolvedValue()
+    useNotes().list = [{ id: 'note', title: 'beginning', body: '<script>unsafe</script>', refs: [], tags: [], createdAt: 1, updatedAt: 1 }]
+    await search('beginning')
+    await flushPromises()
+    const results = wrapper.findAll('button.result')
+    expect(results).toHaveLength(2)
+    ;(results[0].element as HTMLElement).focus()
+    await user.keyboard(key)
+    expect(open).toHaveBeenCalledWith('WEB', 'John', 1, 1)
+    ;(results[1].element as HTMLElement).focus()
+    await user.keyboard(key)
+    await flushPromises()
+    expect(useNotes().currentId).toBe('note')
+    expect(useUi().screen).toBe('journal')
+    expect(wrapper.find('script').exists()).toBe(false)
+    expect(wrapper.find('.hint').exists()).toBe(false)
+  })
+
+  it('opens a named ancient-writing dialog from the keyboard and returns focus after close', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(api, 'search').mockResolvedValue([
+      { kind: 'general-book', module: 'Ancient', key: 'Entry', title: 'Entry <script>', content: '<script>unsafe</script>' }
+    ])
+    await search('entry')
+    await flushPromises()
+    const result = wrapper.get('button.result').element as HTMLElement
+    result.focus()
+    await user.keyboard('{Enter}')
+    const dialog = document.querySelector('[role="dialog"]')!
+    expect(dialog.getAttribute('aria-modal')).toBe('true')
+    expect(document.getElementById(dialog.getAttribute('aria-labelledby')!)?.textContent).toBe('Entry <script>')
+    expect(dialog.querySelector('script')).toBeNull()
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Close')
+    await user.tab()
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Close')
+    await user.keyboard('{Escape}')
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(document.activeElement).toBe(result)
+    await user.keyboard(' ')
+    await user.keyboard('{Enter}')
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(document.activeElement).toBe(result)
   })
 })
