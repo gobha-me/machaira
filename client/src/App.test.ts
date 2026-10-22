@@ -73,6 +73,7 @@ beforeEach(() => {
 
 afterEach(() => {
   wrapper?.unmount()
+  document.body.innerHTML = ''
   wrapper = undefined
   useNotes().resetPersonalData()
   useReader().activateUser(null)
@@ -249,11 +250,39 @@ describe('hash navigation and passage URLs', () => {
     expect(app.get('button.mode.active').text()).toBe('By meaning')
     expect(api.semanticSearch).toHaveBeenCalledExactlyOnceWith('beginning', ['WEB'], 50, 'scripture')
     if (outcome === 'success') expect(app.get('.result').text()).toContain('Genesis 1:1')
-    else expect(app.get('.error').text()).toBe('Search offline')
+    else {
+      expect(app.get('[role="alert"]').text()).toBe('Search failed: Search offline')
+      expect(app.text()).not.toContain('No matches')
+      expect(app.find('.hint').exists()).toBe(false)
+    }
     await navigate(app, 'Library')
     await navigate(app, 'Search')
     expect((app.get('input.query').element as HTMLInputElement).value).toBe('beginning')
     expect(api.semanticSearch).toHaveBeenCalledOnce()
+  })
+
+  it('releases an open search dialog on navigation without reopening it from the cached screen', async () => {
+    vi.spyOn(api, 'search').mockResolvedValue([
+      { kind: 'general-book', module: 'Ancient', key: 'Entry', title: 'Entry', content: 'Entry content' }
+    ])
+    const app = await startApp('/search')
+    document.body.append(app.element)
+    await app.get('input.query').setValue('entry')
+    await app.get('input.query').trigger('keydown.enter')
+    await flushPromises()
+    await app.get('button.result').trigger('click')
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+    expect(app.element.getAttribute('inert')).toBe('')
+    await router.push('/library')
+    await flushPromises()
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(app.element.hasAttribute('inert')).toBe(false)
+    expect(app.element.hasAttribute('aria-hidden')).toBe(false)
+    router.back()
+    await flushPromises()
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(app.get('button.result').text()).toContain('Entry')
+    expect(api.search).toHaveBeenCalledOnce()
   })
 
   it('opens a search hit as a verse URL and preserves completed results on Back', async () => {

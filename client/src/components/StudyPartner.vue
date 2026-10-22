@@ -270,7 +270,7 @@ async function openScripture(messageId: string, target: ScriptureTarget): Promis
               <div v-if="referenceErrors[message.id]" class="reference-error" role="alert">
                 {{ referenceErrors[message.id] }}
               </div>
-              <div v-if="message.status === 'failed' || message.status === 'interrupted'" class="message-status">
+              <div v-if="message.status === 'failed' || message.status === 'interrupted'" class="message-status" role="status">
                 <span>{{ message.status === 'interrupted' ? 'Response interrupted.' : (message.error || 'Response failed.') }}</span>
                 <button v-if="retryable(message, index)" :disabled="chats.sending || chats.loading" @click="retry(message)">Retry</button>
               </div>
@@ -293,7 +293,7 @@ async function openScripture(messageId: string, target: ScriptureTarget): Promis
         label="study question"
         :disabled="!aiProvider.provider || chats.sending || chats.loading"
       />
-      <button v-if="chats.sending" type="button" class="send cancel" title="Stop response" @click="chats.stop">■</button>
+      <button v-if="chats.sending" type="button" class="send cancel" title="Stop response" aria-label="Stop response" @click="chats.stop">■</button>
       <button v-else type="submit" class="send" aria-label="Send question" :disabled="!aiProvider.provider || chats.loading || !chats.draft.trim() || !passage.content">→</button>
     </form>
   </aside>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import { isDeuterocanonicalBook } from '@machaira/scripture'
 import { useReader } from '../stores/reader'
 import { useLibrary } from '../stores/library'
@@ -7,6 +7,7 @@ import { useUi } from '../stores/ui'
 import { useNotes } from '../stores/notes'
 import { useSemanticIndex } from '../stores/semanticIndex'
 import { api, type Note, type SearchHit, type SearchScope } from '../services/api'
+import ModalDialog from '../components/ui/ModalDialog.vue'
 import VoiceInputButton from '../components/VoiceInputButton.vue'
 
 const reader = useReader()
@@ -45,6 +46,9 @@ watch(q, () => {
 }, { flush: 'sync' })
 watch([scope, mode], invalidate, { flush: 'sync' })
 onUnmounted(invalidate)
+// Search is cached by the router. Its modal must release the background on navigation
+// while the query, results, and any pending search remain available for Back.
+onDeactivated(() => { selectedGeneral.value = null })
 
 onMounted(() => {
   void Promise.all([lib.load(), semantic.load()]).catch(() => undefined)
@@ -92,7 +96,7 @@ async function run() {
     noteHits.value = notesResults
   } catch (e) {
     if (activeGeneration !== generation) return
-    error.value = (e as Error).message
+    error.value = e instanceof Error && e.message.trim() ? e.message : 'Search failed. Please try again.'
     if (requestedMode === 'meaning') void semantic.load().catch(() => undefined)
   } finally {
     if (activeGeneration === generation) loading.value = false
@@ -159,6 +163,7 @@ const resultCount = computed(() => scriptureHits.value.length + (showNotes.value
         <input
           v-model="q"
           class="query serif focus-accent"
+          aria-label="Search words or phrases"
           placeholder="Search words or phrases…"
           @keydown.enter="run"
         />
@@ -169,11 +174,13 @@ const resultCount = computed(() => scriptureHits.value.length + (showNotes.value
         <button
           class="mode"
           :class="{ active: mode === 'exact' }"
+          :aria-pressed="mode === 'exact'"
           @click="mode = 'exact'; searched && run()"
         >Exact words</button>
         <button
           class="mode"
           :class="{ active: mode === 'meaning' }"
+          :aria-pressed="mode === 'meaning'"
           :disabled="!semantic.searchable || scope === 'Notes & journal'"
           :title="scope === 'Notes & journal'
             ? 'Notes use exact-text search'
@@ -190,11 +197,12 @@ const resultCount = computed(() => scriptureHits.value.length + (showNotes.value
         <button class="mode" type="button" @click="ui.openSemanticSettings()">Settings → Semantic search</button>
       </div>
 
-      <div class="scopes">
+      <div class="scopes" role="group" aria-label="Search scope">
         <button
           v-for="s in SCOPES"
           :key="s"
           class="scope"
+          :aria-pressed="scope === s"
           :style="{
             background: scope === s ? 'var(--accent)' : 'var(--card)',
             color: scope === s ? 'var(--on-accent)' : 'var(--muted)',
@@ -204,48 +212,50 @@ const resultCount = computed(() => scriptureHits.value.length + (showNotes.value
         >{{ s }}</button>
       </div>
 
-      <p v-if="error" class="error">{{ error }}</p>
-
       <template v-if="loading">
-        <div class="status">Searching…</div>
+        <div class="status" role="status">Searching…</div>
       </template>
 
+      <p v-else-if="error" class="error" role="alert">Search failed: {{ error }}</p>
+
       <template v-else-if="searched">
-        <div class="count">
+        <div class="count" aria-live="polite">
           Showing {{ resultCount }} result{{ resultCount === 1 ? '' : 's' }}
           <template v-if="showScripture && installedNames.length"> · {{ mode === 'meaning' ? 'top 50 corpus matches' : 'up to 50 matches per Scripture module; 200 per ancient writing' }}</template>
           <template v-if="showScripture && !installedNames.length"> · install a translation to search scripture</template>
         </div>
 
         <div class="results">
-          <div
+          <button
+            type="button"
             v-for="(h, i) in scriptureHits"
             :key="'s' + i"
             class="result hover-line"
             @click="openHit(h)"
           >
-            <div class="result-head">
+            <span class="result-head">
               <span class="rref">{{ h.kind === 'scripture' ? `${h.bookName} ${h.chapter}:${h.verse}` : h.title }}</span>
               <span class="badge">{{ h.module }}</span>
-            </div>
-            <div
+            </span>
+            <span
               class="rtext serif"
               v-html="mode === 'exact' ? highlight(h.content) : escapeHtml(h.content)"
-            ></div>
-          </div>
+            ></span>
+          </button>
 
-          <div
+          <button
+            type="button"
             v-for="n in (showNotes ? noteHits : [])"
             :key="n.id"
             class="result note-result hover-line"
             @click="openNote(n.id)"
           >
-            <div class="result-head">
+            <span class="result-head">
               <span class="rref">{{ n.title }}</span>
               <span class="badge">Your journal</span>
-            </div>
-            <div class="rtext-note" v-html="highlight(n.body.slice(0, 200))"></div>
-          </div>
+            </span>
+            <span class="rtext-note" v-html="highlight(n.body.slice(0, 200))"></span>
+          </button>
 
           <div v-if="resultCount === 0" class="status">
             No matches for “{{ q }}”. Try different words, or broaden the scope.
@@ -253,19 +263,17 @@ const resultCount = computed(() => scriptureHits.value.length + (showNotes.value
         </div>
       </template>
 
-      <div v-if="selectedGeneral?.kind === 'general-book'" class="entry-scrim" @click.self="selectedGeneral = null">
+      <div v-else class="status hint">Type a word or phrase and press Enter.</div>
+
+      <ModalDialog v-if="selectedGeneral?.kind === 'general-book'" labelledby="search-entry-title" @close="selectedGeneral = null">
         <article class="entry-dialog">
           <button aria-label="Close" @click="selectedGeneral = null">×</button>
           <div class="badge">{{ selectedGeneral.module }}</div>
-          <h2 class="serif">{{ selectedGeneral.title }}</h2>
+          <h2 id="search-entry-title" class="serif">{{ selectedGeneral.title }}</h2>
           <p class="entry-key">{{ selectedGeneral.key }}</p>
           <div class="entry-text serif">{{ selectedGeneral.content }}</div>
         </article>
-      </div>
-
-      <template v-else>
-        <div class="status hint">Type a word or phrase and press Enter.</div>
-      </template>
+      </ModalDialog>
     </div>
   </div>
 </template>
@@ -372,13 +380,17 @@ h1 {
   gap: 12px;
 }
 .result {
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: var(--ink);
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 11px;
   padding: 16px 18px;
   cursor: pointer;
 }
-.entry-scrim{position:fixed;z-index:30;inset:0;display:grid;place-items:center;padding:20px;background:#0007}.entry-dialog{position:relative;width:min(700px,92vw);max-height:82vh;box-sizing:border-box;overflow:auto;padding:28px;border-radius:14px;background:var(--paper);box-shadow:0 20px 60px #0004}.entry-dialog>button{position:absolute;right:16px;top:12px;border:0;background:none;color:var(--muted);font-size:26px;cursor:pointer}.entry-dialog h2{margin:14px 0 3px}.entry-key{color:var(--muted);font-size:11px}.entry-text{white-space:pre-wrap;font-size:16px;line-height:1.7}
+.entry-dialog{position:relative;width:min(700px,92vw);max-height:82vh;box-sizing:border-box;overflow:auto;padding:28px;border-radius:14px;background:var(--paper);box-shadow:0 20px 60px #0004}.entry-dialog>button{position:absolute;right:16px;top:12px;border:0;background:none;color:var(--muted);font-size:26px;cursor:pointer}.entry-dialog h2{margin:14px 0 3px}.entry-key{color:var(--muted);font-size:11px}.entry-text{white-space:pre-wrap;font-size:16px;line-height:1.7}
 .note-result {
   border-left: 3px solid var(--gold);
 }

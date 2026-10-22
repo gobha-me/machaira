@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import JournalScreen from './JournalScreen.vue'
+import userEvent from '@testing-library/user-event'
 import { api, type Note } from '../services/api'
 import { useNotes } from '../stores/notes'
 import { useReader } from '../stores/reader'
@@ -18,10 +19,11 @@ beforeEach(() => {
   setActivePinia(pinia)
   useNotes().resetPersonalData()
   useReader().ready = true
-  wrapper = mount(JournalScreen, { global: { plugins: [pinia], stubs: { MarkdownEditor: true } } })
+  wrapper = mount(JournalScreen, { attachTo: document.body, global: { plugins: [pinia], stubs: { MarkdownEditor: true } } })
 })
 afterEach(() => {
   wrapper.unmount()
+  document.body.innerHTML = ''
   useNotes().resetPersonalData()
 })
 
@@ -64,5 +66,27 @@ describe('journal mutation feedback', () => {
     expect(wrapper.find('[role="alert"]').exists()).toBe(false)
     expect(wrapper.find('.undo-note').exists()).toBe(false)
     expect(notes.current).toMatchObject({ body: note.body, title: note.title })
+  })
+})
+
+
+describe('journal keyboard selection', () => {
+  it.each(['{Enter}', ' '])('selects an untitled failed-save row with %s without losing its draft', async (key) => {
+    const user = userEvent.setup()
+    const notes = useNotes()
+    notes.list = [note, { ...note, id: 'untitled', title: '', body: 'Unsaved draft', tags: ['tag'] }]
+    notes.currentId = note.id
+    notes.saveErrors.untitled = 'Offline'
+    await flushPromises()
+    const rows = wrapper.findAll('button.item')
+    expect(rows.map((row) => row.attributes('aria-pressed'))).toEqual(['true', 'false'])
+    expect(rows[1].text()).toContain('Untitled note')
+    expect(rows[1].get('[role="status"]').text()).toContain('Save failed')
+    ;(rows[1].element as HTMLElement).focus()
+    await user.keyboard(key)
+    expect(notes.currentId).toBe('untitled')
+    expect(notes.current?.body).toBe('Unsaved draft')
+    expect(rows.map((row) => row.attributes('aria-pressed'))).toEqual(['false', 'true'])
+    expect(wrapper.find('button.item button').exists()).toBe(false)
   })
 })

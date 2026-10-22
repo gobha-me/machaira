@@ -9,6 +9,10 @@ body {
 a { color: var(--accent, #8A3B34); text-decoration: none; }
 a:hover { filter: brightness(0.85); }
 ::selection { background: rgba(201, 162, 39, 0.3); }
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent, #8A3B34);
+  outline-offset: 3px;
+}
 button { font-family: 'Instrument Sans', sans-serif; }
 input, textarea { font-family: 'Instrument Sans', sans-serif; }
 
