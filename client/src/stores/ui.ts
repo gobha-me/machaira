@@ -27,5 +27,9 @@ export const useUi = defineStore('ui', () => {
     settingsSection.value = 'semantic-search'
     go('settings')
   }
-  return { screen, settingsSection, go, openSemanticSettings }
+  function findRelated(phrase: string): void {
+    const query = phrase.trim()
+    if (router && query) void router.push({ name: 'search', query: { related: query } })
+  }
+  return { screen, settingsSection, go, openSemanticSettings, findRelated }
 })

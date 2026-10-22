@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onDeactivated, onMounted, onUnmounted, ref, watch } from 'vue'
 import { isDeuterocanonicalBook } from '@machaira/scripture'
+import { useRoute } from 'vue-router'
 import { useReader } from '../stores/reader'
 import { useLibrary } from '../stores/library'
 import { useUi } from '../stores/ui'
@@ -15,6 +16,7 @@ const lib = useLibrary()
 const ui = useUi()
 const notes = useNotes()
 const semantic = useSemanticIndex()
+const route = useRoute()
 
 const SCOPES = ['Everything', 'Scripture', 'Apocrypha', 'Ancient writings', 'Notes & journal'] as const
 type Scope = (typeof SCOPES)[number]
@@ -29,6 +31,7 @@ const retrying = ref(false)
 const hits = ref<SearchHit[]>([])
 const noteHits = ref<Note[]>([])
 const error = ref<string | null>(null)
+const relatedFallback = ref<string | null>(null)
 const selectedGeneral = ref<SearchHit | null>(null)
 let generation = 0
 let cancelBackoff: (() => void) | undefined
@@ -41,6 +44,7 @@ function invalidate(): void {
   hits.value = []
   noteHits.value = []
   error.value = null
+  relatedFallback.value = null
   selectedGeneral.value = null
 }
 
@@ -91,7 +95,9 @@ function backoff(): Promise<void> {
   })
 }
 
-async function run() {
+async function run() { await execute() }
+
+async function execute(related = false) {
   const query = q.value.trim()
   invalidate()
   if (!query) { searched.value = false; return }
@@ -104,14 +110,27 @@ async function run() {
   loading.value = true
   error.value = null
   searched.value = true
+  if (related && requestedMode === 'exact') {
+    relatedFallback.value = 'Meaning search is unavailable. Showing exact-word matches for the selected text.'
+  }
+  async function searchCorpus(): Promise<SearchHit[]> {
+    if (requestedScope === 'Notes & journal' || !modules.length) return []
+    if (requestedMode === 'exact') return api.search(query, modules, corpusScope)
+    try {
+      const result = await api.semanticSearch(query, modules, 50, corpusScope)
+      if (!related || result.length || activeGeneration !== generation) return result
+    } catch (cause) {
+      if (!related || activeGeneration !== generation) throw cause
+    }
+    if (activeGeneration !== generation) return []
+    relatedFallback.value = 'Meaning search returned no matches or could not complete. Showing exact-word matches for the selected text.'
+    return api.search(query, modules, corpusScope)
+  }
   try {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
         const [corpusResults, notesResults] = await Promise.all([
-          requestedScope !== 'Notes & journal' && modules.length
-            ? requestedMode === 'meaning' ? api.semanticSearch(query, modules, 50, corpusScope)
-              : api.search(query, modules, corpusScope)
-            : Promise.resolve([]),
+          searchCorpus(),
           requestedScope === 'Everything' || requestedScope === 'Notes & journal' ? searchNotes(query) : Promise.resolve([])
         ])
         if (activeGeneration !== generation) return
@@ -189,6 +208,21 @@ function escapeReg(s: string): string {
 }
 
 const resultCount = computed(() => scriptureHits.value.length + (showNotes.value ? noteHits.value.length : 0))
+
+// A route intent works for both a fresh Search mount and the cached screen. Editing
+// the query or navigating away while capability discovery is pending cancels the intent.
+watch(() => route.name === 'search' ? route.query.related : undefined, async (phrase) => {
+  if (typeof phrase !== 'string' || !phrase.trim()) return
+  q.value = phrase.trim()
+  scope.value = 'Everything'
+  invalidate()
+  const activeGeneration = generation
+  await Promise.all([lib.load(), semantic.load().catch(() => undefined)])
+    .catch(() => undefined)
+  if (activeGeneration !== generation || route.name !== 'search' || route.query.related !== phrase) return
+  mode.value = semantic.searchable ? 'meaning' : 'exact'
+  await execute(true)
+}, { immediate: true })
 </script>
 
 <template>
@@ -241,6 +275,14 @@ const resultCount = computed(() => scriptureHits.value.length + (showNotes.value
           By meaning
         </button>
       </div>
+
+      <p
+        v-if="relatedFallback"
+        class="status"
+        role="status"
+      >
+        {{ relatedFallback }}
+      </p>
 
       <div
         v-if="!semantic.searchable || semantic.status.lastError || semantic.error"
@@ -321,7 +363,7 @@ const resultCount = computed(() => scriptureHits.value.length + (showNotes.value
         >
           Showing {{ resultCount }} result{{ resultCount === 1 ? '' : 's' }}
           <template v-if="showScripture && installedNames.length">
-            · {{ mode === 'meaning' ? 'top 50 corpus matches' : 'up to 50 matches per Scripture module; 200 per ancient writing' }}
+            · {{ mode === 'meaning' && !relatedFallback ? 'top 50 corpus matches' : 'up to 50 matches per Scripture module; 200 per ancient writing' }}
           </template>
           <template v-if="showScripture && !installedNames.length">
             · install a translation to search scripture
@@ -341,7 +383,7 @@ const resultCount = computed(() => scriptureHits.value.length + (showNotes.value
               <span class="badge">{{ h.module }}</span>
             </span>
             <!-- eslint-disable-next-line vue/no-v-html, vue/max-attributes-per-line -- highlight escapes content before adding mark tags; escapeHtml handles other results. Keep the tag on one line for a local suppression. -->
-            <span class="rtext serif" v-html="mode === 'exact' ? highlight(h.content) : escapeHtml(h.content)" />
+            <span class="rtext serif" v-html="mode === 'exact' || relatedFallback ? highlight(h.content) : escapeHtml(h.content)" />
           </button>
 
           <button

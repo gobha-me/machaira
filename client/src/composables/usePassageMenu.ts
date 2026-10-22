@@ -1,6 +1,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useReader } from '../stores/reader'
 import { crossReferencesForVerses } from '../utils/crossReferences'
+import { hasNativeTextSelection } from '../utils/textSelection'
 import {
   createLongPress,
   shouldSuppressNativeTouch,
@@ -90,6 +91,7 @@ export function usePassageMenu(opts: UsePassageMenuOptions = {}) {
   // rather than doing nothing, because a menu already open from a right-click is anchored at that
   // earlier click point and would sit over the range as it grows.
   function onVerseClick(n: number, e: MouseEvent) {
+    if (hasNativeTextSelection(e.currentTarget) || e.detail >= 2) return
     if (suppressesNativeTouchEvent(n)) return
     if (e.shiftKey && reader.selectedVerse != null) {
       reader.extendSelection(n)
@@ -100,12 +102,14 @@ export function usePassageMenu(opts: UsePassageMenuOptions = {}) {
     dismiss()
   }
 
-  // Right click (also long-press on touch): the dedicated menu opener. Keep an existing range
+  // Right click (also verse-number long-press on touch): the dedicated menu opener. Keep an existing range
   // intact when the click lands inside it — that's what makes Highlight/Note/Compare act on the
   // range — and start fresh only when it lands outside. selectedVerses is [] with nothing
   // selected, so a first right-click still selects; and because `n` is never the current lone
   // selection here, selectVerse's toggle-off branch can't fire from a right-click.
   function onVerseContext(n: number, e: MouseEvent) {
+    // Leave the browser's Copy/Share menu intact for native word/phrase selections.
+    if (nativeTextTouch || hasNativeTextSelection(e.currentTarget)) { dismiss(); return }
     e.preventDefault()
     if (suppressesNativeTouchEvent(n)) return
     if (!reader.selectedVerses.includes(n)) reader.selectVerse(n)
@@ -128,8 +132,8 @@ export function usePassageMenu(opts: UsePassageMenuOptions = {}) {
   }
 
   // Mobile browsers do not expose Shift, and native context-menu timing varies by platform.
-  // Own a movement-cancelled long press so touch users can extend a range and open the same
-  // passage actions as a desktop right-click without turning a vertical scroll into a selection.
+  // Own a movement-cancelled long press on verse numbers so touch users can extend a range
+  // and open passage actions while leaving prose available for native text selection.
   let suppressNativeTouch: NativeTouchSuppression | null = null
   const longPress = createLongPress((verse, position) => {
     const action = touchSelectionAction(reader.selectedVerse, reader.selectedVerses, verse)
@@ -147,7 +151,13 @@ export function usePassageMenu(opts: UsePassageMenuOptions = {}) {
     return shouldSuppressNativeTouch(suppressNativeTouch, verse)
   }
 
+  let nativeTextTouch = false
   function onVersePointerDown(n: number, e: PointerEvent) {
+    // Prose long-press belongs to the browser's text selection and copy handles.
+    // Verse-number long-press retains the passage range gesture.
+    const prose = e.target instanceof Element && e.target.closest('[data-selection-text]')
+    nativeTextTouch = !!prose && e.pointerType === 'touch'
+    if (prose) { longPress.cancel(); return }
     longPress.start(n, e)
   }
 
@@ -168,6 +178,7 @@ export function usePassageMenu(opts: UsePassageMenuOptions = {}) {
   // Word spans keep @click.stop so a plain lookup doesn't also re-select the verse, which means
   // the shift gesture has to be forwarded here rather than bubbling to onVerseClick.
   function onWordClick(n: number, strongs: string[], e: MouseEvent) {
+    if (hasNativeTextSelection(e.currentTarget) || e.detail >= 2) return
     if (e.shiftKey) {
       onVerseClick(n, e)
       return

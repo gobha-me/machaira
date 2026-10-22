@@ -5,7 +5,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import userEvent from '@testing-library/user-event'
 import { useReader } from '../stores/reader'
 import { useNotes } from '../stores/notes'
-import { api, ApiError, type SearchHit } from '../services/api'
+import { api, ApiError, type SearchHit, type SemanticSearchHit } from '../services/api'
 import { useUi } from '../stores/ui'
 import { useLibrary } from '../stores/library'
 import { useSemanticIndex } from '../stores/semanticIndex'
@@ -55,6 +55,94 @@ async function scope(label: string) {
 }
 
 describe('search request ownership and scopes', () => {
+  it.each(['unconfigured', 'stale', 'failed', 'empty', 'building'] as const)(
+    'Find related falls back to exact when semantic search is %s', async (state) => {
+      useSemanticIndex().status.state = state
+      const meaning = vi.spyOn(api, 'semanticSearch').mockRejectedValue(new Error('must not call'))
+      const exact = vi.spyOn(api, 'search').mockResolvedValue([hit('In the beginning')])
+      useUi().findRelated('  In the beginning  ')
+      await flushPromises()
+      expect((wrapper.get('input.query').element as HTMLInputElement).value).toBe('In the beginning')
+      expect(exact).toHaveBeenCalledExactlyOnceWith('In the beginning', ['WEB', 'Ancient'], 'all')
+      expect(meaning).not.toHaveBeenCalled()
+      expect(wrapper.text()).toContain('Showing exact-word matches')
+      expect(wrapper.get('.result').text()).toContain('In the beginning')
+    }
+  )
+
+  it.each(['empty', 'offline'])('Find related falls back after semantic %s', async (outcome) => {
+    const meaning = vi.spyOn(api, 'semanticSearch')
+    if (outcome === 'empty') meaning.mockResolvedValue([])
+    else meaning.mockRejectedValue(new ApiError(502, { error: 'embedding failed' }))
+    const exact = vi.spyOn(api, 'search').mockResolvedValue([hit('The Word was God')])
+    useUi().findRelated('the Word')
+    await flushPromises()
+    expect(meaning).toHaveBeenCalledExactlyOnceWith('the Word', ['WEB', 'Ancient'], 50, 'all')
+    expect(exact).toHaveBeenCalledExactlyOnceWith('the Word', ['WEB', 'Ancient'], 'all')
+    expect(wrapper.text()).toContain('Showing exact-word matches')
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(wrapper.get('.count').text()).not.toContain('top 50 corpus matches')
+  })
+
+  it('keeps semantic results when available, then processes another selection in the cached screen', async () => {
+    const meaning = vi.spyOn(api, 'semanticSearch').mockResolvedValue([{ ...hit('Meaning result'), distance: 0 }])
+    const exact = vi.spyOn(api, 'search').mockRejectedValue(new Error('must not call'))
+    useUi().findRelated('first phrase')
+    await flushPromises()
+    expect(wrapper.text()).toContain('Meaning result')
+    expect(exact).not.toHaveBeenCalled()
+    useUi().go('read')
+    await flushPromises()
+    useUi().findRelated('second phrase')
+    await flushPromises()
+    expect(meaning).toHaveBeenLastCalledWith('second phrase', ['WEB', 'Ancient'], 50, 'all')
+    expect(meaning).toHaveBeenCalledTimes(2)
+  })
+
+  it('reports an exact fallback failure and never displays old results', async () => {
+    vi.spyOn(api, 'semanticSearch').mockRejectedValue(new Error('embedding offline'))
+    vi.spyOn(api, 'search').mockRejectedValue(new Error('exact unavailable'))
+    useUi().findRelated('the Word')
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toContain('exact unavailable')
+    expect(wrapper.find('.result').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('No matches')
+  })
+
+  it.each(['success', 'failure'])('does not start an obsolete fallback after semantic %s', async (outcome) => {
+    const pending = deferred<SemanticSearchHit[]>()
+    vi.spyOn(api, 'semanticSearch').mockReturnValueOnce(pending.promise)
+    const exact = vi.spyOn(api, 'search').mockResolvedValue([hit('Current result')])
+    useUi().findRelated('obsolete phrase')
+    await flushPromises()
+    await wrapper.findAll('button.mode')[0].trigger('click')
+    await search('current')
+    await flushPromises()
+    exact.mockClear()
+    if (outcome === 'success') pending.resolve([])
+    else pending.reject(new Error('obsolete'))
+    await flushPromises()
+    expect(exact).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('Current result')
+    expect(wrapper.text()).not.toContain('obsolete')
+  })
+
+  it('cancels capability discovery on editing or navigation before dispatching a selected phrase', async () => {
+    const discovery = deferred<void>()
+    vi.mocked(useSemanticIndex().load).mockReturnValue(discovery.promise)
+    const meaning = vi.spyOn(api, 'semanticSearch')
+    const exact = vi.spyOn(api, 'search')
+    useUi().findRelated('selected phrase')
+    await flushPromises()
+    await wrapper.get('input.query').setValue('edited query')
+    useUi().go('read')
+    await flushPromises()
+    discovery.resolve()
+    await flushPromises()
+    expect(meaning).not.toHaveBeenCalled()
+    expect(exact).not.toHaveBeenCalled()
+  })
+
   it.each(['stale', 'failed', 'unconfigured'] as const)(
     'shows exact-search results through /api/search with a %s semantic index', async (state) => {
       useSemanticIndex().status.state = state
