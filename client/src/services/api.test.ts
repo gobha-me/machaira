@@ -70,6 +70,22 @@ describe('API request content type', () => {
   })
 })
 
+describe('TTS downloads', () => {
+  it.each([502, 503])('rejects an ingress HTTP %s HTML response instead of treating it as audio', async (status) => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('<html>upstream unavailable</html>', {
+      status, headers: { 'content-type': 'text/html' }
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const abort = new AbortController()
+    await expect(api.ttsSpeech('local', 'In the beginning', abort.signal)).rejects.toMatchObject({
+      status, body: {}
+    })
+    expect(fetchMock).toHaveBeenCalledWith('/api/tts/speech', expect.objectContaining({
+      method: 'POST', signal: abort.signal
+    }))
+  })
+})
+
 describe('chat SSE parser', () => {
   it('joins fragmented frames and emits deltas', async () => {
     const deltas: string[] = []

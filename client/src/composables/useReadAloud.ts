@@ -8,6 +8,7 @@ export interface SpokenVerse {
 }
 
 interface SpeechSynthesisUtteranceLike {
+  onstart: (() => void) | null
   onend: (() => void) | null
   onerror: ((event: { error: string }) => void) | null
 }
@@ -70,6 +71,8 @@ interface RemoteEntry {
 }
 
 const MAX_SYNTHESIS_CONCURRENCY = 2
+// Allow the server's 60-second provider timeout plus ingress and body-download overhead.
+const REMOTE_VERSE_TIMEOUT_MS = 90_000
 
 class RemoteAudioBuffer {
   private readonly entries = new Map<string, RemoteEntry>()
@@ -81,7 +84,8 @@ class RemoteAudioBuffer {
   constructor(
     private readonly verses: readonly SpokenVerse[],
     private readonly capacity: number,
-    private readonly fetchAudio: ReadAloudEnvironment['fetchAudio']
+    private readonly fetchAudio: ReadAloudEnvironment['fetchAudio'],
+    private readonly onReady: (index: number) => void
   ) {}
 
   private key(tier: RemoteTier, index: number): string {
@@ -127,11 +131,8 @@ class RemoteAudioBuffer {
     this.queue.push(entry)
     this.queue.sort((left, right) => left.priority - right.priority)
     if (!foreground) {
-      void promise.catch((failure) => {
-        if (!(failure instanceof ReadAloudCancelledError) && !entry.controller.signal.aborted) {
-          this.failedPrefetches.add(key)
-        }
-      })
+      // Background failures are observed here and retried only at the playhead.
+      void promise.catch(() => {})
     }
     this.pump()
     return promise
@@ -145,21 +146,48 @@ class RemoteAudioBuffer {
       if (this.entries.get(entry.key) !== entry) continue
       entry.started = true
       this.activeRequests += 1
-      void this.fetchAudio(
+      void this.synthesize(entry)
+    }
+  }
+
+  private async synthesize(entry: RemoteEntry): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let onAbort: () => void = () => {}
+    const interrupted = new Promise<never>((_resolve, reject) => {
+      onAbort = () => reject(new ReadAloudCancelledError())
+      entry.controller.signal.addEventListener('abort', onAbort, { once: true })
+      timer = setTimeout(() => {
+        reject(new Error('Audio request timed out after 90 seconds'))
+        entry.controller.abort()
+      }, REMOTE_VERSE_TIMEOUT_MS)
+    })
+    try {
+      // Race the whole download, not just headers. Abort alone cannot settle a
+      // stalled adapter; the race also frees its concurrency slot on cancellation.
+      const blob = await Promise.race([interrupted, this.fetchAudio(
         entry.tier,
         this.verses[entry.index]!.text,
         entry.controller.signal
-      ).then((blob) => {
-        if (this.entries.get(entry.key) !== entry) return
-        entry.ready = true
-        entry.resolve(blob)
-      }, (failure) => {
-        if (this.entries.get(entry.key) === entry) this.entries.delete(entry.key)
-        entry.reject(failure instanceof Error ? failure : new Error('Remote synthesis failed'))
-      }).finally(() => {
-        this.activeRequests -= 1
-        this.pump()
-      })
+      )])
+      if (this.entries.get(entry.key) !== entry) return
+      entry.ready = true
+      this.onReady(entry.index)
+      entry.resolve(blob)
+    } catch (failure) {
+      if (this.entries.get(entry.key) === entry) {
+        this.entries.delete(entry.key)
+        // Record failure before rejecting: a foreground continuation can maintain
+        // the buffer before a promise catch callback would run.
+        if (entry.priority === 1 && !(failure instanceof ReadAloudCancelledError)) {
+          this.failedPrefetches.add(entry.key)
+        }
+      }
+      entry.reject(failure instanceof Error ? failure : new Error('Remote synthesis failed'))
+    } finally {
+      clearTimeout(timer)
+      entry.controller.signal.removeEventListener('abort', onAbort)
+      this.activeRequests -= 1
+      this.pump()
     }
   }
 
@@ -315,6 +343,7 @@ function failureDetail(tier: TtsTier, failure: unknown): string {
     'Browser speech is unavailable',
     'Browser speech did not respond',
     'Browser speech stopped unexpectedly',
+    'Audio request timed out after 90 seconds',
     'Generated audio could not be played',
     'Audio download failed',
     'Generated audio could not be decoded',
@@ -345,6 +374,10 @@ export function createReadAloudController(
   let generation = 0
   let playbackGeneration = 0
   let config: TtsConfig | null = null
+  let verses: readonly SpokenVerse[] = []
+  // Count every successfully synthesized verse once, including audio already
+  // consumed and evicted from the bounded buffer.
+  const preparedVerses = new Set<number>()
   let buffer: RemoteAudioBuffer | null = null
   let bufferedTier: RemoteTier | null = null
   let sessionAudio: ReturnType<NonNullable<ReadAloudEnvironment['createAudio']>> | null = null
@@ -371,12 +404,11 @@ export function createReadAloudController(
     && !preparing.value
     && !error.value
     && currentIndex.value != null
-    && currentIndex.value + 1 < options.verses().length)
+    && currentIndex.value + 1 < verses.length)
 
   const progress = computed(() => {
     if (completed.value) return 100
     if (currentVerse.value == null) return 0
-    const verses = options.verses()
     const index = verses.findIndex((verse) => verse.n === currentVerse.value)
     return index < 0 || !verses.length ? 0 : Math.round(((index + 1) / verses.length) * 100)
   })
@@ -428,6 +460,7 @@ export function createReadAloudController(
     preparing.value = false
     preparedCount.value = 0
     preparationTarget.value = 0
+    preparedVerses.clear()
   }
 
   function playBrowser(text: string, token: number): Promise<void> {
@@ -440,6 +473,9 @@ export function createReadAloudController(
       const finish = (failure?: Error) => {
         if (settled) return
         settled = true
+        utterance.onstart = null
+        preparing.value = false
+        playing.value = false
         clearBrowserWatchdog()
         settleBrowser = null
         if (failure) reject(failure)
@@ -454,6 +490,12 @@ export function createReadAloudController(
         }, timeoutMs)
       }
       settleBrowser = finish
+      preparing.value = true
+      utterance.onstart = () => {
+        if (settled) return
+        preparing.value = false
+        playing.value = true
+      }
       utterance.onend = () => finish()
       utterance.onerror = (event) => {
         if (token !== generation || event.error === 'canceled' || event.error === 'interrupted') {
@@ -497,6 +539,8 @@ export function createReadAloudController(
       const finish = (failure?: Error, releaseNow = true) => {
         if (settled) return
         settled = true
+        preparing.value = false
+        playing.value = false
         clearOwnership()
         if (releaseNow) release()
         if (failure) reject(failure)
@@ -523,6 +567,7 @@ export function createReadAloudController(
 
       const playbackFailed = (failure: unknown) => {
         if (settled) return
+        preparing.value = false
         if (failure && typeof failure === 'object' && 'name' in failure && failure.name === 'NotAllowedError') {
           // Keep the ready source and provider: retry play() directly in the next click.
           needsAudioGesture.value = true
@@ -532,7 +577,8 @@ export function createReadAloudController(
         finish(failure instanceof Error ? failure : new Error('Generated audio could not be played'))
       }
       const attemptPlay = () => {
-        playing.value = true
+        playing.value = false
+        preparing.value = true
         let playPromise: Promise<void>
         try {
           playSettled = false
@@ -547,6 +593,8 @@ export function createReadAloudController(
             playSettled = true
             if (releaseAfterPlaySettles) release()
             if (settled) return
+            preparing.value = false
+            playing.value = true
             needsAudioGesture.value = false
           },
           (failure) => {
@@ -574,12 +622,8 @@ export function createReadAloudController(
     if (!buffer) throw new ReadAloudCancelledError()
     if (buffer.isReady(tier, index)) return buffer.current(tier, index)
     preparing.value = true
-    preparedCount.value = 0
-    preparationTarget.value = 1
     try {
-      const blob = await buffer.current(tier, index)
-      if (isCurrentRun(token, playToken)) preparedCount.value = 1
-      return blob
+      return await buffer.current(tier, index)
     } finally {
       if (isCurrentRun(token, playToken)) preparing.value = false
     }
@@ -639,7 +683,6 @@ export function createReadAloudController(
   }
 
   async function run(token: number, playToken: number, startIndex: number): Promise<void> {
-    const verses = options.verses()
     try {
       for (let index = startIndex; index < verses.length; index += 1) {
         if (!isCurrentRun(token, playToken)) return
@@ -662,7 +705,8 @@ export function createReadAloudController(
     const token = generation
     const playToken = ++playbackGeneration
     cancelCurrentPlayback()
-    playing.value = true
+    playing.value = false
+    preparing.value = false
     completed.value = false
     error.value = null
     notice.value = null
@@ -670,11 +714,15 @@ export function createReadAloudController(
   }
 
   function start(): void {
-    const verses = options.verses()
-    if (!supported.value || !verses.length) return
+    const chapterVerses = options.verses()
+    if (!supported.value || !chapterVerses.length) return
     generation += 1
     cancelSession()
     unavailable.clear()
+    const found = chapterVerses.findIndex((verse) => verse.n === options.startVerse())
+    // Snapshot the chapter tail so selection changes cannot truncate a running queue.
+    verses = chapterVerses.slice(Math.max(0, found)).map((verse) => ({ ...verse }))
+    preparationTarget.value = verses.length
     config = copyConfig(options.config())
     if (config.order.some((tier) => tier !== 'browser' && config![tier]) && environment.createAudio) {
       // start() is called synchronously by Listen (also when browser speech is first).
@@ -685,18 +733,19 @@ export function createReadAloudController(
         // An unlock failure must not prevent synthesis or explicit tap recovery.
       }
     }
-    buffer = new RemoteAudioBuffer(verses, config.remoteAudioCacheSize, environment.fetchAudio)
+    buffer = new RemoteAudioBuffer(verses, config.remoteAudioCacheSize, environment.fetchAudio, (index) => {
+      preparedVerses.add(index)
+      preparedCount.value = preparedVerses.size
+    })
     active.value = true
-    playing.value = true
+    playing.value = false
     completed.value = false
     error.value = null
     notice.value = null
     currentVerse.value = null
     currentIndex.value = null
     currentProvider.value = null
-    const requestedVerse = options.startVerse()
-    const found = verses.findIndex((verse) => verse.n === requestedVerse)
-    beginRun(Math.max(0, found))
+    beginRun(0)
   }
 
   function toggle(): void {
@@ -715,7 +764,11 @@ export function createReadAloudController(
       recoverAudio()
       return
     }
-    if (completed.value || error.value) {
+    if (error.value) {
+      retry()
+      return
+    }
+    if (completed.value) {
       start()
       return
     }
@@ -743,10 +796,18 @@ export function createReadAloudController(
     }
   }
 
+  function retry(): void {
+    if (!active.value || !error.value || currentIndex.value == null) return
+    unavailable.clear()
+    // Retry is a user gesture; keep the failed playhead and the chapter queue.
+    try { sessionAudio?.unlock() } catch { /* explicit tap recovery is still available */ }
+    beginRun(currentIndex.value)
+  }
+
   function seek(offset: -1 | 1): void {
     if (!active.value || preparing.value || currentIndex.value == null) return
     const target = currentIndex.value + offset
-    if (target < 0 || target >= options.verses().length) return
+    if (target < 0 || target >= verses.length) return
     beginRun(target)
   }
 
@@ -793,6 +854,7 @@ export function createReadAloudController(
     toggle,
     togglePlayback,
     recoverAudio,
+    retry,
     previous,
     next,
     stop
