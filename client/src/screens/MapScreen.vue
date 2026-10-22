@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onScopeDispose, ref, shallowRef, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { bookName, type CrossReferenceMapEdge, type CrossReferenceMapPayload, type CrossReferenceMapScope } from '@machaira/scripture'
+import { bookName, type CrossReferenceMapEdge, type CrossReferenceMapNode, type CrossReferenceMapPayload, type CrossReferenceMapScope } from '@machaira/scripture'
 import { api } from '../services/api'
 import { useLibrary } from '../stores/library'
 import { useReader } from '../stores/reader'
@@ -32,10 +32,18 @@ function sampleLabel(reference: string) {
   const [code, c, verse] = reference.split('.')
   return `${bookName(code)} ${c}:${verse}`
 }
-function describe(edge: CrossReferenceMapEdge) {
-  return `${labels.value.get(edge.source)} → ${labels.value.get(edge.target)} · ${edge.count.toLocaleString()} links. Example: ${sampleLabel(edge.sample.source)} → ${sampleLabel(edge.sample.target)}`
+function describe(edge: CrossReferenceMapEdge, paired = false) {
+  return `${labels.value.get(edge.source)} ${paired ? '↔' : '→'} ${labels.value.get(edge.target)} · ${edge.count.toLocaleString()} links. Example: ${sampleLabel(edge.sample.source)} → ${sampleLabel(edge.sample.target)}`
 }
 function changeBook() { chapter.value = ''; chapterOptions.value = [] }
+function selectNode(node: CrossReferenceMapNode) {
+  // Ignore stale axis events while a replacement scope is loading.
+  if (!payload.value?.nodes.includes(node)) return
+  if (node.verse !== null) { void open(`${node.book}.${node.chapter}.${node.verse}`); return }
+  if (book.value !== node.book) changeBook()
+  book.value = node.book
+  chapter.value = node.chapter === null ? '' : String(node.chapter)
+}
 watch([scope, retry], async (_value, _old, onCleanup) => {
   const controller = new AbortController()
   let current = true
@@ -221,12 +229,17 @@ async function open(reference: string) {
             :maximum="maximum"
             @preview="hovered = $event"
             @open="open($event.sample.target)"
-          />
+            @select="selectNode"
+          >
+            <template #tooltip="{ edge, overview: paired }">
+              {{ describe(edge, paired) }}
+            </template>
+          </CrossReferenceMapCanvas>
           <p
             class="hover-detail"
             aria-live="polite"
           >
-            {{ hovered ? describe(hovered) : 'Hover an arc to see its connection. Tap or click to open its example target in Read.' }}
+            {{ hovered ? describe(hovered, !book) : 'Hover an arc to see its connection. Tap or click to open its example target in Read.' }}
           </p>
           <div class="legend">
             <span>{{ similarity ? 'More similar' : 'Genesis' }}</span><span
@@ -299,7 +312,7 @@ async function open(reference: string) {
         Install a Bible in Library to open passages in Read.
       </p>
       <p class="map-explanation">
-        {{ book ? 'Showing incoming and outgoing links for this selection. Other books stay grouped.' : 'All 66 books in canonical order. Choose a book, then a chapter, to zoom to individual verses.' }} Arc width reflects link count; {{ similarity ? 'colour reflects distance between mean embeddings.' : 'colour follows the source along the axis.' }}
+        {{ book ? 'Showing incoming and outgoing links for this selection. Other books stay grouped.' : 'All 66 books in canonical order. Each arc combines links in both directions for a book pair. Choose an axis label to explore a book, chapter, or verse.' }} Arc width and opacity reflect link count; {{ similarity ? 'colour reflects distance between mean embeddings.' : 'colour follows the representative source along the axis.' }}
       </p>
       <p class="credits">
         Data: <a href="https://www.openbible.info/labs/cross-references/">OpenBible.info Bible Cross References</a> · <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>. Aggregated for display; ranges plotted at their starting verse. Canonical coordinates are mapped to your translation when opening Read. Inspired by Chris Harrison’s arc diagrams.

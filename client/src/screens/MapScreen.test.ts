@@ -13,6 +13,7 @@ import { useSemanticIndex } from '../stores/semanticIndex'
 import { createAppRouter } from '../router'
 import MapScreen from './MapScreen.vue'
 import { pathologicalModule } from '../test/fixtures/moduleInfo'
+import CrossReferenceMapCanvas from '../components/CrossReferenceMapCanvas.vue'
 
 // Real dataset row from the bundled OpenBible snapshot, not production fallback data.
 const graph: CrossReferenceMapPayload = {
@@ -96,6 +97,36 @@ describe('cross-reference map failure paths and keyboard alternative', () => {
     expect(wrapper.findAll('.link-list li')).toHaveLength(1)
     expect(button('Previous').disabled).toBe(true)
     expect(button('Next').disabled).toBe(true)
+  })
+
+  it('drills down from axis labels, opens verse nodes, and ignores stale nodes after a load failure', async () => {
+    const { wrapper, router } = await render()
+    const chapterNode = { id: 'Gen.1', book: 'Gen', chapter: 1, verse: null, label: 'Genesis 1' }
+    const verseNode = { ...chapterNode, id: 'Gen.1.1', verse: 1, label: 'Genesis 1:1' }
+    const canvas = () => wrapper.getComponent(CrossReferenceMapCanvas)
+    vi.mocked(api.crossReferenceMap).mockResolvedValueOnce({ ...graph, nodes: [chapterNode, graph.nodes[1]] })
+    canvas().vm.$emit('select', graph.nodes[0])
+    await flushPromises()
+    expect(api.crossReferenceMap).toHaveBeenLastCalledWith({ book: 'Gen' }, expect.any(AbortSignal))
+    vi.mocked(api.crossReferenceMap).mockResolvedValueOnce({ ...graph, nodes: [verseNode, graph.nodes[1]] })
+    canvas().vm.$emit('select', chapterNode)
+    await flushPromises()
+    expect(api.crossReferenceMap).toHaveBeenLastCalledWith({ book: 'Gen', chapter: 1 }, expect.any(AbortSignal))
+    vi.spyOn(api, 'resolveMapReference').mockResolvedValue({ target: null })
+    canvas().vm.$emit('select', verseNode)
+    await flushPromises()
+    expect(api.resolveMapReference).toHaveBeenCalledWith('KJV', 'Gen.1.1')
+    expect(wrapper.get('[role=alert]').text()).toContain('unavailable')
+    expect(router.currentRoute.value.name).toBe('map')
+    const previous = canvas().vm
+    vi.mocked(api.crossReferenceMap).mockRejectedValueOnce(new Error('offline'))
+    canvas().vm.$emit('select', graph.nodes[1])
+    await flushPromises()
+    expect(wrapper.get('[role=alert]').text()).toContain('Could not load')
+    const calls = vi.mocked(api.crossReferenceMap).mock.calls.length
+    previous.$emit('select', chapterNode)
+    await flushPromises()
+    expect(api.crossReferenceMap).toHaveBeenCalledTimes(calls)
   })
 
   it('opens a mapped passage in Read with Enter, and reports missing verses and resolver failures', async () => {
