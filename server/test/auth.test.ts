@@ -17,6 +17,52 @@ function cookie(response: { headers: Record<string, string | string[] | undefine
 }
 
 describe('authentication API', () => {
+  it('accepts empty JSON logout, preserves sessions on malformed JSON, and keeps credential routes strict', async () => {
+    const app = await buildApp({
+      databasePath: ':memory:', secretKey: randomBytes(32), logger: false, registerFeatureRoutes: false
+    })
+    await app.ready()
+    try {
+      const session = cookie(await app.inject({
+        method: 'POST', url: '/api/auth/bootstrap',
+        payload: { username: 'Owner', password: 'correct horse battery staple' }
+      }))
+      const headers = { cookie: session, 'content-type': 'application/json' }
+      for (const payload of ['{', ' ', '{"__proto__":{"admin":true}}', '{"constructor":{"prototype":{"admin":true}}}']) {
+        const rejected = await app.inject({
+          method: 'POST', url: '/api/auth/logout', headers, payload
+        })
+        assert.equal(rejected.statusCode, 400)
+        assert.equal(rejected.json().code, 'FST_ERR_CTP_INVALID_JSON_BODY')
+        assert.equal(rejected.headers['set-cookie'], undefined)
+      }
+      assert.equal((await app.inject({
+        method: 'POST', url: '/api/auth/logout', headers, payload: ' '.repeat(1024 * 1024 + 1)
+      })).statusCode, 413)
+      assert.equal((await app.inject({
+        method: 'GET', url: '/api/auth/status', headers: { cookie: session }
+      })).json().state, 'authenticated')
+
+      for (const url of ['/api/auth/login', '/api/auth/password']) {
+        const emptyCredentials = await app.inject({ method: 'POST', url, headers, payload: '' })
+        assert.equal(emptyCredentials.statusCode, 400)
+        assert.equal(emptyCredentials.json().code, 'FST_ERR_CTP_EMPTY_JSON_BODY')
+      }
+      const logout = await app.inject({ method: 'POST', url: '/api/auth/logout', headers, payload: '' })
+      assert.equal(logout.statusCode, 204)
+      assert.equal(logout.body, '')
+      assert.match(String(logout.headers['set-cookie']), /Max-Age=0|Expires=Thu, 01 Jan 1970/)
+      assert.equal((await app.inject({
+        method: 'GET', url: '/api/auth/status', headers: { cookie: session }
+      })).json().state, 'anonymous')
+      assert.equal((await app.inject({
+        method: 'POST', url: '/api/auth/logout', headers, payload: ''
+      })).statusCode, 401)
+    } finally {
+      await app.close()
+    }
+  })
+
   it('bootstraps once, gates APIs, and manages accounts and sessions', async () => {
     const app = await buildApp({
       databasePath: ':memory:',

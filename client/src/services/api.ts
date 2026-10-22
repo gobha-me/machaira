@@ -441,10 +441,11 @@ async function requestVoid(url: string, init?: RequestInit): Promise<void> {
 }
 
 function json(method: string, body?: unknown): RequestInit {
+  if (body === undefined) return { method }
   return {
     method,
     headers: { 'content-type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body)
+    body: JSON.stringify(body)
   }
 }
 

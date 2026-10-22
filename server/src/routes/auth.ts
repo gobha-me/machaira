@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply } from 'fastify'
+import { registerBodilessPost } from './bodiless.js'
 import {
   AuthConflictError,
   AuthForbiddenError,
@@ -93,7 +94,7 @@ export async function registerAuth(
     return { user }
   })
 
-  app.post('/api/auth/logout', async (request, reply) => {
+  await registerBodilessPost(app, '/api/auth/logout', async (request, reply) => {
     auth.revokeSession(request.cookies[SESSION_COOKIE])
     clearSessionCookie(reply, secureCookies)
     return reply.code(204).send()

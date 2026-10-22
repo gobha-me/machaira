@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
+import { registerBodilessPost } from './bodiless.js'
 import {
   AiInputError,
   type AiProviderService,
@@ -53,7 +54,7 @@ export async function registerAi(
     conversations: chats.list(request.authUser!.id)
   }))
 
-  app.post('/api/ai/conversations', async (request, reply) => (
+  await registerBodilessPost(app, '/api/ai/conversations', async (request, reply) => (
     reply.code(201).send({ conversation: chats.create(request.authUser!.id) })
   ))
 
