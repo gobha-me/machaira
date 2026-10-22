@@ -17,19 +17,48 @@ defineEmits<{ (e: 'close'): void }>()
 </script>
 
 <template>
-  <div class="xref-card" :class="variant">
+  <div
+    class="xref-card"
+    :class="variant"
+  >
     <div class="xref-head">
-      <span class="xref-label" :title="moduleName || undefined">
+      <span
+        class="xref-label"
+        :title="moduleName || undefined"
+      >
         Cross-references<template v-if="moduleName"> · {{ moduleName }}</template>
       </span>
-      <div class="xref-spacer"></div>
-      <button v-if="closable" class="xref-close hover-ink" @click="$emit('close')">✕</button>
+      <div class="xref-spacer" />
+      <button
+        v-if="closable"
+        class="xref-close hover-ink"
+        @click="$emit('close')"
+      >
+        ✕
+      </button>
     </div>
 
-    <p v-if="!refLabel" class="xref-state">Select a passage to see embedded cross-references.</p>
-    <p v-else-if="!entries.length" class="xref-state">{{ emptyReason }}</p>
-    <div v-else class="xref-list">
-      <div v-for="(entry, i) in entries" :key="`${entry.verse}-${i}`" class="xref-entry">
+    <p
+      v-if="!refLabel"
+      class="xref-state"
+    >
+      Select a passage to see embedded cross-references.
+    </p>
+    <p
+      v-else-if="!entries.length"
+      class="xref-state"
+    >
+      {{ emptyReason }}
+    </p>
+    <div
+      v-else
+      class="xref-list"
+    >
+      <div
+        v-for="(entry, i) in entries"
+        :key="`${entry.verse}-${i}`"
+        class="xref-entry"
+      >
         <span class="xref-verse">{{ entry.verse }}</span>
         <span class="xref-text serif">{{ entry.text }}</span>
       </div>

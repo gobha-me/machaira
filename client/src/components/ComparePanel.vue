@@ -23,9 +23,23 @@ const multiVerse = computed(() => props.rows.some((r) => r.verses.length > 1))
 </script>
 
 <template>
-  <div v-if="comparing" class="cp-state">Comparing…</div>
-  <p v-else-if="error" class="cp-error">{{ error }}</p>
-  <div v-else-if="rows.length" class="cp-list" :class="variant">
+  <div
+    v-if="comparing"
+    class="cp-state"
+  >
+    Comparing…
+  </div>
+  <p
+    v-else-if="error"
+    class="cp-error"
+  >
+    {{ error }}
+  </p>
+  <div
+    v-else-if="rows.length"
+    class="cp-list"
+    :class="variant"
+  >
     <div
       v-for="(r, i) in rows"
       :key="r.module"
@@ -40,13 +54,23 @@ const multiVerse = computed(() => props.rows.some((r) => r.verses.length > 1))
         {{ r.module }}
       </span>
       <div class="cp-verses">
-        <p v-for="v in r.verses" :key="v.n" class="cp-verse serif">
-          <sup v-if="multiVerse" class="cp-vn">{{ v.n }}</sup>{{ v.text ?? '—' }}
+        <p
+          v-for="v in r.verses"
+          :key="v.n"
+          class="cp-verse serif"
+        >
+          <sup
+            v-if="multiVerse"
+            class="cp-vn"
+          >{{ v.n }}</sup>{{ v.text ?? '—' }}
         </p>
       </div>
     </div>
   </div>
-  <p v-else class="cp-state">
+  <p
+    v-else
+    class="cp-state"
+  >
     Install more than one translation in the Library to compare renderings.
   </p>
 </template>

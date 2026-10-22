@@ -234,7 +234,7 @@ describe('authentication storage', () => {
     const filename = join(dir, 'auth.sqlite')
     const key = randomBytes(32)
     const db = openDatabase(filename)
-    let sessionToken = ''
+    let sessionToken: string
     try {
       const auth = new AuthService(db)
       const user = await auth.bootstrap('owner', 'correct horse battery staple')

@@ -35,12 +35,12 @@ describe('library dialog accessibility', () => {
     const close = dialog.querySelector<HTMLButtonElement>('[aria-label="Close details"]')!
     expect(document.activeElement).toBe(close)
     await user.tab({ shift: true })
-    expect(document.activeElement?.textContent).toBe('Remove')
+    expect(document.activeElement?.textContent?.trim()).toBe('Remove')
     await user.tab()
     expect(document.activeElement).toBe(close)
     // Public-domain consent is disabled and must be skipped by Tab.
     await user.tab()
-    expect(document.activeElement?.textContent).toBe('Remove')
+    expect(document.activeElement?.textContent?.trim()).toBe('Remove')
     if (dismissal === 'Escape') await user.keyboard('{Escape}')
     else if (dismissal === 'button') await user.click(close)
     else await user.click(dialog)

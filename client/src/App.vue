@@ -84,7 +84,7 @@ onMounted(() => {
   window.addEventListener('pagehide', flushNoteDrafts)
   document.addEventListener('visibilitychange', onVisibilityChange)
   readingPlan.startClock()
-  auth.initialize()
+  void auth.initialize()
 })
 onUnmounted(() => {
   personalLoadGeneration += 1
@@ -188,32 +188,70 @@ watch(
 </script>
 
 <template>
-  <div v-if="auth.state === 'loading' || (auth.authenticated && personalLoading)" class="loading-page">
-    <div class="loading-mark"></div>
+  <div
+    v-if="auth.state === 'loading' || (auth.authenticated && personalLoading)"
+    class="loading-page"
+  >
+    <div class="loading-mark" />
   </div>
-  <div v-else-if="auth.state === 'error' || (auth.authenticated && (personalError || !personalReady))" class="personal-error-page">
+  <div
+    v-else-if="auth.state === 'error' || (auth.authenticated && (personalError || !personalReady))"
+    class="personal-error-page"
+  >
     <div class="personal-error-card">
       <h1>{{ auth.state === 'error' ? 'Couldn’t load your session' : 'Couldn’t load your account data' }}</h1>
       <p>{{ auth.error ?? personalError ?? 'Personal data is not ready yet.' }}</p>
-      <button @click="retryPersonalData">Try again</button>
+      <button @click="retryPersonalData">
+        Try again
+      </button>
     </div>
   </div>
   <AuthScreen v-else-if="!auth.authenticated" />
-  <div v-else class="app-root">
+  <div
+    v-else
+    class="app-root"
+  >
     <RailNav />
     <main class="app-main">
-      <div v-if="degradedFeatures.length" class="feature-errors" aria-label="Unavailable features">
-        <div v-for="feature in degradedFeatures" :key="feature.label" class="feature-error" role="status">
+      <div
+        v-if="degradedFeatures.length"
+        class="feature-errors"
+        aria-label="Unavailable features"
+      >
+        <div
+          v-for="feature in degradedFeatures"
+          :key="feature.label"
+          class="feature-error"
+          role="status"
+        >
           <span>{{ feature.label }} unavailable: {{ feature.error }}</span>
-          <button :disabled="feature.loading" @click="loadOptionalData([feature])">
+          <button
+            :disabled="feature.loading"
+            @click="loadOptionalData([feature])"
+          >
             {{ feature.loading ? 'Retrying…' : `Retry ${feature.label}` }}
           </button>
         </div>
       </div>
-      <p v-if="notes.draftError" class="feature-error" role="alert">{{ notes.draftError }}</p>
-      <div v-if="routeError" class="feature-errors" role="status">{{ routeError }}</div>
+      <p
+        v-if="notes.draftError"
+        class="feature-error"
+        role="alert"
+      >
+        {{ notes.draftError }}
+      </p>
+      <div
+        v-if="routeError"
+        class="feature-errors"
+        role="status"
+      >
+        {{ routeError }}
+      </div>
       <RouterView v-slot="{ Component }">
-        <KeepAlive :key="auth.user?.id" include="SearchScreen">
+        <KeepAlive
+          :key="auth.user?.id"
+          include="SearchScreen"
+        >
           <component :is="Component" />
         </KeepAlive>
       </RouterView>

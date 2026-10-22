@@ -33,8 +33,8 @@ function activateLink(event: MouseEvent): void {
 </script>
 
 <template>
-  <!-- renderMarkdown escapes raw HTML and validates every generated link before this boundary. -->
-  <div class="markdown-content" @click="activateLink" v-html="rendered"></div>
+  <!-- eslint-disable-next-line vue/no-v-html, vue/max-attributes-per-line, vuejs-accessibility/click-events-have-key-events, vuejs-accessibility/no-static-element-interactions -- Delegate native link clicks, including keyboard activation, from Markdown anchors; renderMarkdown escapes raw HTML and validates links. Keep the tag on one line for a local suppression. -->
+  <div class="markdown-content" @click="activateLink" v-html="rendered" />
 </template>
 
 <style scoped>

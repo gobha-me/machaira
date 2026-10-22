@@ -31,19 +31,27 @@ async function setMode(nextMode: 'edit' | 'preview'): Promise<void> {
 
 <template>
   <div class="markdown-editor">
-    <div class="mode-toggle" role="group" aria-label="Note body view">
+    <div
+      class="mode-toggle"
+      role="group"
+      aria-label="Note body view"
+    >
       <button
         type="button"
         :class="{ active: mode === 'edit' }"
         :aria-pressed="mode === 'edit'"
         @click="setMode('edit')"
-      >Edit</button>
+      >
+        Edit
+      </button>
       <button
         type="button"
         :class="{ active: mode === 'preview' }"
         :aria-pressed="mode === 'preview'"
         @click="setMode('preview')"
-      >Preview</button>
+      >
+        Preview
+      </button>
     </div>
 
     <textarea
@@ -54,10 +62,23 @@ async function setMode(nextMode: 'edit' | 'preview'): Promise<void> {
       :placeholder="placeholder"
       aria-label="Note Markdown"
       @input="onInput"
-    ></textarea>
-    <div v-else class="preview serif" role="region" aria-label="Note preview">
-      <MarkdownContent v-if="source" :source="source" />
-      <p v-else class="preview-empty">Nothing to preview yet.</p>
+    />
+    <div
+      v-else
+      class="preview serif"
+      role="region"
+      aria-label="Note preview"
+    >
+      <MarkdownContent
+        v-if="source"
+        :source="source"
+      />
+      <p
+        v-else
+        class="preview-empty"
+      >
+        Nothing to preview yet.
+      </p>
     </div>
   </div>
 </template>

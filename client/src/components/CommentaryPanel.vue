@@ -41,15 +41,21 @@ watch(
   () => {
     const v = reader.selectedVerse
     if (v == null) return
-    nextTick(() => entryEls.get(v)?.scrollIntoView({ block: 'nearest' }))
+    void nextTick(() => entryEls.get(v)?.scrollIntoView({ block: 'nearest' }))
   }
 )
 </script>
 
 <template>
-  <div class="commentary-card" :class="variant">
+  <div
+    class="commentary-card"
+    :class="variant"
+  >
     <div class="cc-head">
-      <span class="cc-label" :title="activeModule ?? undefined">Commentary<template v-if="activeModule"> · {{ activeModule }}</template></span>
+      <span
+        class="cc-label"
+        :title="activeModule ?? undefined"
+      >Commentary<template v-if="activeModule"> · {{ activeModule }}</template></span>
       <select
         v-if="installedCommentaries.length > 1"
         class="cc-picker"
@@ -58,25 +64,59 @@ watch(
         aria-label="Choose commentary"
         @change="onPick"
       >
-        <option v-for="name in installedCommentaries" :key="name" :value="name">{{ name }}</option>
+        <option
+          v-for="name in installedCommentaries"
+          :key="name"
+          :value="name"
+        >
+          {{ name }}
+        </option>
       </select>
-      <div class="cc-spacer"></div>
-      <button v-if="closable" class="cc-close hover-ink" @click="$emit('close')">✕</button>
+      <div class="cc-spacer" />
+      <button
+        v-if="closable"
+        class="cc-close hover-ink"
+        @click="$emit('close')"
+      >
+        ✕
+      </button>
     </div>
 
-    <div v-if="loading" class="cc-state">Loading notes…</div>
-    <p v-else-if="error" class="cc-error">{{ error }}</p>
-    <p v-else-if="!installedCommentaries.length" class="cc-state">
+    <div
+      v-if="loading"
+      class="cc-state"
+    >
+      Loading notes…
+    </div>
+    <p
+      v-else-if="error"
+      class="cc-error"
+    >
+      {{ error }}
+    </p>
+    <p
+      v-else-if="!installedCommentaries.length"
+      class="cc-state"
+    >
       Install a commentary (e.g. the Geneva Bible notes) in the Library to read verse-by-verse
       notes here.
     </p>
-    <p v-else-if="locked" class="cc-state">
+    <p
+      v-else-if="locked"
+      class="cc-state"
+    >
       {{ activeModule }} is locked — its notes need an unlock key, so nothing can be shown.
     </p>
-    <p v-else-if="!entries.length" class="cc-state">
+    <p
+      v-else-if="!entries.length"
+      class="cc-state"
+    >
       No notes in {{ activeModule }} for {{ reader.bookName }} {{ reader.chapter }}.
     </p>
-    <div v-else class="cc-list">
+    <div
+      v-else
+      class="cc-list"
+    >
       <div
         v-for="e in entries"
         :key="e.n"

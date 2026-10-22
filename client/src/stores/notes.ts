@@ -190,14 +190,15 @@ export const useNotes = defineStore('notes', {
           this.saveErrors[id] = (error as Error).message
         }
       } finally {
-        if (activeGeneration !== generation || pending.get(id) !== state) return
-        state.running = false
-        if (state.revision !== sentRevision) {
-          state.timer = setTimeout(() => void this.flushSave(id), 0)
-        } else {
-          pending.delete(id)
+        if (activeGeneration === generation && pending.get(id) === state) {
+          state.running = false
+          if (state.revision !== sentRevision) {
+            state.timer = setTimeout(() => void this.flushSave(id), 0)
+          } else {
+            pending.delete(id)
+          }
+          this.saving = pending.size > 0
         }
-        this.saving = pending.size > 0
       }
     },
     retrySave(): void {

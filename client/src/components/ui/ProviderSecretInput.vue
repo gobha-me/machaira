@@ -32,7 +32,7 @@ const revealed = ref(false)
       :placeholder="placeholder"
       spellcheck="false"
       @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
-    />
+    >
     <button
       type="button"
       class="reveal"
@@ -40,7 +40,9 @@ const revealed = ref(false)
       :aria-label="`${revealed ? 'Hide' : 'Show'} ${label}`"
       :aria-pressed="revealed"
       @click="revealed = !revealed"
-    >{{ revealed ? 'Hide' : 'Show' }}</button>
+    >
+      {{ revealed ? 'Hide' : 'Show' }}
+    </button>
   </div>
 </template>
 

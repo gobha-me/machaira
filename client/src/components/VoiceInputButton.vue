@@ -105,13 +105,17 @@ function endKey(event: KeyboardEvent): void {
       @keydown="beginKey"
       @keyup="endKey"
       @contextmenu.prevent
-    >{{ phase === 'recording' ? '●' : phase === 'transcribing' || phase === 'starting' ? '…' : '🎙' }}</button>
+    >
+      {{ phase === 'recording' ? '●' : phase === 'transcribing' || phase === 'starting' ? '…' : '🎙' }}
+    </button>
     <div
       v-if="error || notice || currentProvider"
       class="voice-status"
       :class="{ failed: error }"
       :role="error ? 'alert' : 'status'"
-    >{{ error || notice || providerLabel }}</div>
+    >
+      {{ error || notice || providerLabel }}
+    </div>
   </div>
 </template>
 

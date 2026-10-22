@@ -25,7 +25,7 @@ function openReading(book: string, chapter: number) {
     ui.go('library')
     return
   }
-  reader.openRef(reader.moduleName, book, chapter)
+  void reader.openRef(reader.moduleName, book, chapter)
   ui.go('read')
 }
 
@@ -57,66 +57,127 @@ function turnOff() {
       <!-- Disabled: invitation to start -->
       <template v-if="!plan.enabled">
         <div class="intro">
-          <div class="intro-mark"></div>
-          <h1 class="serif">Bible in a year</h1>
+          <div class="intro-mark" />
+          <h1 class="serif">
+            Bible in a year
+          </h1>
           <p>
             Read from Genesis to Revelation over 365 days — about three or four chapters a
             day. We'll track your progress and show today's reading right where you read.
           </p>
-          <button class="start-btn" @click="plan.setEnabled(true)">Start the reading plan</button>
+          <button
+            class="start-btn"
+            @click="plan.setEnabled(true)"
+          >
+            Start the reading plan
+          </button>
         </div>
       </template>
 
       <!-- Enabled: dashboard -->
       <template v-else>
         <div class="head">
-          <h1 class="serif">Reading plan</h1>
-          <div class="spacer"></div>
-          <button class="ghost hover-dim" @click="reset">Reset progress</button>
-          <button class="ghost hover-dim" @click="turnOff">Turn off</button>
+          <h1 class="serif">
+            Reading plan
+          </h1>
+          <div class="spacer" />
+          <button
+            class="ghost hover-dim"
+            @click="reset"
+          >
+            Reset progress
+          </button>
+          <button
+            class="ghost hover-dim"
+            @click="turnOff"
+          >
+            Turn off
+          </button>
         </div>
 
         <!-- Progress -->
         <div class="card progress-card">
           <div class="progress-top">
             <div>
-              <div class="big">Day {{ plan.currentDay }} <span class="of">of {{ PLAN_DAYS }}</span></div>
+              <div class="big">
+                Day {{ plan.currentDay }} <span class="of">of {{ PLAN_DAYS }}</span>
+              </div>
               <div class="sub">
                 {{ plan.chaptersRead }} of {{ plan.totalChapters }} chapters read
-                <span class="pace" :class="{ ok: plan.onTrack }">
+                <span
+                  class="pace"
+                  :class="{ ok: plan.onTrack }"
+                >
                   · {{ plan.onTrack ? 'On track' : `${plan.behindBy} chapter${plan.behindBy === 1 ? '' : 's'} behind` }}
                 </span>
               </div>
             </div>
-            <div class="pct">{{ plan.percent }}%</div>
+            <div class="pct">
+              {{ plan.percent }}%
+            </div>
           </div>
-          <div class="track"><div class="fill" :style="{ width: plan.percent + '%' }"></div></div>
+          <div class="track">
+            <div
+              class="fill"
+              :style="{ width: plan.percent + '%' }"
+            />
+          </div>
         </div>
 
         <!-- Today -->
-        <div class="section-label">Today · {{ plan.todayLabel }}</div>
+        <div class="section-label">
+          Today · {{ plan.todayLabel }}
+        </div>
         <div class="card">
-          <button
+          <div
             v-for="r in plan.todayReadings"
             :key="`${r.book}/${r.chapter}`"
             class="read-row hover-soft"
-            @click="plan.toggleChapter(r.book, r.chapter)"
           >
-            <span class="check" :class="{ on: r.read }">{{ r.read ? '✓' : '' }}</span>
-            <span class="read-name" :class="{ done: r.read }">{{ bookName(r.book) }} {{ r.chapter }}</span>
-            <span class="spacer"></span>
-            <span class="open hover-accent-text" @click.stop="openReading(r.book, r.chapter)">Open →</span>
-          </button>
+            <button
+              type="button"
+              class="read-toggle"
+              :aria-pressed="r.read"
+              @click="plan.toggleChapter(r.book, r.chapter)"
+            >
+              <span
+                class="check"
+                :class="{ on: r.read }"
+              >{{ r.read ? '✓' : '' }}</span>
+              <span
+                class="read-name"
+                :class="{ done: r.read }"
+              >{{ bookName(r.book) }} {{ r.chapter }}</span>
+            </button>
+            <button
+              type="button"
+              class="open hover-accent-text"
+              :aria-label="`Open ${bookName(r.book)} ${r.chapter}`"
+              @click="openReading(r.book, r.chapter)"
+            >
+              Open →
+            </button>
+          </div>
           <div class="today-foot">
-            <button class="today-open" @click="openToday">Open today's reading</button>
-            <button class="today-mark hover-line" @click="plan.markDayRead(plan.currentDayIndex)">
+            <button
+              class="today-open"
+              @click="openToday"
+            >
+              Open today's reading
+            </button>
+            <button
+              class="today-mark hover-line"
+              @click="plan.markDayRead(plan.currentDayIndex)"
+            >
               Mark day as read
             </button>
           </div>
         </div>
 
         <!-- Overview grid -->
-        <div class="section-label">The year</div>
+        <div class="section-label">
+          The year
+        </div>
         <div class="grid">
           <button
             v-for="d in days"
@@ -125,13 +186,13 @@ function turnOff() {
             :class="{ complete: d.complete, today: d.isToday, past: d.isPast && !d.complete }"
             :title="`Day ${d.day} · ${d.label}`"
             @click="openDay(d.index)"
-          ></button>
+          />
         </div>
         <div class="legend">
-          <span class="key"><span class="swatch complete"></span> Read</span>
-          <span class="key"><span class="swatch today"></span> Today</span>
-          <span class="key"><span class="swatch past"></span> Missed</span>
-          <span class="key"><span class="swatch"></span> Upcoming</span>
+          <span class="key"><span class="swatch complete" /> Read</span>
+          <span class="key"><span class="swatch today" /> Today</span>
+          <span class="key"><span class="swatch past" /> Missed</span>
+          <span class="key"><span class="swatch" /> Upcoming</span>
         </div>
       </template>
     </div>
@@ -281,6 +342,20 @@ h1 {
   padding: 13px 18px;
   cursor: pointer;
   text-align: left;
+}
+.read-toggle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  text-align: left;
+}
+.read-toggle, .open {
+  border: 0;
+  padding: 0;
+  background: none;
+  cursor: pointer;
+  font: inherit;
 }
 .check {
   width: 20px;

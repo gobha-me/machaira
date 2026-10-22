@@ -147,32 +147,67 @@ onMounted(async () => {
     <div class="list-col">
       <div class="list-head">
         <span class="jtitle">Journal</span>
-        <div class="spacer"></div>
-        <button class="new hover-accent" @click="noteAction(() => notes.create())">New</button>
+        <div class="spacer" />
+        <button
+          class="new hover-accent"
+          @click="noteAction(() => notes.create())"
+        >
+          New
+        </button>
       </div>
-      <p v-if="notes.error" class="save-error" role="alert">{{ notes.error }}</p>
-      <div v-for="note in notes.deleted" :key="note.id" class="undo-note" role="status">
+      <p
+        v-if="notes.error"
+        class="save-error"
+        role="alert"
+      >
+        {{ notes.error }}
+      </p>
+      <div
+        v-for="note in notes.deleted"
+        :key="note.id"
+        class="undo-note"
+        role="status"
+      >
         Deleted “{{ note.title || 'Untitled note' }}”.
-        <button :disabled="notes.restoring[note.id]" @click="noteAction(() => notes.undoRemove(note.id))">Undo</button>
+        <button
+          :disabled="notes.restoring[note.id]"
+          @click="noteAction(() => notes.undoRemove(note.id))"
+        >
+          Undo
+        </button>
       </div>
-      <div v-if="!notes.list.length" class="list-empty">
+      <div
+        v-if="!notes.list.length"
+        class="list-empty"
+      >
         No notes yet. Create one — or select a verse while reading and choose “Note”.
       </div>
       <div class="items">
         <button
-          type="button"
           v-for="n in notes.list"
           :key="n.id"
+          type="button"
           class="item"
           :class="{ active: n.id === notes.currentId }"
           :aria-pressed="n.id === notes.currentId"
           @click="notes.select(n.id)"
         >
           <span class="item-title">{{ n.title || 'Untitled note' }}</span>
-          <span v-if="notes.saveErrors[n.id]" class="save-error" role="status">Save failed · open to retry</span>
+          <span
+            v-if="notes.saveErrors[n.id]"
+            class="save-error"
+            role="status"
+          >Save failed · open to retry</span>
           <span class="item-date">{{ relDate(n.updatedAt) }}</span>
-          <span v-if="n.tags.length" class="item-tags">
-            <span v-for="t in n.tags" :key="t" class="tagchip">{{ t }}</span>
+          <span
+            v-if="n.tags.length"
+            class="item-tags"
+          >
+            <span
+              v-for="t in n.tags"
+              :key="t"
+              class="tagchip"
+            >{{ t }}</span>
           </span>
         </button>
       </div>
@@ -180,22 +215,45 @@ onMounted(async () => {
 
     <!-- editor -->
     <div class="editor-col">
-      <div v-if="notes.current" class="editor">
-        <input class="title-input serif" :value="notes.current.title" @input="onTitle" placeholder="Untitled note" />
+      <div
+        v-if="notes.current"
+        class="editor"
+      >
+        <input
+          class="title-input serif"
+          :value="notes.current.title"
+          placeholder="Untitled note"
+          @input="onTitle"
+        >
         <div class="edit-meta">
           {{ dateLabel }}
           <span v-if="notes.saving && !notes.saveError"> · Saving…</span>
-          <span v-if="notes.saveError && notes.saveErrorId === notes.currentId" class="save-error" role="alert">
+          <span
+            v-if="notes.saveError && notes.saveErrorId === notes.currentId"
+            class="save-error"
+            role="alert"
+          >
             · Save failed: {{ notes.saveError }}
             <button @click="notes.retrySave">Retry</button>
           </span>
         </div>
 
         <div class="refs">
-          <button v-for="r in notes.current.refs" :key="r" class="refchip" @click="removeRef(r)" :title="'Remove ' + r">
+          <button
+            v-for="r in notes.current.refs"
+            :key="r"
+            class="refchip"
+            :title="'Remove ' + r"
+            @click="removeRef(r)"
+          >
             {{ r }} ✕
           </button>
-          <button class="refchip add" @click="linkPassage">+ Link current passage</button>
+          <button
+            class="refchip add"
+            @click="linkPassage"
+          >
+            + Link current passage
+          </button>
         </div>
 
         <MarkdownEditor
@@ -205,24 +263,36 @@ onMounted(async () => {
         />
 
         <div class="tags-row">
-          <span v-for="t in notes.current.tags" :key="t" class="tag" @click="removeTag(t)" :title="'Remove #' + t">
+          <button
+            v-for="t in notes.current.tags"
+            :key="t"
+            type="button"
+            class="tag"
+            :title="'Remove #' + t"
+            @click="removeTag(t)"
+          >
             {{ t }} ✕
-          </span>
+          </button>
           <input
             v-model="tagDraft"
             class="tag-input"
             placeholder="+ tag"
             @keydown.enter="addTag"
-          />
+          >
           <button
             class="del hover-accent-text"
             :disabled="notes.deleting[notes.current.id]"
             @click="deleteCurrentNote"
-          >Delete note</button>
+          >
+            Delete note
+          </button>
         </div>
       </div>
-      <div v-else class="editor-empty">
-        <div class="empty-mark"></div>
+      <div
+        v-else
+        class="editor-empty"
+      >
+        <div class="empty-mark" />
         <p>Select a note, or create a new one to begin.</p>
       </div>
     </div>
@@ -230,27 +300,49 @@ onMounted(async () => {
     <!-- real passage connections -->
     <div class="conn-col">
       <div class="conn-head">
-        <div class="conn-label">Connections</div>
-        <span v-if="connections" class="conn-count">
+        <div class="conn-label">
+          Connections
+        </div>
+        <span
+          v-if="connections"
+          class="conn-count"
+        >
           {{ connections.nodes.length }} passage{{ connections.nodes.length === 1 ? '' : 's' }}
         </span>
       </div>
 
-      <div v-if="connectionsLoading" class="conn-state">
-        <div class="graph-loading"></div>
+      <div
+        v-if="connectionsLoading"
+        class="conn-state"
+      >
+        <div class="graph-loading" />
         Finding real passage connections…
       </div>
-      <div v-else-if="!notes.current" class="conn-state">
+      <div
+        v-else-if="!notes.current"
+        class="conn-state"
+      >
         Select a note to explore its Scripture connections.
       </div>
-      <div v-else-if="!notes.current.refs.length" class="conn-state">
+      <div
+        v-else-if="!notes.current.refs.length"
+        class="conn-state"
+      >
         Link a passage to this note to build its connections graph.
       </div>
-      <div v-else-if="connectionsError && !connections" class="conn-state error">
+      <div
+        v-else-if="connectionsError && !connections"
+        class="conn-state error"
+      >
         {{ connectionsError }}
-        <button @click="loadConnections">Try again</button>
+        <button @click="loadConnections">
+          Try again
+        </button>
       </div>
-      <div v-else-if="!connections?.nodes.length" class="conn-state">
+      <div
+        v-else-if="!connections?.nodes.length"
+        class="conn-state"
+      >
         None of this note’s linked passages are available in an installed translation.
       </div>
       <template v-else-if="connections">
@@ -260,25 +352,47 @@ onMounted(async () => {
           @select="selectConnection"
         />
 
-        <div v-if="connections.edges.length === 0" class="conn-note">
+        <div
+          v-if="connections.edges.length === 0"
+          class="conn-note"
+        >
           No resolvable cross-reference or thematic neighbors were found for these passages.
         </div>
 
-        <div v-if="selectedConnection" class="conn-detail">
+        <div
+          v-if="selectedConnection"
+          class="conn-detail"
+        >
           <div class="detail-head">
             <strong class="serif">{{ selectedConnection.label }}</strong>
             <span>{{ selectedConnection.module }}</span>
           </div>
-          <p class="serif">{{ selectedConnection.content || 'Passage text is unavailable.' }}</p>
+          <p class="serif">
+            {{ selectedConnection.content || 'Passage text is unavailable.' }}
+          </p>
           <div class="detail-actions">
-            <button @click="openConnection('read')">Read</button>
-            <button @click="openConnection('study')">Study</button>
+            <button @click="openConnection('read')">
+              Read
+            </button>
+            <button @click="openConnection('study')">
+              Study
+            </button>
           </div>
         </div>
       </template>
 
-      <div v-if="connectionsError && connections" class="conn-note error" role="alert">{{ connectionsError }}</div>
-      <div v-for="warning in connectionWarnings" :key="warning" class="conn-note">
+      <div
+        v-if="connectionsError && connections"
+        class="conn-note error"
+        role="alert"
+      >
+        {{ connectionsError }}
+      </div>
+      <div
+        v-for="warning in connectionWarnings"
+        :key="warning"
+        class="conn-note"
+      >
         {{ warning }}
       </div>
     </div>
@@ -438,6 +552,7 @@ onMounted(async () => {
   flex-wrap: wrap;
 }
 .tag {
+  border: 0;
   font-size: 11px;
   font-weight: 600;
   color: var(--accent);

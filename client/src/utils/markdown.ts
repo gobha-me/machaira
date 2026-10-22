@@ -77,6 +77,7 @@ markdown.validateLink = (url) => {
   } catch {
     return false
   }
+  // eslint-disable-next-line no-control-regex -- Reject URL control characters before validating link schemes.
   if (/[\u0000-\u001f\u007f]/.test(decoded)) return false
   const scheme = explicitScheme.exec(decoded)?.[1]?.toLowerCase()
   return !scheme || safeSchemes.has(scheme)

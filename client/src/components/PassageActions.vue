@@ -60,11 +60,32 @@ const style = computed<CSSProperties>(() => {
 
 <template>
   <Teleport to="body">
-    <div ref="root" class="passage-actions" role="toolbar" aria-label="Passage actions" :style="style">
+    <div
+      ref="root"
+      class="passage-actions"
+      role="toolbar"
+      aria-label="Passage actions"
+      :style="style"
+    >
       <span class="pa-ref">{{ refLabel }}</span>
-      <button class="pa-act hover-soft" @click="$emit('word-study')">Word study</button>
-      <button class="pa-act hover-soft" @click="$emit('compare')">Compare</button>
-      <button class="pa-act hover-soft" @click="$emit('commentary')">Commentary</button>
+      <button
+        class="pa-act hover-soft"
+        @click="$emit('word-study')"
+      >
+        Word study
+      </button>
+      <button
+        class="pa-act hover-soft"
+        @click="$emit('compare')"
+      >
+        Compare
+      </button>
+      <button
+        class="pa-act hover-soft"
+        @click="$emit('commentary')"
+      >
+        Commentary
+      </button>
       <button
         class="pa-act hover-soft"
         :disabled="!crossReferencesAvailable"
@@ -75,11 +96,21 @@ const style = computed<CSSProperties>(() => {
             : `Cross-references unavailable. ${crossReferencesReason}`
         "
         @click="$emit('cross-refs')"
-      >Cross-references</button>
-      <button class="pa-act hover-soft" @click="$emit('highlight')">
+      >
+        Cross-references
+      </button>
+      <button
+        class="pa-act hover-soft"
+        @click="$emit('highlight')"
+      >
         {{ highlighted ? 'Unhighlight' : 'Highlight' }}
       </button>
-      <button class="pa-act hover-soft" @click="$emit('note')">Note</button>
+      <button
+        class="pa-act hover-soft"
+        @click="$emit('note')"
+      >
+        Note
+      </button>
     </div>
   </Teleport>
 </template>

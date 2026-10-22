@@ -1,7 +1,7 @@
 import type { VerseSegment } from '../services/api'
 
 const CLOSE_PUNCT = /^[,.;:!?)\]}”’»…]/
-const OPEN_PUNCT = /[(\[{“‘«]$/
+const OPEN_PUNCT = /[([{“‘«]$/
 
 // Notes have no prose width. Check both visible neighbours so splitting a quote or
 // added-word bracket into text/word/note segments cannot reintroduce an inner gap.

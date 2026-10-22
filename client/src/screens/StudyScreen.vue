@@ -97,6 +97,7 @@ const {
   verseBg,
   onVerseClick,
   onVerseContext,
+  onVerseKeydown,
   onVerseMouseDown,
   onVersePointerDown,
   onVersePointerMove,
@@ -136,7 +137,7 @@ function menuCrossReferences() {
   dismiss()
 }
 function menuHighlight() {
-  reader.toggleHighlightRange(reader.selectedVerses)
+  void reader.toggleHighlightRange(reader.selectedVerses)
   dismiss()
 }
 function menuNote() {
@@ -146,10 +147,26 @@ function menuNote() {
 </script>
 
 <template>
-  <div class="study" :class="{ 'partner-open': mobileView === 'partner' }">
-    <nav class="study-views" aria-label="Study view">
-      <button :aria-pressed="mobileView === 'passage'" @click="mobileView = 'passage'">Passage</button>
-      <button :aria-pressed="mobileView === 'partner'" @click="mobileView = 'partner'">Study partner</button>
+  <div
+    class="study"
+    :class="{ 'partner-open': mobileView === 'partner' }"
+  >
+    <nav
+      class="study-views"
+      aria-label="Study view"
+    >
+      <button
+        :aria-pressed="mobileView === 'passage'"
+        @click="mobileView = 'passage'"
+      >
+        Passage
+      </button>
+      <button
+        :aria-pressed="mobileView === 'partner'"
+        @click="mobileView = 'partner'"
+      >
+        Study partner
+      </button>
     </nav>
     <!-- left: compare + word study -->
     <div class="left">
@@ -159,21 +176,30 @@ function menuNote() {
           <button
             class="step hover-ink"
             :disabled="atStart"
-            @click="stepVerse(-1)"
             title="Previous verse"
             aria-label="Previous verse"
-          >‹</button>
+            @click="stepVerse(-1)"
+          >
+            ‹
+          </button>
           <button
             class="step hover-ink"
             :disabled="atEnd"
-            @click="stepVerse(1)"
             title="Next verse"
             aria-label="Next verse"
-          >›</button>
+            @click="stepVerse(1)"
+          >
+            ›
+          </button>
         </div>
         <span class="sub">comparing {{ rows.length }} translation{{ rows.length === 1 ? '' : 's' }}</span>
-        <div class="spacer"></div>
-        <button class="back hover-ink" @click="ui.go('read')">← Back to reading</button>
+        <div class="spacer" />
+        <button
+          class="back hover-ink"
+          @click="ui.go('read')"
+        >
+          ← Back to reading
+        </button>
       </div>
 
       <div class="scroll">
@@ -188,13 +214,17 @@ function menuNote() {
 
         <!-- Commentary (verse-by-verse notes from an installed commentary module) -->
         <div ref="commentaryBoxEl">
-          <div class="section-label">Commentary</div>
+          <div class="section-label">
+            Commentary
+          </div>
           <CommentaryPanel variant="page" />
         </div>
 
         <!-- Cross-references (real embedded notes from the active translation) -->
         <div ref="crossReferencesBoxEl">
-          <div class="section-label">Cross-references</div>
+          <div class="section-label">
+            Cross-references
+          </div>
           <CrossReferencesPanel
             variant="page"
             :entries="selectionCrossReferences"
@@ -206,21 +236,49 @@ function menuNote() {
 
         <!-- Word study (tap a word in the passage below) -->
         <div class="section-label">
-          Word study · Strong’s lexicon<template v-if="strongsKey"> · {{ strongsKey }}</template>
+          Word study · Strong’s lexicon<template v-if="strongsKey">
+            · {{ strongsKey }}
+          </template>
         </div>
-        <div ref="strongsBoxEl" class="strongs-box">
-          <p v-if="strongsError" class="strongs-error">{{ strongsError }}</p>
-          <div v-else-if="strongsLoading" class="loading">Looking up…</div>
-          <StrongsCard v-else-if="strongs" :entry="strongs" class="strongs-result" />
-          <p v-else class="strongs-hint">
+        <div
+          ref="strongsBoxEl"
+          class="strongs-box"
+        >
+          <p
+            v-if="strongsError"
+            class="strongs-error"
+          >
+            {{ strongsError }}
+          </p>
+          <div
+            v-else-if="strongsLoading"
+            class="loading"
+          >
+            Looking up…
+          </div>
+          <StrongsCard
+            v-else-if="strongs"
+            :entry="strongs"
+            class="strongs-result"
+          />
+          <p
+            v-else
+            class="strongs-hint"
+          >
             Tap any word in the passage below to open its Greek or Hebrew entry. Needs a
             Strong’s-tagged translation (e.g. KJVA) and the Strong’s modules from the Library.
           </p>
         </div>
 
         <!-- Context passage (real chapter text, click to refocus) -->
-        <div class="section-label">Context · {{ reader.bookName }} {{ reader.chapter }}</div>
-        <div v-if="reader.data" class="context serif">
+        <div class="section-label">
+          Context · {{ reader.bookName }} {{ reader.chapter }}
+        </div>
+        <div
+          v-if="reader.data"
+          class="context serif"
+        >
+          <!-- eslint-disable-next-line vuejs-accessibility/click-events-have-key-events, vuejs-accessibility/no-static-element-interactions -- Prose gestures supplement the native verse-number and word buttons. -->
           <span
             v-for="v in reader.data.verses"
             :key="v.n"
@@ -233,44 +291,81 @@ function menuNote() {
             @pointercancel="onVersePointerEnd"
             @click="onVerseClick(v.n, $event)"
             @contextmenu="onVerseContext(v.n, $event)"
-          ><sup class="cvnum">{{ v.n }}</sup><template
-              v-for="(seg, i) in v.segments"
-              :key="i"
-            ><template v-if="seg.kind === 'word'"
-            >{{ segLead(v.segments, i) }}<span
-                class="wtap"
-                @click.stop="onWordClick(v.n, seg.strongs, $event)"
-              >{{ seg.text }}</span></template><template
-              v-else-if="seg.kind === 'note'"
-            ></template><template v-else
-            >{{ segLead(v.segments, i) + seg.text }}</template></template>{{ ' ' }}</span>
+          ><button
+            type="button"
+            class="cvnum"
+            :aria-label="`Select verse ${v.n}`"
+            :aria-pressed="reader.selectedVerses.includes(v.n)"
+            aria-keyshortcuts="Shift+F10"
+            @click.stop="onVerseClick(v.n, $event)"
+            @keydown="onVerseKeydown(v.n, $event)"
+          >{{ v.n }}</button><template
+            v-for="(seg, i) in v.segments"
+            :key="i"
+          ><template v-if="seg.kind === 'word'">{{ segLead(v.segments, i) }}<button
+            type="button"
+            class="wtap"
+            :aria-label="`Study ${seg.text} (${seg.strongs.join(', ')})`"
+            @click.stop="onWordClick(v.n, seg.strongs, $event)"
+          >{{ seg.text }}</button></template><template
+            v-else-if="seg.kind === 'note'"
+          /><template v-else>{{ segLead(v.segments, i) + seg.text }}</template></template>{{ ' ' }}</span>
         </div>
-        <p v-if="reader.highlightError" class="error">{{ reader.highlightError }}</p>
+        <p
+          v-if="reader.highlightError"
+          class="error"
+        >
+          {{ reader.highlightError }}
+        </p>
 
         <!-- Notes: shared capability, anchored to the focused passage -->
         <div class="section-label">
-          Notes<template v-if="reader.currentRef"> · {{ reader.currentRef }}</template>
+          Notes<template v-if="reader.currentRef">
+            · {{ reader.currentRef }}
+          </template>
         </div>
         <div class="note-box">
           <input
             v-model="noteTitle"
+            aria-label="Note title"
             class="note-title-input"
             type="text"
             placeholder="Title (optional)"
-          />
+          >
           <textarea
             ref="noteBodyEl"
             v-model="noteBody"
+            aria-label="Note body"
             class="note-input"
             placeholder="Jot a note on this passage…"
-          ></textarea>
+          />
           <div class="note-actions">
-            <span v-if="noteSaved" class="note-saved">Saved ✓</span>
-            <button class="note-save" :disabled="!noteBody.trim() || noteSaving" @click="saveNote">Save note</button>
+            <span
+              v-if="noteSaved"
+              class="note-saved"
+            >Saved ✓</span>
+            <button
+              class="note-save"
+              :disabled="!noteBody.trim() || noteSaving"
+              @click="saveNote"
+            >
+              Save note
+            </button>
           </div>
-          <p v-if="noteError" class="error" role="alert">{{ noteError }}</p>
-          <div v-if="passageNotes.length" class="note-list">
-            <div class="note-list-label">On this passage</div>
+          <p
+            v-if="noteError"
+            class="error"
+            role="alert"
+          >
+            {{ noteError }}
+          </p>
+          <div
+            v-if="passageNotes.length"
+            class="note-list"
+          >
+            <div class="note-list-label">
+              On this passage
+            </div>
             <button
               v-for="n in passageNotes"
               :key="n.id"
@@ -412,6 +507,11 @@ function menuNote() {
   padding: 1px 2px;
 }
 .wtap {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
   cursor: pointer;
   border-radius: 3px;
   transition: background 0.12s;
@@ -420,6 +520,11 @@ function menuNote() {
   background: color-mix(in oklab, var(--accent) 12%, transparent);
 }
 .cvnum {
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  vertical-align: super;
   font-size: 0.58em;
   color: var(--accent);
   font-weight: 600;
