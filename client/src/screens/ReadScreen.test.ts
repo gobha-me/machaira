@@ -10,6 +10,7 @@ import { useReader } from '../stores/reader'
 import { useSettings } from '../stores/settings'
 import { useTtsProvider } from '../stores/ttsProvider'
 import { useUi } from '../stores/ui'
+import { useNotes } from '../stores/notes'
 import { api, ApiError } from '../services/api'
 import { pathologicalModule } from '../test/fixtures/moduleInfo'
 
@@ -48,6 +49,8 @@ beforeEach(() => {
 })
 afterEach(() => {
   wrapper.unmount()
+  useNotes().resetPersonalData()
+  localStorage.clear()
   window.getSelection()?.removeAllRanges()
   document.body.innerHTML = ''
   vi.useRealTimers()
@@ -154,7 +157,7 @@ describe('word and phrase selection actions', () => {
     await flushPromises()
     expect(textActions()).toBeNull()
     staleAction.click()
-    expect((wrapper.get('[aria-label="Note body"]').element as HTMLTextAreaElement).value).toBe('')
+    expect(wrapper.find('[aria-label="Note body"]').exists()).toBe(false)
   })
 
   it('pins a range note and its quoted text to the original reference after navigation', async () => {
@@ -418,5 +421,138 @@ describe('reader verse spacing', () => {
     expect(verse.textContent?.trim()).toBe('And God says, “[Let light be]”.')
     expect(wrapper.findAll('button.wtap')).toHaveLength(strongs ? 1 : 0)
     expect(wrapper.findAll('.noteref')).toHaveLength(footnotes ? 1 : 0)
+  })
+})
+
+describe('inline verse notes', () => {
+  const rangeNote = {
+    id: 'range-note', title: 'The Word', body: 'Original', refs: ['John 1:1–2 · KJV'],
+    tags: ['study'], createdAt: 1, updatedAt: 1
+  }
+  function button(label: string) {
+    return wrapper.findAll('button').find((entry) => entry.text() === label)!
+  }
+  async function beginNote() {
+    await wrapper.get('button.vnum').trigger('keydown', { key: 'F10', shiftKey: true })
+    await flushPromises()
+    const action = [...document.querySelectorAll<HTMLButtonElement>('.passage-actions button')]
+      .find((entry) => entry.textContent?.trim() === 'Note')!
+    action.click()
+    await flushPromises()
+  }
+
+  it('keeps markers through a real translation switch and opens a range note once beneath its last verse', async () => {
+    const notes = useNotes()
+    notes.list = [rangeNote,
+      { ...rangeNote, id: 'bad', refs: ['John 1:0', 'John 1:2–1', 'not a reference'] },
+      { ...rangeNote, id: 'other', refs: ['John 2:1'] }
+    ]
+    await flushPromises()
+    expect(wrapper.findAll('.verse-note-marker')).toHaveLength(2)
+    expect(wrapper.find('.inline-note').exists()).toBe(false)
+    vi.spyOn(api, 'books').mockResolvedValue(useReader().books)
+    vi.spyOn(api, 'chapter').mockResolvedValue({ ...useReader().data!, module: 'WEB' })
+    await useReader().setModule('WEB')
+    await flushPromises()
+    expect(wrapper.findAll('.verse-note-marker')).toHaveLength(2)
+    const marker = wrapper.get('.verse-note-marker')
+    ;(marker.element as HTMLElement).focus()
+    await userEvent.setup().keyboard('{Enter}')
+    await flushPromises()
+    expect(wrapper.findAll('.inline-note')).toHaveLength(1)
+    const entry = wrapper.get('.inline-note')
+    expect(entry.element.previousElementSibling?.getAttribute('data-verse')).toBe('2')
+    expect(useReader().selectedVerses).toEqual([])
+    expect(document.activeElement?.textContent?.trim()).toBe('Edit note')
+  })
+
+  it('blocks whitespace, preserves a failed create and its verse anchor offline, then confirms its Journal destination', async () => {
+    const create = vi.spyOn(api, 'createNote').mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce({ ...rangeNote, refs: ['John 1:1 · KJV'], body: 'Keep this' })
+    const go = vi.spyOn(useUi(), 'go').mockImplementation(() => {})
+    await beginNote()
+    expect(wrapper.find('.rail-side .note-composer').exists()).toBe(false)
+    expect(wrapper.get('.note-composer').element.previousElementSibling?.getAttribute('data-verse')).toBe('1')
+    await wrapper.get('[aria-label="Note body"]').setValue('  \n ')
+    await wrapper.get('.note-composer').trigger('submit')
+    expect(create).not.toHaveBeenCalled()
+    await wrapper.get('[aria-label="Note title"]').setValue('Draft')
+    await wrapper.get('[aria-label="Note body"]').setValue('Keep this')
+    await wrapper.get('.note-composer').trigger('submit')
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toContain('Failed to fetch')
+    expect(wrapper.find('.inline-confirmation').exists()).toBe(false)
+    useReader().selectedVerse = 2
+    await flushPromises()
+    expect(wrapper.get('.note-anchor').text()).toBe('John 1:1 · KJV')
+    expect(wrapper.get('[aria-label="Note body"]').element).toHaveProperty('value', 'Keep this')
+    await wrapper.get('.note-composer').trigger('submit')
+    await flushPromises()
+    expect(create).toHaveBeenLastCalledWith(expect.objectContaining({ title: 'Draft', body: 'Keep this', refs: ['John 1:1 · KJV'] }))
+    expect(wrapper.get('.inline-confirmation').text()).toContain('Note filed under John 1:1 · KJV')
+    await wrapper.get('.inline-confirmation a').trigger('click')
+    expect(useNotes().currentId).toBe('range-note')
+    expect(go).toHaveBeenCalledWith('journal')
+    expect(wrapper.find('.note-composer').exists()).toBe(false)
+  })
+
+
+  it('retains offline inline edits across remount/account draft recovery and retries the right note', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const update = vi.spyOn(api, 'updateNote').mockRejectedValueOnce(new TypeError('offline'))
+      .mockResolvedValueOnce({ ...rangeNote, body: 'Offline edit' })
+    const notes = useNotes()
+    notes.activateUser('inline-reader')
+    notes.list = [rangeNote, { ...rangeNote, id: 'other', refs: [] }]
+    notes.select('other')
+    await flushPromises()
+    await wrapper.get('.verse-note-marker').trigger('click')
+    await button('Edit note').trigger('click')
+    await wrapper.get('[aria-label="Edit note body"]').setValue('Offline edit')
+    // Editing inline must not move the Journal's current note or save it accidentally.
+    expect(notes.currentId).toBe('other')
+    await vi.advanceTimersByTimeAsync(400)
+    expect(wrapper.get('.inline-note [role="alert"]').text()).toContain('offline')
+    expect(notes.dirty['range-note']).toBe(true)
+    wrapper.unmount()
+    notes.activateUser('inline-reader')
+    wrapper = mount(ReadScreen, { attachTo: document.body })
+    await flushPromises()
+    await wrapper.get('.verse-note-marker').trigger('click')
+    expect(wrapper.get('.inline-note').text()).toContain('Offline edit')
+    await button('Retry').trigger('click')
+    await vi.advanceTimersByTimeAsync(0)
+    await flushPromises()
+    expect(update).toHaveBeenLastCalledWith('range-note', expect.objectContaining({ body: 'Offline edit', tags: ['study'], refs: rangeNote.refs }), false)
+    expect(notes.dirty).toEqual({})
+    expect(wrapper.find('.inline-note [role="alert"]').exists()).toBe(false)
+  })
+
+  it('keeps a note on failed delete, preserves undo after failed restore, and restores beneath its range', async () => {
+    const remove = vi.spyOn(api, 'deleteNote').mockRejectedValueOnce(new Error('Forbidden')).mockResolvedValueOnce()
+    vi.spyOn(api, 'createNote').mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce({ ...rangeNote, id: 'restored' })
+    const notes = useNotes()
+    notes.list = [rangeNote]
+    await flushPromises()
+    await wrapper.get('.verse-note-marker').trigger('click')
+    await button('Delete note').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.inline-note [role="alert"]').text()).toContain('Forbidden')
+    expect(wrapper.findAll('.verse-note-marker')).toHaveLength(2)
+    expect(wrapper.find('.inline-undo').exists()).toBe(false)
+    await button('Delete note').trigger('click')
+    await flushPromises()
+    expect(remove).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('.verse-note-marker').exists()).toBe(false)
+    await button('Undo').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toContain('Could not restore note: offline')
+    expect(wrapper.find('.inline-undo').exists()).toBe(true)
+    await button('Undo').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.inline-undo').exists()).toBe(false)
+    expect(wrapper.get('.inline-note').attributes('data-note-id')).toBe('restored')
+    expect(wrapper.get('.inline-note').element.previousElementSibling?.getAttribute('data-verse')).toBe('2')
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
   })
 })

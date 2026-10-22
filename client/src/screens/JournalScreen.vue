@@ -38,7 +38,7 @@ const dateLabel = computed(() => {
 function onTitle(e: Event) {
   notes.save({ title: (e.target as HTMLInputElement).value })
 }
-async function noteAction(action: () => Promise<void>): Promise<void> {
+async function noteAction(action: () => Promise<unknown>): Promise<void> {
   try {
     await action()
   } catch {
