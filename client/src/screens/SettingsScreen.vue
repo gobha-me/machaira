@@ -6,6 +6,7 @@ import { useReader } from '../stores/reader'
 import { useNotes } from '../stores/notes'
 import { useAuth } from '../stores/auth'
 import { useAiProvider } from '../stores/aiProvider'
+import { useUi } from '../stores/ui'
 import { useSemanticIndex } from '../stores/semanticIndex'
 import { useTtsProvider } from '../stores/ttsProvider'
 import { useReadAloud } from '../composables/useReadAloud'
@@ -47,6 +48,8 @@ import {
   providerTitle
 } from '../utils/deploymentProviders'
 
+const ui = useUi()
+const semanticSection = ref<HTMLElement | null>(null)
 const settings = useSettings()
 const readingPlan = useReadingPlan()
 const reader = useReader()
@@ -250,6 +253,10 @@ const sttReadyToSave = computed(() => sttOrderValid.value
   && cloudSttKeyReady.value)
 
 onMounted(async () => {
+  if (ui.settingsSection === 'semantic-search') {
+    semanticSection.value?.scrollIntoView?.({ block: 'start' })
+    ui.settingsSection = null
+  }
   try {
     deploymentProviders.value = await api.deploymentProviders()
     prefillDeploymentProviders()
@@ -942,6 +949,7 @@ async function rebuildSemanticIndex(): Promise<void> {
           <div class="row-text">
             <div class="row-title">
               {{ providerTitle(deploymentProviders.tts) }}
+              <span class="badge">Deployment default{{ ttsProvider.config.deploymentDefault ? ' · active' : '' }}</span>
               <span class="badge" :class="`readiness-${deploymentProviders.tts.readiness.state}`">
                 {{ deploymentProviders.tts.readiness.state }}
               </span>
@@ -1178,6 +1186,7 @@ async function rebuildSemanticIndex(): Promise<void> {
           <div class="row-text">
             <div class="row-title">
               {{ providerTitle(deploymentProviders.stt) }}
+              <span class="badge">Deployment default{{ sttProvider.config.deploymentDefault ? ' · active' : '' }}</span>
               <span class="badge" :class="`readiness-${deploymentProviders.stt.readiness.state}`">
                 {{ deploymentProviders.stt.readiness.state }}
               </span>
@@ -1459,7 +1468,7 @@ async function rebuildSemanticIndex(): Promise<void> {
       </div>
 
       <!-- Semantic search -->
-      <div class="section-label">
+      <div id="semantic-search" ref="semanticSection" class="section-label" tabindex="-1">
         Semantic search
         <span class="soon">{{ semanticIndex.status.state }}</span>
       </div>
@@ -1468,6 +1477,7 @@ async function rebuildSemanticIndex(): Promise<void> {
           <div class="row-text">
             <div class="row-title">
               {{ providerTitle(deploymentProviders.embeddings) }}
+              <span class="badge">Deployment default{{ semanticIndex.provider?.deploymentDefault ? ' · active' : '' }}</span>
               <span class="badge" :class="`readiness-${deploymentProviders.embeddings.readiness.state}`">
                 {{ deploymentProviders.embeddings.readiness.state }}
               </span>

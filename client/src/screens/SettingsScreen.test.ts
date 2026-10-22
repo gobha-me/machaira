@@ -8,6 +8,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api, ApiError, type DiscoveredModel, type ProviderDiscoveryResult, type TtsConfig } from '../services/api'
 import { useTtsProvider } from '../stores/ttsProvider'
 import SettingsScreen from './SettingsScreen.vue'
+import { useSemanticIndex } from '../stores/semanticIndex'
+import { useTtsProvider } from '../stores/ttsProvider'
+import { useSttProvider } from '../stores/sttProvider'
+import { useUi } from '../stores/ui'
 
 vi.mock('../services/db', () => ({
   exportAll: vi.fn(),
@@ -129,6 +133,53 @@ async function selectOpenOption(wrapper: VueWrapper, inputId: string, query: str
 }
 
 describe('Settings provider controls', () => {
+  it('labels active deployment defaults, scrolls to Semantic search, and permits account overrides and opt-out', async () => {
+    const pinia = createPinia()
+    const semantic = useSemanticIndex(pinia)
+    const tts = useTtsProvider(pinia)
+    const stt = useSttProvider(pinia)
+    semantic.provider = { kind: 'local', baseUrl: 'http://embed/v1', model: 'minilm', batchSize: 16, hasApiKey: false, deploymentDefault: true }
+    tts.config = { order: ['local', 'browser'], local: { provider: 'openai-compatible', baseUrl: 'http://tts/v1', model: 'kokoro', voice: 'af_heart', hasApiKey: false }, cloud: null, remoteAudioCacheSize: 4, deploymentDefault: true }
+    stt.config = { order: ['local', 'browser'], local: { provider: 'openai-compatible', baseUrl: 'http://stt/v1', model: 'whisper', hasApiKey: false }, cloud: null, deploymentDefault: true }
+    vi.spyOn(api, 'deploymentProviders').mockResolvedValue({
+      embeddings: { source: 'external', engine: 'tei', baseUrl: 'http://embed/v1', model: 'minilm', batchSize: 16, readiness: { state: 'unchecked', checkedAt: null } },
+      tts: { source: 'bundled', engine: 'kokoro', baseUrl: 'http://tts/v1', model: 'kokoro', voice: 'af_heart', readiness: { state: 'starting', checkedAt: 1 } },
+      stt: { source: 'bundled', engine: 'speaches', baseUrl: 'http://stt/v1', model: 'whisper', readiness: { state: 'starting', checkedAt: 1 } }
+    })
+    const scroll = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: scroll })
+    const ui = useUi(pinia)
+    ui.openSemanticSettings()
+    const wrapper = mount(SettingsScreen, { global: { plugins: [pinia] } })
+    try {
+      await flushPromises()
+      expect(wrapper.findAll('.badge').filter((badge) => badge.text() === 'Deployment default · active')).toHaveLength(3)
+      expect(wrapper.get('#embedding-provider-kind').element).toHaveProperty('value', 'local')
+      expect(wrapper.get('#embedding-provider-model').element).toHaveProperty('value', 'minilm')
+      expect(scroll).toHaveBeenCalledWith({ block: 'start' })
+      expect(ui.settingsSection).toBeNull()
+      const save = vi.spyOn(semantic, 'save').mockResolvedValue()
+      await wrapper.get('#embedding-provider-base-url').setValue('http://account/v1')
+      await wrapper.get('#embedding-provider-model').setValue('account-model')
+      await wrapper.findAll('button').find((button) => button.text() === 'Save embedding provider')!.trigger('click')
+      expect(save).toHaveBeenCalledWith({ kind: 'local', baseUrl: 'http://account/v1', model: 'account-model', batchSize: 16 })
+      vi.stubGlobal('confirm', vi.fn(() => true))
+      const remove = vi.spyOn(semantic, 'remove').mockResolvedValue()
+      await wrapper.findAll('button').find((button) => button.text() === 'Disconnect')!.trigger('click')
+      expect(remove).toHaveBeenCalledOnce()
+      expect(wrapper.get('#tts-local-priority').element).toHaveProperty('value', '1')
+      await wrapper.get('#tts-local-priority').setValue('0')
+      await wrapper.get('#tts-browser-priority').setValue('1')
+      const saveTts = vi.spyOn(tts, 'save').mockResolvedValue()
+      await wrapper.findAll('button').find((button) => button.text() === 'Save read-aloud')!.trigger('click')
+      expect(saveTts).toHaveBeenCalledWith(expect.objectContaining({ order: ['browser'] }))
+    } finally {
+      wrapper.unmount()
+      Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView')
+      vi.unstubAllGlobals()
+    }
+  })
+
   beforeEach(() => {
     vi.restoreAllMocks()
     localStorage.clear()
