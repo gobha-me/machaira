@@ -16,11 +16,20 @@ export function usePassageContext() {
 
   function updateSelection() {
     if (!available.value) return
+    const root = document.querySelector<HTMLElement>('[data-passage-context]')
+    const selection = window.getSelection()
+    const scripture = root ? selectedScripture(root, selection) : null
+    // Selecting non-focusable prose can leave focus in the drawer. Capture a valid
+    // Scripture range before considering focus, or its context chip will go stale.
+    if (scripture) {
+      selected.value = scripture
+      return
+    }
     // Moving focus to the drawer may collapse the browser selection. Keep its snapshot
     // there, but never capture text from notes, search results, or the conversation.
-    if (document.activeElement?.closest('#study-partner, [aria-controls="study-partner"]')) return
-    const root = document.querySelector<HTMLElement>('[data-passage-context]')
-    selected.value = root ? selectedScripture(root, window.getSelection()) : null
+    if (selection?.isCollapsed
+      && document.activeElement?.closest('#study-partner, [aria-controls="study-partner"]')) return
+    selected.value = null
   }
 
   watch(() => [reader.moduleName, reader.book, reader.chapter, reader.data,

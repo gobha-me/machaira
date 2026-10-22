@@ -94,6 +94,22 @@ describe('global passage context', () => {
     expect(context.value.content).toBe('2. The earth was formless and empty.')
   })
 
+  it('captures a new Scripture range while focus remains on the drawer toggle, without retaining an invalid range', () => {
+    ;(wrapper.get('input').element as HTMLElement).focus()
+    // Native selection of non-focusable verse prose need not move keyboard focus.
+    selectProse()
+    expect(context.value).toEqual({ reference: 'Genesis 1:1', module: 'WEB', content: 'In the beginning' })
+    const range = window.getSelection()!.getRangeAt(0)
+    range.setEnd(wrapper.get('[data-selection-text]').element.firstChild!, 6)
+    document.dispatchEvent(new Event('selectionchange'))
+    expect(context.value.content).toBe('In the')
+
+    range.selectNodeContents(wrapper.element)
+    document.dispatchEvent(new Event('selectionchange'))
+    expect(context.value.reference).toBe('Genesis 1')
+    expect(context.value.content).toContain('2. The earth')
+  })
+
   it('rejects a range extending outside Scripture and removes its listener on unmount', () => {
     selectProse()
     const range = document.createRange()

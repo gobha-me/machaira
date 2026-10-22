@@ -106,6 +106,67 @@ async function navigate(app: VueWrapper, label: string) {
 }
 
 describe('global Study partner', () => {
+  it('keeps a single stateful toolbar toggle through repeated opens, shortcut closes and navigation', async () => {
+    const app = await startApp()
+    const toggle = app.get('.global-toolbar button')
+    const slot = app.get('.partner-slot').element
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      expect(app.findAll('[aria-controls="study-partner"]')).toHaveLength(1)
+      expect(toggle.attributes('aria-expanded')).toBe('false')
+      expect(toggle.classes()).not.toContain('active')
+      await toggle.trigger('click')
+      expect(toggle.attributes('aria-expanded')).toBe('true')
+      expect(toggle.classes()).toContain('active')
+      expect(app.get('.partner-slot').element).toBe(slot)
+      await router.push(attempt % 2 === 0 ? '/search' : '/read')
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Y', ctrlKey: true, shiftKey: true }))
+      await flushPromises()
+      expect(app.find('#study-partner').exists()).toBe(false)
+      expect(app.get('.partner-slot').element).toBe(slot)
+    }
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+    expect(toggle.classes()).not.toContain('active')
+  })
+
+  it('updates context with drawer focus and clears it during a failed chapter load', async () => {
+    vi.mocked(api.chapter).mockResolvedValue({
+      ...passage(1), verses: [
+        { n: 1, text: 'In the beginning, God created the heavens and the earth.', segments: [], notes: [], crossReferences: [] },
+        { n: 2, text: 'The earth was formless and empty.', segments: [], notes: [], crossReferences: [] }
+      ]
+    })
+    const app = await startApp()
+    // Attach the already-mounted app so native Range can select its real verse prose.
+    document.body.append(app.element)
+    await app.get('.global-toolbar button').trigger('click')
+    ;(app.get('.close-partner').element as HTMLElement).focus()
+    const prose = app.findAll('[data-selection-text]')[1].element
+    const range = document.createRange()
+    range.selectNodeContents(prose)
+    window.getSelection()!.removeAllRanges()
+    window.getSelection()!.addRange(range)
+    document.dispatchEvent(new Event('selectionchange'))
+    await flushPromises()
+    expect(app.get('.current-context').text()).toBe('Context · Genesis 1:2 · WEB')
+    expect(document.activeElement).toBe(app.get('.close-partner').element)
+    useAiProvider().provider = { kind: 'local', baseUrl: 'http://localhost:11434/v1', model: 'configured', hasApiKey: false }
+    useChatConversations().draft = 'Explain this passage'
+    await flushPromises()
+    expect(app.get('[aria-label="Send question"]').attributes('disabled')).toBeUndefined()
+
+    const chapter = deferred<ChapterPayload>()
+    vi.mocked(api.chapter).mockReturnValueOnce(chapter.promise)
+    const loading = useReader().setChapter(2)
+    await flushPromises()
+    expect(app.get('.current-context').text()).toContain('No passage context available')
+    chapter.reject(new Error('Chapter offline'))
+    await loading
+    await flushPromises()
+    expect(app.get('.current-context').text()).toContain('No passage context available')
+    expect(app.get('[aria-label="Send question"]').attributes('disabled')).toBeDefined()
+    window.getSelection()!.removeAllRanges()
+  })
+
   it('keeps one conversation and draft through every page, including Study, and remembers a closed drawer', async () => {
     vi.spyOn(db, 'legacyPersonalData').mockResolvedValue({ notes: [], highlights: [] })
     const app = await startApp()

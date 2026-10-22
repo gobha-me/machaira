@@ -219,6 +219,7 @@ watch(
         <button
           ref="partnerButton"
           type="button"
+          :class="{ active: settings.studyPartnerOpen }"
           aria-controls="study-partner"
           :aria-expanded="settings.studyPartnerOpen"
           aria-keyshortcuts="Control+Shift+Y Meta+Shift+Y"
@@ -299,6 +300,7 @@ watch(
 .app-content { flex: 1; min-height: 0; display: flex; overflow: hidden; }
 .global-toolbar { display: flex; justify-content: flex-end; flex-shrink: 0; padding: 4px 12px; border-bottom: 1px solid var(--line); }
 .global-toolbar button { min-height: 44px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--card); color: var(--ink); cursor: pointer; font: inherit; font-size: 13px; }
+.global-toolbar button.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .feature-errors {
   flex-shrink: 0;
   max-height: 30dvh;
