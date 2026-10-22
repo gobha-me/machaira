@@ -1,9 +1,18 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { parseVerseMarkup, stripMarkup } from '../src/text.ts'
+import { spacingCases } from './fixtures/verse-markup.ts'
 import { parseDisplayTargets, parseOsisTargets } from '../src/scripture-reference.ts'
 
 describe('SWORD verse markup', () => {
+
+  for (const { name, markup, expected } of spacingCases) {
+    it(`preserves spacing: ${name}`, () => {
+      assert.equal(stripMarkup(markup), expected, 'plain text')
+      assert.equal(parseVerseMarkup(markup).text, expected, 'reading text')
+    })
+  }
+
   it('separates cross-references from translator footnotes and verse text', () => {
     const parsed = parseVerseMarkup(
       'He said <div class="sword-markup sword-note">Translator note.</div> this ' +

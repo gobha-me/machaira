@@ -4,6 +4,7 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import userEvent from '@testing-library/user-event'
 import ReadScreen from './ReadScreen.vue'
+import { parseVerseMarkup } from '../../../server/src/text'
 import { useLibrary } from '../stores/library'
 import { useReader } from '../stores/reader'
 import { useSettings } from '../stores/settings'
@@ -192,5 +193,26 @@ describe('read-aloud listening bar', () => {
     expect(wrapper.get('button.play').text()).toBe('Retry')
     expect(wrapper.get('button.play').attributes('aria-label')).toBe('Retry')
     expect(wrapper.get('button.play').attributes('disabled')).toBeUndefined()
+  })
+})
+
+describe('reader verse spacing', () => {
+  it.each([
+    [true, true], [true, false], [false, true], [false, false]
+  ])('preserves quotes and brackets with Strong’s=%s and footnotes=%s', async (strongs, footnotes) => {
+    const parsed = parseVerseMarkup(
+      'And God says, “<q>[<transChange type="added">' +
+      '<div class="sword-markup sword-note">Added word.</div>' +
+      '<w lemma="strong:H216">Let light be</w></transChange>]</q>”.'
+    )
+    useReader().data!.verses = [{ n: 1, ...parsed }]
+    useSettings().showStrongs = strongs
+    useSettings().showFootnotes = footnotes
+    await flushPromises()
+    const verse = wrapper.get('.verse').element.cloneNode(true) as HTMLElement
+    verse.querySelectorAll('.vnum, .noteref').forEach((element) => element.remove())
+    expect(verse.textContent?.trim()).toBe('And God says, “[Let light be]”.')
+    expect(wrapper.findAll('button.wtap')).toHaveLength(strongs ? 1 : 0)
+    expect(wrapper.findAll('.noteref')).toHaveLength(footnotes ? 1 : 0)
   })
 })

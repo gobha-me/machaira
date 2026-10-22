@@ -493,7 +493,7 @@ async function menuNote() {
                   v-if="(settings.showFootnotes && v.notes.length) || wordsRevealed"
                 ><template v-for="(seg, i) in v.segments" :key="i"><template
                     v-if="seg.kind === 'word' && wordsTappableIn(v.n)"
-                  >{{ segLead(seg.text, i) }}<button
+                  >{{ segLead(v.segments, i) }}<button
                       type="button"
                       class="wtap"
                       :aria-label="`Study ${seg.text} (${seg.strongs.join(', ')})`"
@@ -506,7 +506,7 @@ async function menuNote() {
                     v-else-if="seg.kind === 'note'"
                   ></template><template
                     v-else
-                  >{{ segLead(seg.text, i) + seg.text }}</template></template></template><template v-else>{{ v.text }}</template>{{ ' ' }}</span>
+                  >{{ segLead(v.segments, i) + seg.text }}</template></template></template><template v-else>{{ v.text }}</template>{{ ' ' }}</span>
             </div>
 
             <div v-if="settings.showFootnotes && chapterNotes.length" class="notes">
