@@ -13,6 +13,54 @@ function fragmentedResponse(parts: string[]): Response {
   }), { headers: { 'content-type': 'text/event-stream' } })
 }
 
+describe('API request content type', () => {
+  it.each([
+    { url: '/api/ai/conversations', method: 'POST', send: () => api.createChatConversation() },
+    { url: '/api/auth/logout', method: 'POST', send: () => api.logout() },
+    { url: '/api/catalog/refresh', method: 'POST', send: () => api.catalog(true) },
+    { url: '/api/semantic-index/rebuild', method: 'POST', send: () => api.rebuildSemanticIndex(vi.fn()) },
+    { url: '/api/sources/WEB', method: 'DELETE', send: () => api.uninstall('WEB') },
+    { url: '/api/embeddings/provider', method: 'DELETE', send: () => api.removeEmbeddingProvider() },
+    { url: '/api/ai/provider', method: 'DELETE', send: () => api.removeAiProvider() },
+    { url: '/api/notes/note-1', method: 'DELETE', send: () => api.deleteNote('note-1') },
+    { url: '/api/highlights/verse-1', method: 'DELETE', send: () => api.deleteHighlight('verse-1') },
+    { url: '/api/ai/conversations/chat-1', method: 'DELETE', send: () => api.deleteChatConversation('chat-1') }
+  ])('omits JSON content-type on bodiless $method $url', async ({ url, method, send }) => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => url === '/api/semantic-index/rebuild'
+      ? fragmentedResponse(['event: done\ndata: {"state":"ready"}\n\n'])
+      : new Response('{}'))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await send()
+
+    expect(fetchMock).toHaveBeenCalledOnce()
+    const [requestUrl, init] = fetchMock.mock.calls[0]
+    expect(requestUrl).toBe(url)
+    expect(init?.method).toBe(method)
+    expect(init?.credentials).toBe('same-origin')
+    expect(init?.body).toBeUndefined()
+    expect(new Headers(init?.headers).has('content-type')).toBe(false)
+  })
+
+  it.each([
+    { method: 'POST', body: {}, send: () => api.createNote() },
+    { method: 'PUT', body: { key: 'verse-1', color: '' }, send: () => api.setHighlight('verse-1', '') },
+    { method: 'PATCH', body: {}, send: () => api.updateNote('note-1', {}) },
+    { method: 'PATCH', body: { disabled: false }, send: () => api.setUserDisabled('user-1', false) }
+  ])('keeps JSON content-type and serialization for $method body $body', async ({ method, body, send }) => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response('{}'))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await send()
+
+    expect(fetchMock).toHaveBeenCalledOnce()
+    const init = fetchMock.mock.calls[0][1]
+    expect(init?.method).toBe(method)
+    expect(new Headers(init?.headers).get('content-type')).toBe('application/json')
+    expect(init?.body).toBe(JSON.stringify(body))
+  })
+})
+
 describe('chat SSE parser', () => {
   it('joins fragmented frames and emits deltas', async () => {
     const deltas: string[] = []
