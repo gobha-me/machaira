@@ -7,7 +7,8 @@ import ReadScreen from './ReadScreen.vue'
 import { useLibrary } from '../stores/library'
 import { useReader } from '../stores/reader'
 import { useSettings } from '../stores/settings'
-import { api } from '../services/api'
+import { useTtsProvider } from '../stores/ttsProvider'
+import { api, ApiError } from '../services/api'
 import { pathologicalModule } from '../test/fixtures/moduleInfo'
 
 let wrapper: VueWrapper
@@ -43,6 +44,8 @@ beforeEach(() => {
 afterEach(() => {
   wrapper.unmount()
   document.body.innerHTML = ''
+  vi.useRealTimers()
+  vi.unstubAllGlobals()
 })
 
 describe('reader keyboard accessibility', () => {
@@ -114,5 +117,80 @@ describe('reader keyboard accessibility', () => {
     await flushPromises()
     expect(wrapper.get('[role="alert"]').text()).toContain('Chapter unavailable')
     expect(wrapper.find('button.vnum').exists()).toBe(false)
+  })
+})
+
+describe('read-aloud listening bar', () => {
+  class ListeningAudio {
+    src = ''
+    onended: (() => void) | null = null
+    onerror: (() => void) | null = null
+    play = vi.fn(async () => undefined)
+    pause = vi.fn()
+    removeAttribute = vi.fn()
+    load = vi.fn()
+  }
+
+  async function configureLocalAudio() {
+    vi.stubGlobal('Audio', ListeningAudio)
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:read-aloud-test')
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    useTtsProvider().config = {
+      order: ['local'],
+      local: {
+        provider: 'openai-compatible', baseUrl: 'http://127.0.0.1:8880/v1',
+        model: 'kokoro', voice: 'af_heart', hasApiKey: false
+      },
+      cloud: null,
+      remoteAudioCacheSize: 4
+    }
+    await flushPromises()
+  }
+
+  it('shows chapter counts and a spinner before audio, then timeout and Retry, then pause after playback starts', async () => {
+    vi.useFakeTimers()
+    const speech = vi.spyOn(api, 'ttsSpeech').mockImplementation(() => new Promise<Blob>(() => {}))
+    await configureLocalAudio()
+    await wrapper.get('button.listen').trigger('click')
+    expect(wrapper.get('.listen-sub').text()).toBe('Preparing local audio — 0 of 2 verses ready')
+    const control = wrapper.get('button.play')
+    expect(control.attributes('aria-label')).toBe('Preparing audio')
+    expect(control.attributes('aria-busy')).toBe('true')
+    expect(control.attributes('disabled')).toBeDefined()
+    expect(control.find('.listen-spinner').exists()).toBe(true)
+    expect(control.text()).not.toContain('❚❚')
+    expect(wrapper.get('[role="progressbar"]').attributes('aria-valuenow')).toBe('0')
+
+    await vi.advanceTimersByTimeAsync(90_000)
+    expect(wrapper.get('.listen-sub.error').text()).toContain('verse 1: audio request timed out after 90 seconds')
+    expect(control.attributes('aria-label')).toBe('Retry')
+    expect(control.text()).toBe('Retry')
+    expect(control.attributes('disabled')).toBeUndefined()
+    speech.mockResolvedValue(new Blob(['audio'], { type: 'audio/mpeg' }))
+    await control.trigger('click')
+    await flushPromises()
+    expect(control.attributes('aria-label')).toBe('Pause read-aloud')
+    expect(control.text()).toBe('❚❚')
+    expect(wrapper.find('.listen-sub.error').exists()).toBe(false)
+    await wrapper.get('[aria-label="Close read-aloud"]').trigger('click')
+    expect(wrapper.find('.listenbar').exists()).toBe(false)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it.each([
+    [new ApiError(503, {}), 'HTTP 503'],
+    [new ApiError(502, {}), 'HTTP 502'],
+    [new TypeError('private network details'), 'network request failed']
+  ])('renders a request failure with Retry: %s', async (failure, expected) => {
+    vi.spyOn(api, 'ttsSpeech').mockRejectedValue(failure)
+    await configureLocalAudio()
+    useReader().selectVerse(2)
+    await wrapper.get('button.listen').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.listen-sub.error').text()).toContain(expected)
+    expect(wrapper.get('.listen-sub.error').text()).toContain('verse 2')
+    expect(wrapper.get('button.play').text()).toBe('Retry')
+    expect(wrapper.get('button.play').attributes('aria-label')).toBe('Retry')
+    expect(wrapper.get('button.play').attributes('disabled')).toBeUndefined()
   })
 })
