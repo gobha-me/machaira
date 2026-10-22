@@ -8,6 +8,8 @@ import { useLibrary } from '../stores/library'
 import { useSemanticIndex } from '../stores/semanticIndex'
 import { pathologicalModule } from '../test/fixtures/moduleInfo'
 import SearchScreen from './SearchScreen.vue'
+import { createMemoryHistory } from 'vue-router'
+import { createAppRouter } from '../router'
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -32,7 +34,8 @@ beforeEach(() => {
   const semantic = useSemanticIndex()
   semantic.status.state = 'ready'
   vi.spyOn(semantic, 'load').mockResolvedValue()
-  wrapper = mount(SearchScreen, { global: { plugins: [pinia], stubs: { VoiceInputButton: true } } })
+  const router = createAppRouter(createMemoryHistory())
+  wrapper = mount(SearchScreen, { global: { plugins: [pinia, router], stubs: { VoiceInputButton: true } } })
 })
 afterEach(() => wrapper.unmount())
 async function search(query: string) {
@@ -56,6 +59,7 @@ describe('search request ownership and scopes', () => {
       expect(status.find('script').exists()).toBe(false)
       expect(wrapper.findAll('button.mode')[1].attributes('disabled')).toBeDefined()
       await status.get('button').trigger('click')
+      await flushPromises()
       expect(useUi().screen).toBe('settings')
       expect(useUi().settingsSection).toBe('semantic-search')
       semantic.status.lastError = null

@@ -1,4 +1,6 @@
 import { defineStore } from 'pinia'
+import { computed, inject, ref } from 'vue'
+import { routerKey } from 'vue-router'
 
 export type ScreenId = 'read' | 'plan' | 'study' | 'search' | 'library' | 'journal' | 'settings'
 
@@ -12,18 +14,18 @@ export const SCREENS: { id: ScreenId; label: string }[] = [
   { id: 'settings', label: 'Settings' }
 ]
 
-export const useUi = defineStore('ui', {
-  state: () => ({
-    screen: 'read' as ScreenId,
-    settingsSection: null as 'semantic-search' | null
-  }),
-  actions: {
-    openSemanticSettings(): void {
-      this.settingsSection = 'semantic-search'
-      this.screen = 'settings'
-    },
-    go(screen: ScreenId): void {
-      this.screen = screen
-    }
+export const useUi = defineStore('ui', () => {
+  const router = inject(routerKey, null)
+  const screen = computed<ScreenId>(() =>
+    SCREENS.find((entry) => entry.id === router?.currentRoute.value.name)?.id ?? 'read'
+  )
+  const settingsSection = ref<'semantic-search' | null>(null)
+  function go(next: ScreenId): void {
+    if (router && next !== screen.value) void router.push({ name: next })
   }
+  function openSemanticSettings(): void {
+    settingsSection.value = 'semantic-search'
+    go('settings')
+  }
+  return { screen, settingsSection, go, openSemanticSettings }
 })

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref, watch, watchEffect } from 'vue'
+import { RouterView, useRouter } from 'vue-router'
 import { useAuth } from './stores/auth'
 import { useSettings } from './stores/settings'
 import { useUi } from './stores/ui'
@@ -15,14 +16,8 @@ import { useChatConversations } from './stores/chatConversations'
 import { applyVars } from './theme'
 import { invalidateAccountRequests } from './services/api'
 import RailNav from './components/RailNav.vue'
-import ReadScreen from './screens/ReadScreen.vue'
-import PlanScreen from './screens/PlanScreen.vue'
-import StudyScreen from './screens/StudyScreen.vue'
-import SearchScreen from './screens/SearchScreen.vue'
-import LibraryScreen from './screens/LibraryScreen.vue'
-import JournalScreen from './screens/JournalScreen.vue'
-import SettingsScreen from './screens/SettingsScreen.vue'
 import AuthScreen from './components/AuthScreen.vue'
+import { useReaderRouting } from './composables/useReaderRouting'
 
 const auth = useAuth()
 const settings = useSettings()
@@ -38,6 +33,8 @@ const sttProvider = useSttProvider()
 const chatConversations = useChatConversations()
 const personalLoading = ref(false)
 const personalReady = ref(false)
+const router = useRouter()
+const { initialize: initializeReader, routeError } = useReaderRouting(personalReady)
 const personalError = ref<string | null>(null)
 let personalLoadGeneration = 0
 
@@ -54,20 +51,10 @@ const optionalFeatures = reactive([
 type OptionalFeature = typeof optionalFeatures[number]
 const degradedFeatures = computed(() => optionalFeatures.filter((feature) => feature.error !== null))
 
-const screens = {
-  read: ReadScreen,
-  plan: PlanScreen,
-  study: StudyScreen,
-  search: SearchScreen,
-  library: LibraryScreen,
-  journal: JournalScreen,
-  settings: SettingsScreen
-} as const
-
 // Fall back to Read if the plan gets turned off while its (now-hidden) tab is active.
-const activeScreen = computed(() =>
-  ui.screen === 'plan' && !readingPlan.enabled ? screens.read : screens[ui.screen]
-)
+watch([() => ui.screen, () => readingPlan.enabled, personalReady], ([screen, enabled, ready]) => {
+  if (ready && screen === 'plan' && !enabled) void router.replace({ name: 'read' })
+})
 
 // Apply the palette on :root so the whole document — including Teleported overlays
 // (PassageActions, etc.) that live outside .app-root — inherits the theme tokens.
@@ -141,7 +128,7 @@ async function loadPersonalData(userId: string): Promise<void> {
   try {
     await settings.restore()
     if (generation !== personalLoadGeneration || auth.user?.id !== userId) return
-    await reader.init()
+    await initializeReader()
     if (generation === personalLoadGeneration && auth.user?.id === userId) {
       // These stores expose failures as state instead of rejecting their load promises.
       const essentialError = library.error ?? reader.error
@@ -224,7 +211,12 @@ watch(
         </div>
       </div>
       <p v-if="notes.draftError" class="feature-error" role="alert">{{ notes.draftError }}</p>
-      <component :is="activeScreen" />
+      <div v-if="routeError" class="feature-errors" role="status">{{ routeError }}</div>
+      <RouterView v-slot="{ Component }">
+        <KeepAlive :key="auth.user?.id" include="SearchScreen">
+          <component :is="Component" />
+        </KeepAlive>
+      </RouterView>
     </main>
   </div>
 </template>

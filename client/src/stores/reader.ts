@@ -5,6 +5,7 @@ import { api, type BookEntry, type ChapterPayload } from '../services/api'
 import { formatPassageRef } from '../utils/passageRef'
 import { useLibrary } from './library'
 import { useSettings } from './settings'
+import type { PassageLocation } from '../router'
 
 interface ReaderState {
   activeUserId: string | null
@@ -176,7 +177,7 @@ export const useReader = defineStore('reader', {
         this.error = null
       }
     },
-    async init(): Promise<void> {
+    async init(initialPassage?: PassageLocation): Promise<void> {
       const userId = this.activeUserId
       const generation = readerGeneration
       if (!userId) return
@@ -189,6 +190,16 @@ export const useReader = defineStore('reader', {
       if (bibles.length === 0) {
         this.ready = true
         return
+      }
+      // Restore sync timestamps first, but never display or persist the saved cursor over
+      // an explicit URL on this load. Invalid/unavailable links use the normal landing.
+      if (initialPassage) {
+        const result = await this.openRoute(initialPassage)
+        if (generation !== readerGeneration || this.activeUserId !== userId) return
+        if (result.ok) {
+          this.ready = true
+          return
+        }
       }
       const saved = positionSyncs.get(this)?.current
       if (saved && bibles.some((m) => m.name === saved.moduleName)) {
@@ -210,6 +221,50 @@ export const useReader = defineStore('reader', {
       for (const h of all) map[h.key] = h.color
       this.highlights = map
       this.highlightError = null
+    },
+    async openRoute(target: PassageLocation, isCurrent: () => boolean = () => true): Promise<OpenReferenceResult> {
+      const generation = ++referenceOpenGeneration
+      const accountGeneration = readerGeneration
+      const moduleGeneration = moduleLoadGeneration
+      const chapterGeneration = chapterLoadGeneration
+      const current = () => isCurrent() && generation === referenceOpenGeneration &&
+        accountGeneration === readerGeneration && moduleGeneration === moduleLoadGeneration &&
+        chapterGeneration === chapterLoadGeneration
+      const unavailable = { ok: false, error: 'This passage link is not available in your library.' } as const
+      if (!this.installedBibles.some((module) => module.name === target.moduleName)) return unavailable
+      try {
+        const books = this.moduleName === target.moduleName && this.books.length
+          ? this.books : await api.books(target.moduleName)
+        if (!current()) return unavailable
+        if (!validChapter(books.find((book) => book.code === target.book), target.chapter)) return unavailable
+        const data = await api.chapter(target.moduleName, target.book, target.chapter)
+        if (!current()) return unavailable
+        if (target.verseStart !== null) {
+          const start = target.verseStart
+          const end = target.verseEnd ?? start
+          const verses = new Set(data.verses.map((verse) => verse.n))
+          // Count available verses instead of iterating an untrusted, potentially huge range.
+          if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 1 || end < start ||
+            [...verses].filter((verse) => verse >= start && verse <= end).length !== end - start + 1) {
+            return unavailable
+          }
+        }
+        moduleLoadGeneration += 1
+        chapterLoadGeneration += 1
+        this.moduleName = target.moduleName
+        this.books = books
+        this.book = target.book
+        this.chapter = target.chapter
+        this.data = data
+        this.selectedVerse = target.verseStart
+        this.rangeEnd = target.verseEnd ?? target.verseStart
+        this.loadingChapter = false
+        this.error = null
+        this.persistPos()
+        return { ok: true }
+      } catch {
+        return unavailable
+      }
     },
     async setModule(name: string): Promise<void> {
       const userId = this.activeUserId
