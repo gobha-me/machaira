@@ -10,6 +10,35 @@ render() {
   local name=$1
   shift
   "${helm_bin}" template machaira "${chart_dir}" "$@" > "${chart_test_dir}/${name}.yaml"
+  assert_sidecar_probes "${chart_test_dir}/${name}.yaml"
+}
+
+# Inspect each container separately: Machaira must retain its own readiness probe.
+# Run for every render, including GPU and deprecated sidecar aliases.
+assert_sidecar_probes() {
+  awk '
+    function check() {
+      if (!sidecar) return
+      if (readiness || !startup || timeout < 10 || failures < 6) {
+        print "Unsafe optional sidecar probes: " name " in " FILENAME > "/dev/stderr"
+        failed = 1
+      }
+    }
+    /^        - name: / {
+      check()
+      name = $3
+      sidecar = name ~ /^(embeddings|stt|tts)$/
+      readiness = startup = timeout = failures = 0
+      probe = ""
+    }
+    /^      [[:alpha:]]/ { check(); sidecar = 0 }
+    sidecar && /^          [[:alpha:]]/ { probe = $1 }
+    sidecar && /^          readinessProbe:/ { readiness = 1 }
+    sidecar && /^          startupProbe:/ { startup = 1 }
+    sidecar && probe == "livenessProbe:" && /^            timeoutSeconds:/ { timeout = $2 }
+    sidecar && probe == "livenessProbe:" && /^            failureThreshold:/ { failures = $2 }
+    END { check(); exit failed }
+  ' "$1"
 }
 
 "${helm_bin}" lint "${chart_dir}"

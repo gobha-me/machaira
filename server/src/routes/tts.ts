@@ -1,8 +1,9 @@
 import type { FastifyInstance, FastifyReply } from 'fastify'
-import { TtsInputError, TtsProviderError, type TtsService } from '../tts.js'
+import { TtsInputError, TtsProviderError, TtsQueueFullError, type TtsService } from '../tts.js'
 
 function knownError(reply: FastifyReply, error: unknown): FastifyReply | null {
   if (error instanceof TtsInputError) return reply.code(400).send({ error: error.message })
+  if (error instanceof TtsQueueFullError) return reply.code(429).send({ error: error.message })
   if (error instanceof TtsProviderError) return reply.code(502).send({ error: error.message })
   return null
 }
@@ -31,7 +32,13 @@ export async function registerTts(app: FastifyInstance, tts: TtsService): Promis
     }
   }, async (request, reply) => {
     const abort = new AbortController()
-    request.raw.once('aborted', () => abort.abort())
+    const onAborted = () => abort.abort()
+    const onClose = () => {
+      if (!reply.raw.writableEnded) abort.abort()
+    }
+    request.raw.once('aborted', onAborted)
+    // The request body is already read; a later disconnect closes the response.
+    reply.raw.once('close', onClose)
     try {
       const result = await tts.speech(request.authUser!.id, request.body, abort.signal)
       return reply
@@ -42,6 +49,9 @@ export async function registerTts(app: FastifyInstance, tts: TtsService): Promis
       const response = knownError(reply, error)
       if (response) return response
       throw error
+    } finally {
+      request.raw.removeListener('aborted', onAborted)
+      reply.raw.removeListener('close', onClose)
     }
   })
 }
