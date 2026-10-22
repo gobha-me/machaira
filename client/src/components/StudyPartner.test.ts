@@ -3,6 +3,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import userEvent from '@testing-library/user-event'
 import type { ChatMessage } from '../services/api'
 import { useAiProvider } from '../stores/aiProvider'
 import { useChatConversations } from '../stores/chatConversations'
@@ -293,4 +294,42 @@ describe('StudyPartner', () => {
     expect(wrapper.get('.reference-error').text()).toBe('This reference is not available in WEB.')
     expect(chats.activeId).toBe('conversation-1')
   })
+
+  it('names send/stop controls, rejects blank questions, and announces a send failure', async () => {
+    const user = userEvent.setup()
+    const chats = useChatConversations()
+    const ai = useAiProvider()
+    ai.ready = true
+    const send = vi.spyOn(chats, 'send').mockImplementation(async () => {
+      chats.error = 'Provider offline'
+    })
+    const wrapper = mount(StudyPartner, {
+      attachTo: document.body,
+      props: { passage: { reference: 'John 1:1', module: 'WEB', content: 'In the beginning' } },
+      global: { plugins: [pinia], stubs: { VoiceInputButton: true } }
+    })
+    try {
+      expect(wrapper.get('button.send').attributes('aria-label')).toBe('Send question')
+      expect(wrapper.get('button.send').attributes('disabled')).toBeDefined()
+      ai.provider = { kind: 'local', baseUrl: 'http://localhost:11434/v1', model: 'llama', hasApiKey: false }
+      chats.draft = '   '
+      await flushPromises()
+      await user.click(wrapper.get('button.send').element)
+      expect(send).not.toHaveBeenCalled()
+      chats.draft = 'What does this mean?'
+      await flushPromises()
+      ;(wrapper.get('button.send').element as HTMLElement).focus()
+      await user.keyboard('{Enter}')
+      expect(send).toHaveBeenCalledOnce()
+      expect(wrapper.get('[role="alert"]').text()).toBe('Provider offline')
+      chats.sending = true
+      await flushPromises()
+      expect(wrapper.get('button.send').attributes('aria-label')).toBe('Stop response')
+      expect(wrapper.get('button.send').attributes('type')).toBe('button')
+    } finally {
+      wrapper.unmount()
+      document.body.innerHTML = ''
+    }
+  })
+
 })

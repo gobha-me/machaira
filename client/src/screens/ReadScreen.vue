@@ -305,6 +305,7 @@ const {
   verseBg: baseVerseBg,
   onVerseClick,
   onVerseContext,
+  onVerseKeydown,
   onVerseMouseDown,
   onVersePointerDown,
   onVersePointerMove,
@@ -453,7 +454,7 @@ async function menuNote() {
       <div class="cols">
         <div class="reading">
           <div v-if="reader.loadingChapter" class="loading">Loading…</div>
-          <p v-else-if="reader.error" class="error">{{ reader.error }}</p>
+          <p v-else-if="reader.error" class="error" role="alert">{{ reader.error }}</p>
           <template v-else-if="reader.data">
             <div class="eyebrow">{{ sectionLabels[reader.currentBook?.section ?? 'nt'] }}</div>
             <h1 class="serif">{{ reader.bookName }} <span class="accent">{{ reader.chapter }}</span></h1>
@@ -472,14 +473,26 @@ async function menuNote() {
                 @pointercancel="onVersePointerEnd"
                 @click="onVerseClick(v.n, $event)"
                 @contextmenu="onVerseContext(v.n, $event)"
-              ><sup class="vnum">{{ v.n }}</sup><template
+              ><!-- Keep prose selectable and avoid nesting word controls inside a verse button. -->
+                <button
+                  type="button"
+                  class="vnum"
+                  :aria-label="`Select verse ${v.n}`"
+                  :aria-pressed="reader.selectedVerses.includes(v.n)"
+                  aria-keyshortcuts="Shift+F10"
+                  title="Select verse; Shift+F10 opens passage actions"
+                  @click.stop="onVerseClick(v.n, $event)"
+                  @keydown="onVerseKeydown(v.n, $event)"
+                >{{ v.n }}</button><template
                   v-if="(settings.showFootnotes && v.notes.length) || wordsRevealed"
                 ><template v-for="(seg, i) in v.segments" :key="i"><template
                     v-if="seg.kind === 'word' && wordsTappableIn(v.n)"
-                  >{{ segLead(seg.text, i) }}<span
+                  >{{ segLead(seg.text, i) }}<button
+                      type="button"
                       class="wtap"
+                      :aria-label="`Study ${seg.text} (${seg.strongs.join(', ')})`"
                       @click.stop="onWordClick(v.n, seg.strongs, $event)"
-                    >{{ seg.text }}</span></template><sup
+                    >{{ seg.text }}</button></template><sup
                     v-else-if="seg.kind === 'note' && settings.showFootnotes"
                     class="noteref"
                     :title="seg.text"
@@ -556,7 +569,7 @@ async function menuNote() {
               <button class="word-card-close hover-ink" @click="closeWordStudy">✕</button>
             </div>
             <div v-if="strongsLoading" class="word-card-state">Looking up…</div>
-            <p v-else-if="strongsError" class="word-card-error">{{ strongsError }}</p>
+            <p v-else-if="strongsError" class="word-card-error" role="alert">{{ strongsError }}</p>
             <StrongsCard v-else-if="strongsEntry" :entry="strongsEntry" />
             <p v-else-if="!chapterHasStrongs" class="word-card-state">
               This translation isn’t Strong’s-tagged. Switch to a tagged translation (e.g. KJVA) to study words.
@@ -626,7 +639,7 @@ async function menuNote() {
             </div>
           </div>
 
-          <div v-if="reader.highlightError" class="error">{{ reader.highlightError }}</div>
+          <div v-if="reader.highlightError" class="error" role="alert">{{ reader.highlightError }}</div>
           <div class="hint-text desktop-hint">Select any verse to compare, highlight, or start a note.</div>
           <div class="hint-text mobile-hint">Tap a verse to select it. Long-press another verse to select a range and open its actions.</div>
         </aside>
@@ -967,6 +980,11 @@ h1 {
   transition: background 0.15s;
 }
 .vnum {
+  border: 0;
+  background: transparent;
+  padding: 0 2px;
+  vertical-align: super;
+  cursor: pointer;
   font-size: 0.58em;
   color: var(--accent);
   font-weight: 600;
@@ -982,6 +1000,12 @@ h1 {
   font-family: 'Instrument Sans', sans-serif;
 }
 .wtap {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
   cursor: pointer;
   border-radius: 3px;
   transition: background 0.12s;

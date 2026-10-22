@@ -159,20 +159,22 @@ onMounted(async () => {
         No notes yet. Create one — or select a verse while reading and choose “Note”.
       </div>
       <div class="items">
-        <div
+        <button
+          type="button"
           v-for="n in notes.list"
           :key="n.id"
           class="item"
           :class="{ active: n.id === notes.currentId }"
+          :aria-pressed="n.id === notes.currentId"
           @click="notes.select(n.id)"
         >
-          <div class="item-title">{{ n.title || 'Untitled note' }}</div>
-          <div v-if="notes.saveErrors[n.id]" class="save-error" role="status">Save failed · open to retry</div>
-          <div class="item-date">{{ relDate(n.updatedAt) }}</div>
-          <div v-if="n.tags.length" class="item-tags">
+          <span class="item-title">{{ n.title || 'Untitled note' }}</span>
+          <span v-if="notes.saveErrors[n.id]" class="save-error" role="status">Save failed · open to retry</span>
+          <span class="item-date">{{ relDate(n.updatedAt) }}</span>
+          <span v-if="n.tags.length" class="item-tags">
             <span v-for="t in n.tags" :key="t" class="tagchip">{{ t }}</span>
-          </div>
-        </div>
+          </span>
+        </button>
       </div>
     </div>
 
@@ -183,7 +185,7 @@ onMounted(async () => {
         <div class="edit-meta">
           {{ dateLabel }}
           <span v-if="notes.saving && !notes.saveError"> · Saving…</span>
-          <span v-if="notes.saveError && notes.saveErrorId === notes.currentId" class="save-error">
+          <span v-if="notes.saveError && notes.saveErrorId === notes.currentId" class="save-error" role="alert">
             · Save failed: {{ notes.saveError }}
             <button @click="notes.retrySave">Retry</button>
           </span>
@@ -275,7 +277,7 @@ onMounted(async () => {
         </div>
       </template>
 
-      <div v-if="connectionsError && connections" class="conn-note error">{{ connectionsError }}</div>
+      <div v-if="connectionsError && connections" class="conn-note error" role="alert">{{ connectionsError }}</div>
       <div v-for="warning in connectionWarnings" :key="warning" class="conn-note">
         {{ warning }}
       </div>
@@ -331,6 +333,12 @@ onMounted(async () => {
   gap: 6px;
 }
 .item {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
   border-radius: 9px;
   padding: 12px;
   cursor: pointer;
@@ -342,10 +350,12 @@ onMounted(async () => {
   background: var(--soft);
 }
 .item-title {
+  display: block;
   font-size: 13px;
   font-weight: 600;
 }
 .item-date {
+  display: block;
   font-size: 11px;
   color: var(--muted);
   margin: 3px 0 7px;

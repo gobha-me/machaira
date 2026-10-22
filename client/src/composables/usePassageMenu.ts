@@ -1,4 +1,4 @@
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useReader } from '../stores/reader'
 import { crossReferencesForVerses } from '../utils/crossReferences'
 import {
@@ -28,6 +28,7 @@ export function usePassageMenu(opts: UsePassageMenuOptions = {}) {
   // popped the menu at the clamped top-left corner with no gesture behind it — the opposite of
   // what #27 asked for. Only openAt() opens it.
   const menuDismissed = ref(true)
+  let keyboardOpener: HTMLElement | null = null
   const menuOpen = computed(() => reader.selectedVerse != null && !menuDismissed.value)
 
   const selectionLabel = computed(() => {
@@ -77,6 +78,8 @@ export function usePassageMenu(opts: UsePassageMenuOptions = {}) {
 
   function dismiss() {
     menuDismissed.value = true
+    if (keyboardOpener?.isConnected) keyboardOpener.focus()
+    keyboardOpener = null
   }
 
   // Left click: quiet select-first — bring the verse forward without opening the menu, so a focus
@@ -107,6 +110,21 @@ export function usePassageMenu(opts: UsePassageMenuOptions = {}) {
     if (suppressesNativeTouchEvent(n)) return
     if (!reader.selectedVerses.includes(n)) reader.selectVerse(n)
     openAt(e)
+  }
+
+  function onVerseKeydown(n: number, e: KeyboardEvent) {
+    if (e.key !== 'ContextMenu' && !(e.shiftKey && e.key === 'F10')) return
+    e.preventDefault()
+    e.stopPropagation()
+    if (!reader.selectedVerses.includes(n)) reader.selectVerse(n)
+    keyboardOpener = e.currentTarget as HTMLElement
+    const bounds = keyboardOpener.getBoundingClientRect()
+    openAtPosition({ x: bounds.left, y: bounds.bottom })
+    void nextTick(() => {
+      if (keyboardOpener?.isConnected && menuOpen.value) {
+        document.querySelector<HTMLElement>('.passage-actions button:not(:disabled)')?.focus()
+      }
+    })
   }
 
   // Mobile browsers do not expose Shift, and native context-menu timing varies by platform.
@@ -185,6 +203,7 @@ export function usePassageMenu(opts: UsePassageMenuOptions = {}) {
     verseBg,
     onVerseClick,
     onVerseContext,
+    onVerseKeydown,
     onVerseMouseDown,
     onVersePointerDown,
     onVersePointerMove,
