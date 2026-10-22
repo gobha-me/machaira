@@ -5,7 +5,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import userEvent from '@testing-library/user-event'
 import { useReader } from '../stores/reader'
 import { useNotes } from '../stores/notes'
-import { api, type SearchHit } from '../services/api'
+import { api, ApiError, type SearchHit } from '../services/api'
 import { useUi } from '../stores/ui'
 import { useLibrary } from '../stores/library'
 import { useSemanticIndex } from '../stores/semanticIndex'
@@ -42,6 +42,8 @@ beforeEach(() => {
 })
 afterEach(() => {
   wrapper.unmount()
+  vi.useRealTimers()
+  vi.unstubAllGlobals()
   document.body.innerHTML = ''
 })
 async function search(query: string) {
@@ -53,6 +55,27 @@ async function scope(label: string) {
 }
 
 describe('search request ownership and scopes', () => {
+  it.each(['stale', 'failed', 'unconfigured'] as const)(
+    'shows exact-search results through /api/search with a %s semantic index', async (state) => {
+      useSemanticIndex().status.state = state
+      useSemanticIndex().status.lastError = state === 'failed' ? 'Embedding provider unavailable' : null
+      const meaning = vi.spyOn(api, 'semanticSearch').mockRejectedValue(new Error('Semantic search must not run'))
+      const index = vi.spyOn(api, 'semanticIndexStatus').mockRejectedValue(new Error('Index status unavailable'))
+      const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ results: [hit('In the beginning')] })))
+      vi.stubGlobal('fetch', fetch)
+
+      await search('beginning')
+      await flushPromises()
+
+      expect(fetch).toHaveBeenCalledExactlyOnceWith('/api/search?q=beginning&modules=WEB%2CAncient&scope=all', { credentials: 'same-origin' })
+      expect(wrapper.get('.result').text()).toContain('In the beginning')
+      expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+      expect(wrapper.text()).toContain('Exact-word search does not use the semantic index.')
+      expect(meaning).not.toHaveBeenCalled()
+      expect(index).not.toHaveBeenCalled()
+    }
+  )
+
   it.each(['unconfigured', 'empty', 'stale', 'failed', 'building'] as const)(
     'shows the %s state, last rebuild error, and a direct Settings link', async (state) => {
       const semantic = useSemanticIndex()
@@ -200,6 +223,154 @@ describe('search request ownership and scopes', () => {
     expect(wrapper.text()).toContain('Current meaning result')
     expect(wrapper.text()).not.toContain('Obsolete exact result')
     expect(wrapper.text()).toContain('top 50 corpus matches')
+  })
+})
+
+describe('temporary search outages', () => {
+  beforeEach(() => vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] }))
+
+  // Ingress failures can be HTML rather than the API's normal JSON error body.
+  function outage(failure: number | 'network'): Promise<Response> {
+    return failure === 'network'
+      ? Promise.reject(new TypeError('Failed to fetch'))
+      : Promise.resolve(new Response('<html>upstream unavailable</html>', { status: failure }))
+  }
+
+  it.each([502, 503, 504, 'network'] as const)('recovers from %s with exactly one delayed retry', async (failure) => {
+    const fetch = vi.fn()
+      .mockImplementationOnce(() => outage(failure))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ results: [hit('Recovered result')] })))
+    vi.stubGlobal('fetch', fetch)
+    await search('love')
+    await flushPromises()
+    expect(wrapper.get('[role="status"]').text()).toBe('The server is temporarily unavailable. Retrying…')
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(wrapper.find('.count').exists()).toBe(false)
+    expect(fetch).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(749)
+    expect(fetch).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(1)
+    await flushPromises()
+    expect(wrapper.get('.result').text()).toContain('Recovered result')
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(fetch.mock.calls[1]).toEqual(fetch.mock.calls[0])
+  })
+
+  it.each([502, 503, 504, 'network'] as const)('stops after two %s failures and offers a working Retry', async (failure) => {
+    const fetch = vi.fn()
+      .mockImplementationOnce(() => outage(failure))
+      .mockImplementationOnce(() => outage(failure))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ results: [hit('Manual retry result')] })))
+    vi.stubGlobal('fetch', fetch)
+    await scope('Scripture')
+    await search(' love ')
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(750)
+    await flushPromises()
+
+    const alert = wrapper.get('[role="alert"]')
+    expect(alert.text()).toContain('The server is temporarily unavailable. Please try again.')
+    expect(alert.text()).not.toContain('HTTP')
+    expect(wrapper.find('[role="status"]').exists()).toBe(false)
+    expect(wrapper.find('.count').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('No matches')
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(fetch).toHaveBeenCalledTimes(2)
+
+    expect(alert.get('button').text()).toBe('Retry')
+    await alert.get('button').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.result').text()).toContain('Manual retry result')
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(fetch).toHaveBeenCalledTimes(3)
+    expect(fetch.mock.calls.every((call) => call[0] === '/api/search?q=love&modules=WEB&scope=scripture')).toBe(true)
+  })
+
+  it.each([400, 401, 403, 404, 429, 500])('makes HTTP %s actionable without automatically retrying it', async (status) => {
+    const fetch = vi.fn().mockResolvedValue(new Response('', { status }))
+    vi.stubGlobal('fetch', fetch)
+    await search('word')
+    await flushPromises()
+    const alert = wrapper.get('[role="alert"]')
+    expect(alert.text()).toContain(`HTTP ${status}`)
+    expect(alert.text()).toContain('Please try again.')
+    expect(alert.get('button').text()).toBe('Retry')
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('preserves an actionable API validation error when the retry fails differently', async () => {
+    vi.spyOn(api, 'search')
+      .mockRejectedValueOnce(new ApiError(503, {}))
+      .mockRejectedValueOnce(new ApiError(400, { message: 'Invalid search scope' }))
+    await search('word')
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(750)
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toContain('Invalid search scope. Please try again.')
+    expect(wrapper.text()).not.toContain('Retrying…')
+  })
+
+  it.each(['edit', 'query', 'scope', 'mode', 'unmount'])(
+    'cancels the backoff on %s without sending an obsolete retry', async (change) => {
+      const exact = vi.spyOn(api, 'search')
+        .mockRejectedValueOnce(new ApiError(503, {}))
+        .mockResolvedValue([hit('Current result')])
+      vi.spyOn(api, 'semanticSearch').mockResolvedValue([{ ...hit('Meaning result'), distance: 0 }])
+      await search('word')
+      await flushPromises()
+      expect(wrapper.get('[role="status"]').text()).toContain('Retrying…')
+      if (change === 'edit') await wrapper.get('input.query').setValue('unfinished')
+      if (change === 'query') await search('second')
+      if (change === 'scope') await scope('Scripture')
+      if (change === 'mode') await wrapper.findAll('button.mode')[1].trigger('click')
+      if (change === 'unmount') wrapper.unmount()
+      await flushPromises()
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(exact).toHaveBeenCalledTimes(change === 'query' || change === 'scope' ? 2 : 1)
+      if (change === 'unmount') return
+      expect(wrapper.text()).not.toContain('Retrying…')
+      expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+      if (change === 'query' || change === 'scope') expect(wrapper.get('.result').text()).toContain('Current result')
+      if (change === 'mode') expect(wrapper.get('.result').text()).toContain('Meaning result')
+    }
+  )
+
+  it('does not schedule a retry for a late failure from an older request', async () => {
+    const old = deferred<SearchHit[]>()
+    const exact = vi.spyOn(api, 'search').mockReturnValueOnce(old.promise).mockResolvedValueOnce([hit('Current result')])
+    await search('first')
+    await search('second')
+    await flushPromises()
+    old.reject(new ApiError(503, {}))
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(exact).toHaveBeenCalledTimes(2)
+    expect(wrapper.get('.result').text()).toContain('Current result')
+  })
+
+  it.each(['success', 'failure'])('discards a retry %s after the query changes', async (outcome) => {
+    const retry = deferred<SearchHit[]>()
+    const exact = vi.spyOn(api, 'search')
+      .mockRejectedValueOnce(new ApiError(503, {}))
+      .mockReturnValueOnce(retry.promise)
+      .mockResolvedValueOnce([hit('Current result')])
+    await search('first')
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(750)
+    await search('second')
+    await flushPromises()
+    if (outcome === 'success') retry.resolve([hit('Obsolete result')])
+    else retry.reject(new ApiError(503, {}))
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(exact).toHaveBeenCalledTimes(3)
+    expect(wrapper.get('.result').text()).toContain('Current result')
+    expect(wrapper.text()).not.toContain('Obsolete result')
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
   })
 })
 

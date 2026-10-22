@@ -6,7 +6,7 @@ import { useLibrary } from '../stores/library'
 import { useUi } from '../stores/ui'
 import { useNotes } from '../stores/notes'
 import { useSemanticIndex } from '../stores/semanticIndex'
-import { api, type Note, type SearchHit, type SearchScope } from '../services/api'
+import { api, ApiError, type Note, type SearchHit, type SearchScope } from '../services/api'
 import ModalDialog from '../components/ui/ModalDialog.vue'
 import VoiceInputButton from '../components/VoiceInputButton.vue'
 
@@ -25,15 +25,19 @@ const scope = ref<Scope>('Everything')
 const mode = ref<SearchMode>('exact')
 const searched = ref(false)
 const loading = ref(false)
+const retrying = ref(false)
 const hits = ref<SearchHit[]>([])
 const noteHits = ref<Note[]>([])
 const error = ref<string | null>(null)
 const selectedGeneral = ref<SearchHit | null>(null)
 let generation = 0
+let cancelBackoff: (() => void) | undefined
 
 function invalidate(): void {
   generation += 1
+  cancelBackoff?.()
   loading.value = false
+  retrying.value = false
   hits.value = []
   noteHits.value = []
   error.value = null
@@ -70,6 +74,23 @@ const scriptureHits = computed(() => {
 const showScripture = computed(() => scope.value !== 'Notes & journal')
 const showNotes = computed(() => scope.value === 'Everything' || scope.value === 'Notes & journal')
 
+function temporarilyUnavailable(error: unknown): boolean {
+  // Browser fetch rejects network failures with TypeError; HTTP errors retain their status.
+  return error instanceof ApiError ? [502, 503, 504].includes(error.status) : error instanceof TypeError
+}
+
+function backoff(): Promise<void> {
+  return new Promise((resolve) => {
+    const finish = () => {
+      clearTimeout(timer)
+      cancelBackoff = undefined
+      resolve()
+    }
+    const timer = setTimeout(finish, 750)
+    cancelBackoff = finish
+  })
+}
+
 async function run() {
   const query = q.value.trim()
   invalidate()
@@ -84,22 +105,41 @@ async function run() {
   error.value = null
   searched.value = true
   try {
-    const [corpusResults, notesResults] = await Promise.all([
-      requestedScope !== 'Notes & journal' && modules.length
-        ? requestedMode === 'meaning' ? api.semanticSearch(query, modules, 50, corpusScope)
-          : api.search(query, modules, corpusScope)
-        : Promise.resolve([]),
-      requestedScope === 'Everything' || requestedScope === 'Notes & journal' ? searchNotes(query) : Promise.resolve([])
-    ])
-    if (activeGeneration !== generation) return
-    hits.value = corpusResults
-    noteHits.value = notesResults
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const [corpusResults, notesResults] = await Promise.all([
+          requestedScope !== 'Notes & journal' && modules.length
+            ? requestedMode === 'meaning' ? api.semanticSearch(query, modules, 50, corpusScope)
+              : api.search(query, modules, corpusScope)
+            : Promise.resolve([]),
+          requestedScope === 'Everything' || requestedScope === 'Notes & journal' ? searchNotes(query) : Promise.resolve([])
+        ])
+        if (activeGeneration !== generation) return
+        hits.value = corpusResults
+        noteHits.value = notesResults
+        return
+      } catch (e) {
+        if (activeGeneration !== generation) return
+        if (attempt > 0 || !temporarilyUnavailable(e)) throw e
+        retrying.value = true
+        await backoff()
+        if (activeGeneration !== generation) return
+      }
+    }
   } catch (e) {
     if (activeGeneration !== generation) return
-    error.value = e instanceof Error && e.message.trim() ? e.message : 'Search failed. Please try again.'
+    const message = e instanceof Error ? e.message.trim() : ''
+    error.value = temporarilyUnavailable(e)
+      ? 'The server is temporarily unavailable. Please try again.'
+      : message
+        ? `Search failed: ${message}${/[.!?]$/.test(message) ? '' : '.'} Please try again.`
+        : 'Search failed. Please try again.'
     if (requestedMode === 'meaning') void semantic.load().catch(() => undefined)
   } finally {
-    if (activeGeneration === generation) loading.value = false
+    if (activeGeneration === generation) {
+      loading.value = false
+      retrying.value = false
+    }
   }
 }
 
@@ -194,6 +234,7 @@ const resultCount = computed(() => scriptureHits.value.length + (showNotes.value
         <div v-else-if="semantic.status.lastError">The last rebuild failed; meaning search still uses the old index.</div>
         <div v-if="semantic.status.lastError">Last rebuild error: {{ semantic.status.lastError }}</div>
         <div v-if="semantic.error">{{ semantic.error }}</div>
+        <div>Exact-word search does not use the semantic index.</div>
         <button class="mode" type="button" @click="ui.openSemanticSettings()">Settings → Semantic search</button>
       </div>
 
@@ -213,10 +254,13 @@ const resultCount = computed(() => scriptureHits.value.length + (showNotes.value
       </div>
 
       <template v-if="loading">
-        <div class="status" role="status">Searching…</div>
+        <div class="status" role="status">{{ retrying ? 'The server is temporarily unavailable. Retrying…' : 'Searching…' }}</div>
       </template>
 
-      <p v-else-if="error" class="error" role="alert">Search failed: {{ error }}</p>
+      <div v-else-if="error" class="error" role="alert">
+        <p>{{ error }}</p>
+        <button class="mode" type="button" @click="run">Retry</button>
+      </div>
 
       <template v-else-if="searched">
         <div class="count" aria-live="polite">
