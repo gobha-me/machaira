@@ -88,9 +88,9 @@ async function startApp(path = '/read', history: RouterHistory = createMemoryHis
   return wrapper
 }
 
-function passage(chapter: number): ChapterPayload {
+function passage(chapter: number, module = 'WEB'): ChapterPayload {
   return {
-    module: 'WEB', book: 'Gen', bookName: 'Genesis', chapter,
+    module, book: 'Gen', bookName: 'Genesis', chapter,
     verses: [1, 2, 3].map((n) => ({ n, text: '', notes: [], segments: [], crossReferences: [] }))
   }
 }
@@ -102,7 +102,7 @@ async function navigate(app: VueWrapper, label: string) {
 
 describe('hash navigation and passage URLs', () => {
   beforeEach(() => {
-    vi.mocked(api.chapter).mockImplementation(async (_module, _book, chapter) => passage(chapter))
+    vi.mocked(api.chapter).mockImplementation(async (module, _book, chapter) => passage(chapter, module))
   })
 
   it('opens a hash deep link after a slow newer server cursor instead of displaying or saving that cursor', async () => {
@@ -131,6 +131,51 @@ describe('hash navigation and passage URLs', () => {
     const app = await startApp('/')
     expect(app.get('.read h1').text()).toBe('Genesis 4')
     expect(router.currentRoute.value.path).toBe('/read/WEB/Gen/4')
+  })
+
+  it('lets an explicit translation and verse win over a different saved translation', async () => {
+    vi.mocked(api.catalog).mockResolvedValue({
+      modules: ['WEB', 'KJV'].map((name) => ({ ...pathologicalModule, id: name, name, installed: true })),
+      diagnostics: { repositories: [], usedCachedCatalog: false, refreshedAt: 1 }
+    })
+    vi.mocked(api.readingCursor).mockResolvedValue({ moduleName: 'WEB', book: 'Gen', chapter: 4, updated_at: 10 })
+    const app = await startApp('/read/KJV/Gen/2/3')
+    expect(app.get('.read h1').text()).toBe('Genesis 2')
+    expect(useReader().moduleName).toBe('KJV')
+    expect(useReader().selectedVerse).toBe(3)
+    expect(api.books).toHaveBeenCalledExactlyOnceWith('KJV')
+    expect(api.chapter).toHaveBeenCalledExactlyOnceWith('KJV', 'Gen', 2)
+    expect(router.currentRoute.value.path).toBe('/read/KJV/Gen/2/3')
+  })
+
+  it.each(['books', 'chapter'] as const)('uses the saved passage if a deep link %s request fails at startup', async (method) => {
+    vi.mocked(api.readingCursor).mockResolvedValue({ moduleName: 'WEB', book: 'Gen', chapter: 4, updated_at: 10 })
+    vi.mocked(api[method]).mockRejectedValueOnce(new Error('Linked passage offline'))
+    const app = await startApp('/read/WEB/Gen/2/3')
+    expect(app.get('.read h1').text()).toBe('Genesis 4')
+    expect(app.find('.personal-error-page').exists()).toBe(false)
+    expect(useReader().selectedVerse).toBeNull()
+    expect(router.currentRoute.value.path).toBe('/read/WEB/Gen/4')
+    expect(JSON.parse(localStorage.getItem('sword.reader.pos.v2:reader')!).chapter).toBe(4)
+  })
+
+  it('rejects a verse range with a missing interior verse even when both endpoints exist', async () => {
+    vi.mocked(api.chapter).mockImplementation(async (_module, _book, chapter) => {
+      const data = passage(chapter)
+      if (chapter === 2) data.verses = data.verses.filter((verse) => verse.n !== 2)
+      return data
+    })
+    const app = await startApp('/read/WEB/Gen/2/1-3')
+    expectRead(app)
+    expect(router.currentRoute.value.path).toBe('/read/WEB/Gen/1')
+    expect(useReader().selectedVerse).toBeNull()
+  })
+
+  it('falls back from a direct Plan link when the reading plan is disabled', async () => {
+    const app = await startApp('/plan')
+    expectRead(app)
+    expect(router.currentRoute.value.path).toBe('/read/WEB/Gen/1')
+    expect(app.findAll('.rail-btn').some((button) => button.text() === 'Plan')).toBe(false)
   })
 
   it.each([
@@ -242,6 +287,23 @@ describe('hash navigation and passage URLs', () => {
     expect(useReader().chapter).toBe(1)
     expect(app.findComponent(SearchScreen).exists()).toBe(true)
     expect(app.text()).not.toContain('passage link is not available')
+  })
+
+  it.each(['success', 'failure'] as const)('keeps a newer passage when an earlier link has a late %s', async (outcome) => {
+    const app = await startApp()
+    const pending = deferred<ChapterPayload>()
+    vi.mocked(api.chapter).mockReturnValueOnce(pending.promise)
+    await router.push('/read/WEB/Gen/2')
+    await router.push('/read/WEB/Gen/3/1-3')
+    await flushPromises()
+    if (outcome === 'success') pending.resolve(passage(2))
+    else pending.reject(new Error('Obsolete failure'))
+    await flushPromises()
+    expect(app.get('.read h1').text()).toBe('Genesis 3')
+    expect(useReader().selectedVerses).toEqual([1, 2, 3])
+    expect(router.currentRoute.value.path).toBe('/read/WEB/Gen/3/1-3')
+    expect(app.text()).not.toContain('passage link is not available')
+    expect(JSON.parse(localStorage.getItem('sword.reader.pos.v2:reader')!).chapter).toBe(3)
   })
 
   it('keeps the current passage and reports failure when a linked chapter request fails', async () => {
