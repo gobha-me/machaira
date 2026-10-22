@@ -113,6 +113,10 @@ spec:
             - name: data
               mountPath: /data
       {{- end }}
+      # Optional inference providers must not gate pod readiness: CPU-bound synthesis
+      # can stall their health checks and remove every application Service endpoint.
+      # Machaira reports provider readiness itself. Keep startup checks and lenient
+      # liveness probes so a busy provider does not restart during normal inference.
       containers:
         - name: machaira
           image: "{{ .Values.image.repository }}:{{ default .Chart.AppVersion .Values.image.tag }}"
@@ -204,18 +208,12 @@ spec:
             periodSeconds: 5
             timeoutSeconds: 5
             failureThreshold: 120
-          readinessProbe:
-            exec:
-              command: ["/bin/sh", "-ec", "ollama show \"$EMBEDDING_MODEL\" >/dev/null"]
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 3
           livenessProbe:
             exec:
               command: ["/bin/sh", "-ec", "ollama list >/dev/null"]
             periodSeconds: 30
-            timeoutSeconds: 5
-            failureThreshold: 3
+            timeoutSeconds: 10
+            failureThreshold: 6
           resources:
             {{- toYaml $embeddingResources | nindent 12 }}
           volumeMounts:
@@ -258,20 +256,13 @@ spec:
             periodSeconds: 5
             timeoutSeconds: 3
             failureThreshold: 120
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: tts
-            periodSeconds: 10
-            timeoutSeconds: 3
-            failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /health
               port: tts
             periodSeconds: 30
-            timeoutSeconds: 3
-            failureThreshold: 3
+            timeoutSeconds: 10
+            failureThreshold: 6
           resources:
             {{- toYaml $ttsResources | nindent 12 }}
           volumeMounts:
@@ -326,24 +317,13 @@ spec:
             periodSeconds: 5
             timeoutSeconds: 3
             failureThreshold: 120
-          readinessProbe:
-            exec:
-              command:
-                - /bin/sh
-                - -ec
-                - >-
-                  curl --fail --silent http://127.0.0.1:8000/v1/models |
-                  grep --fixed-strings --quiet "${STT_MODEL}"
-            periodSeconds: 10
-            timeoutSeconds: 5
-            failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /health
               port: stt
             periodSeconds: 30
-            timeoutSeconds: 3
-            failureThreshold: 3
+            timeoutSeconds: 10
+            failureThreshold: 6
           resources:
             {{- toYaml $sttResources | nindent 12 }}
           volumeMounts:
