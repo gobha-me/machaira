@@ -180,12 +180,15 @@ const resultCount = computed(() => scriptureHits.value.length + (showNotes.value
             : semantic.searchable ? 'Rank scripture by semantic similarity' : semantic.statusText"
           @click="mode = 'meaning'; searched && run()"
         >By meaning</button>
-        <span v-if="!semantic.searchable" class="mode-note">{{ semantic.statusText }}</span>
       </div>
 
-      <p v-if="semantic.searchable && semantic.status.lastError" class="status" role="status">
-        Semantic index is stale after a failed rebuild; meaning search still uses the old index.
-      </p>
+      <div v-if="!semantic.searchable || semantic.status.lastError || semantic.error" class="status" role="status">
+        <div v-if="!semantic.searchable">Semantic index: {{ semantic.status.state }} · {{ semantic.statusText }}</div>
+        <div v-else-if="semantic.status.lastError">The last rebuild failed; meaning search still uses the old index.</div>
+        <div v-if="semantic.status.lastError">Last rebuild error: {{ semantic.status.lastError }}</div>
+        <div v-if="semantic.error">{{ semantic.error }}</div>
+        <button class="mode" type="button" @click="ui.openSemanticSettings()">Settings → Semantic search</button>
+      </div>
 
       <div class="scopes">
         <button

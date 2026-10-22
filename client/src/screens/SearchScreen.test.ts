@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { api, type SearchHit } from '../services/api'
+import { useUi } from '../stores/ui'
 import { useLibrary } from '../stores/library'
 import { useSemanticIndex } from '../stores/semanticIndex'
 import { pathologicalModule } from '../test/fixtures/moduleInfo'
@@ -43,12 +44,41 @@ async function scope(label: string) {
 }
 
 describe('search request ownership and scopes', () => {
+  it.each(['unconfigured', 'empty', 'stale', 'failed', 'building'] as const)(
+    'shows the %s state, last rebuild error, and a direct Settings link', async (state) => {
+      const semantic = useSemanticIndex()
+      semantic.status.state = state
+      semantic.status.lastError = 'Embedding request timed out or was cancelled <script>alert(1)</script>'
+      await flushPromises()
+      const status = wrapper.get('[role="status"]')
+      expect(status.text()).toContain(`Semantic index: ${state}`)
+      expect(status.text()).toContain(semantic.status.lastError)
+      expect(status.find('script').exists()).toBe(false)
+      expect(wrapper.findAll('button.mode')[1].attributes('disabled')).toBeDefined()
+      await status.get('button').trigger('click')
+      expect(useUi().screen).toBe('settings')
+      expect(useUi().settingsSection).toBe('semantic-search')
+      semantic.status.lastError = null
+      await flushPromises()
+      expect(wrapper.get('[role="status"]').text()).toContain('Settings → Semantic search')
+      expect(wrapper.text()).not.toContain('Last rebuild error:')
+    }
+  )
+
+  it('shows a status fetch failure and a Settings link even when the last known index was ready', async () => {
+    useSemanticIndex().error = 'Could not load index status'
+    await flushPromises()
+    expect(wrapper.get('[role="status"]').text()).toContain('Could not load index status')
+    expect(wrapper.get('[role="status"] button').text()).toBe('Settings → Semantic search')
+  })
+
   it('keeps meaning search enabled after a failed rebuild and explains that it uses the old index', async () => {
     const semantic = useSemanticIndex()
     semantic.status.lastError = 'Embedding request failed after 3 attempts at batch size 1'
     const meaning = vi.spyOn(api, 'semanticSearch').mockResolvedValue([{ ...hit('Previous index result'), distance: 0 }])
     await flushPromises()
-    expect(wrapper.get('[role="status"]').text()).toContain('stale after a failed rebuild')
+    expect(wrapper.get('[role="status"]').text()).toContain('The last rebuild failed')
+    expect(wrapper.get('[role="status"]').text()).toContain(semantic.status.lastError)
     expect(wrapper.get('[role="status"]').text()).toContain('still uses the old index')
     expect(wrapper.findAll('button.mode')[1].attributes('disabled')).toBeUndefined()
     await wrapper.findAll('button.mode')[1].trigger('click')
@@ -67,7 +97,8 @@ describe('search request ownership and scopes', () => {
     semantic.status.state = 'failed'
     semantic.status.lastError = 'provider offline'
     await flushPromises()
-    expect(wrapper.find('[role="status"]').exists()).toBe(false)
+    expect(wrapper.get('[role="status"]').text()).toContain('Semantic index: failed')
+    expect(wrapper.get('[role="status"]').text()).not.toContain('still uses the old index')
     expect(wrapper.findAll('button.mode')[1].attributes('disabled')).toBeDefined()
     expect(wrapper.text()).toContain('provider offline')
   })

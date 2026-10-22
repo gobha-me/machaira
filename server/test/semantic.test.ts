@@ -101,6 +101,45 @@ function recordRetryDelays(t: TestContext): number[] {
 }
 
 describe('semantic index', () => {
+  it('keeps a deployment-default index ready across database reopen and detects changed defaults', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'machaira-default-index-'))
+    const filename = join(dir, 'machaira.sqlite')
+    const key = randomBytes(32)
+    const upstream = await listen(async (request, response) => {
+      assert.equal(request.headers.authorization, undefined)
+      sendVectors(response, (await requestBody(request)).input)
+    })
+    const descriptor = {
+      source: 'external' as const, engine: 'tei', baseUrl: `${upstream.baseUrl}/`,
+      model: 'minilm', batchSize: 16
+    }
+    let db = openDatabase(filename)
+    try {
+      seedUser(db)
+      let providers = new EmbeddingProviderService(db, new SecretStore(db, key), descriptor)
+      assert.equal((await new SemanticIndexService(db, providers, sources).rebuild('user-1', () => undefined)).state, 'ready')
+      db.close()
+      db = openDatabase(filename)
+      providers = new EmbeddingProviderService(db, new SecretStore(db, key), { ...descriptor, baseUrl: upstream.baseUrl })
+      const index = new SemanticIndexService(db, providers, sources)
+      assert.equal((await index.status('user-1')).state, 'ready')
+      assert.equal((await index.search('user-1', { query: 'love', modules: ['WEB'] })).length, 3)
+      const changed = new EmbeddingProviderService(db, new SecretStore(db, key), { ...descriptor, model: 'different-model' })
+      assert.equal((await new SemanticIndexService(db, changed, sources).status('user-1')).state, 'stale')
+      providers.remove('user-1')
+      db.close()
+      db = openDatabase(filename)
+      providers = new EmbeddingProviderService(db, new SecretStore(db, key), descriptor)
+      assert.equal(providers.get('user-1'), null)
+      assert.equal((await new SemanticIndexService(db, providers, sources).status('user-1')).state, 'unconfigured')
+      assert.throws(() => providers.credentials('user-1'), /Configure an embedding provider/)
+    } finally {
+      db.close()
+      await upstream.close()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('owns the rebuild lock before awaiting sources and releases it after failure', async () => {
     const db = openDatabase(':memory:')
     seedUser(db)
@@ -872,7 +911,7 @@ describe('semantic provider migration', () => {
       const provider = db.prepare(`
         SELECT batch_size FROM embedding_provider_configs WHERE user_id = 'user-1'
       `).get() as { batch_size: number }
-      assert.equal(version.version, 11)
+      assert.equal(version.version, 12)
       assert.equal(provider.batch_size, 32)
     } finally {
       db.close()

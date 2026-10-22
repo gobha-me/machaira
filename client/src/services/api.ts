@@ -224,6 +224,7 @@ export interface AiProviderConfig {
 export type EmbeddingProviderKind = 'openai-compatible' | 'local'
 
 export interface EmbeddingProviderConfig {
+  deploymentDefault?: boolean
   kind: EmbeddingProviderKind
   baseUrl: string
   model: string
@@ -263,6 +264,7 @@ export interface TtsEndpointConfig {
 }
 
 export interface TtsConfig {
+  deploymentDefault?: boolean
   order: TtsTier[]
   local: TtsEndpointConfig | null
   cloud: TtsEndpointConfig | null
@@ -289,6 +291,7 @@ export interface SttEndpointConfig {
 }
 
 export interface SttConfig {
+  deploymentDefault?: boolean
   order: SttTier[]
   local: SttEndpointConfig | null
   cloud: SttEndpointConfig | null

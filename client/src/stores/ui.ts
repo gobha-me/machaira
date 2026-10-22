@@ -14,9 +14,14 @@ export const SCREENS: { id: ScreenId; label: string }[] = [
 
 export const useUi = defineStore('ui', {
   state: () => ({
-    screen: 'read' as ScreenId
+    screen: 'read' as ScreenId,
+    settingsSection: null as 'semantic-search' | null
   }),
   actions: {
+    openSemanticSettings(): void {
+      this.settingsSection = 'semantic-search'
+      this.screen = 'settings'
+    },
     go(screen: ScreenId): void {
       this.screen = screen
     }
