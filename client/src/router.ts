@@ -1,5 +1,4 @@
 import { createRouter, createWebHashHistory, type RouteLocationNormalized, type RouterHistory } from 'vue-router'
-import { validModuleName } from '@machaira/scripture'
 import ReadScreen from './screens/ReadScreen.vue'
 import PlanScreen from './screens/PlanScreen.vue'
 import StudyScreen from './screens/StudyScreen.vue'
@@ -25,8 +24,12 @@ function positiveInteger(value: string): number | null {
 export function readPassage(route: RouteLocationNormalized): PassageLocation | null {
   if (route.name !== 'read') return null
   const { module, book, chapter, verse } = route.params
-  if (!validModuleName(module)) return null
-  if (typeof book !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$/.test(book)) return null
+  // Foreign URLs can use a translation's display name. Only installed IDs are ever
+  // sent to the API; an unknown label is recovered in the default translation.
+  if (typeof module !== 'string' || !/^[\p{L}\p{N}][\p{L}\p{N} ._-]{0,127}$/u.test(module)) return null
+  // Shared/imported links may spell out a book (including numbered books). Resolve
+  // names against the installed canon before sending a canonical code to the API.
+  if (typeof book !== 'string' || !/^[\p{L}\p{N}][\p{L}\p{N} ._-]{0,79}$/u.test(book)) return null
   if (typeof chapter !== 'string') return null
   const chapterNumber = positiveInteger(chapter)
   if (chapterNumber === null) return null
@@ -62,11 +65,6 @@ export function createAppRouter(history: RouterHistory = createWebHashHistory())
       { path: '/settings', name: 'settings', component: SettingsScreen },
       { path: '/:pathMatch(.*)*', redirect: { name: 'read' } }
     ]
-  })
-  router.beforeEach((to) => {
-    if (to.name === 'read' && Object.values(to.params).some(Boolean) && !readPassage(to)) {
-      return { name: 'read', replace: true }
-    }
   })
   return router
 }

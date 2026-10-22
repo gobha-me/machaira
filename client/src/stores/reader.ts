@@ -1,8 +1,9 @@
 import { defineStore } from 'pinia'
-import { parseReadingCursor, type ReadingCursor, type ScriptureTarget } from '@machaira/scripture'
+import { bookCode, parseReadingCursor, type ReadingCursor, type ScriptureTarget } from '@machaira/scripture'
 import { AccountCache } from '../services/accountCache'
 import { api, type BookEntry, type ChapterPayload } from '../services/api'
 import { formatPassageRef } from '../utils/passageRef'
+import { moduleLabel } from '../utils/moduleLabel'
 import { useLibrary } from './library'
 import { useSettings } from './settings'
 import type { PassageLocation } from '../router'
@@ -36,7 +37,7 @@ const positionSyncs = new WeakMap<object, AccountCache<ReadingCursor>>()
 const highlightMutations = new WeakMap<object, Promise<void>>()
 
 export type OpenReferenceResult =
-  | { ok: true }
+  | { ok: true; notice?: string }
   | { ok: false; error: string }
 
 function positionKey(userId: string): string {
@@ -86,10 +87,11 @@ export const useReader = defineStore('reader', {
     ready: false
   }),
   getters: {
-    installedBibles(): { name: string; description: string }[] {
+    installedBibles(): { name: string; description: string; label: string }[] {
       return useLibrary().installedBibles.map((m) => ({
         name: m.name,
-        description: m.description
+        description: m.description,
+        label: moduleLabel(m)
       }))
     },
     // The effective default translation: the configured default if installed, else WEB, else
@@ -177,7 +179,7 @@ export const useReader = defineStore('reader', {
         this.error = null
       }
     },
-    async init(initialPassage?: PassageLocation): Promise<void> {
+    async init(initialPassage?: PassageLocation): Promise<OpenReferenceResult | undefined> {
       const userId = this.activeUserId
       const generation = readerGeneration
       if (!userId) return
@@ -192,13 +194,15 @@ export const useReader = defineStore('reader', {
         return
       }
       // Restore sync timestamps first, but never display or persist the saved cursor over
-      // an explicit URL on this load. Invalid/unavailable links use the normal landing.
+      // an explicit URL on this load. Resolve foreign links before restoring a saved cursor.
+      let initialResult: OpenReferenceResult | undefined
       if (initialPassage) {
-        const result = await this.openRoute(initialPassage)
+        const result = await this.openRoute(initialPassage, undefined, { fallbackToDefault: true })
+        initialResult = result
         if (generation !== readerGeneration || this.activeUserId !== userId) return
         if (result.ok) {
           this.ready = true
-          return
+          return result
         }
       }
       const saved = positionSyncs.get(this)?.current
@@ -212,6 +216,7 @@ export const useReader = defineStore('reader', {
         if (preferred) await this.setModule(preferred)
       }
       if (generation === readerGeneration && this.activeUserId === userId) this.ready = true
+      return initialResult
     },
     async loadHighlights(): Promise<void> {
       const generation = ++highlightLoadGeneration
@@ -222,7 +227,11 @@ export const useReader = defineStore('reader', {
       this.highlights = map
       this.highlightError = null
     },
-    async openRoute(target: PassageLocation, isCurrent: () => boolean = () => true): Promise<OpenReferenceResult> {
+    async openRoute(
+      target: PassageLocation,
+      isCurrent: () => boolean = () => true,
+      { fallbackToDefault = false }: { fallbackToDefault?: boolean } = {}
+    ): Promise<OpenReferenceResult> {
       const generation = ++referenceOpenGeneration
       const accountGeneration = readerGeneration
       const moduleGeneration = moduleLoadGeneration
@@ -231,40 +240,62 @@ export const useReader = defineStore('reader', {
         accountGeneration === readerGeneration && moduleGeneration === moduleLoadGeneration &&
         chapterGeneration === chapterLoadGeneration
       const unavailable = { ok: false, error: 'This passage link is not available in your library.' } as const
-      if (!this.installedBibles.some((module) => module.name === target.moduleName)) return unavailable
-      try {
-        const books = this.moduleName === target.moduleName && this.books.length
-          ? this.books : await api.books(target.moduleName)
-        if (!current()) return unavailable
-        if (!validChapter(books.find((book) => book.code === target.book), target.chapter)) return unavailable
-        const data = await api.chapter(target.moduleName, target.book, target.chapter)
-        if (!current()) return unavailable
-        if (target.verseStart !== null) {
-          const start = target.verseStart
-          const end = target.verseEnd ?? start
-          const verses = new Set(data.verses.map((verse) => verse.n))
-          // Count available verses instead of iterating an untrusted, potentially huge range.
-          if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 1 || end < start ||
-            [...verses].filter((verse) => verse >= start && verse <= end).length !== end - start + 1) {
-            return unavailable
+      if (!Number.isSafeInteger(target.chapter) || target.chapter < 1 ||
+        (target.verseStart === null && target.verseEnd !== null)) return unavailable
+      // Preflight each candidate without changing the reader. An unavailable module or a
+      // different canon must never make a partial navigation persist a Genesis cursor.
+      // URL recovery is opt-in: internal connections are already mapped to a translation
+      // and must retain their existing failure behavior rather than silently switching it.
+      const modules = [...new Set([target.moduleName, fallbackToDefault ? this.effectiveDefaultModule : null])]
+        .filter((name): name is string => !!name && this.installedBibles.some((module) => module.name === name))
+      for (const moduleName of modules) {
+        try {
+          const books = this.moduleName === moduleName && this.books.length
+            ? this.books : await api.books(moduleName)
+          if (!current()) return unavailable
+          const canonicalBook = bookCode(target.book)
+          const book = books.find((book) => book.code === target.book) ??
+            books.find((book) => book.code === canonicalBook || book.name.toLocaleLowerCase() === target.book.trim().toLocaleLowerCase())
+          if (!book || !validChapter(book, target.chapter)) continue
+          const data = await api.chapter(moduleName, book.code, target.chapter)
+          if (!current()) return unavailable
+          if (data.module !== moduleName || data.book !== book.code || data.chapter !== target.chapter) continue
+          if (target.verseStart !== null) {
+            const start = target.verseStart
+            const end = target.verseEnd ?? start
+            const verses = new Set(data.verses.map((verse) => verse.n))
+            // Count available verses instead of iterating an untrusted, potentially huge range.
+            if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 1 || end < start ||
+              [...verses].filter((verse) => verse >= start && verse <= end).length !== end - start + 1) {
+              continue
+            }
           }
+          const module = this.installedBibles.find((candidate) => candidate.name === moduleName)
+          if (!module) return unavailable
+          moduleLoadGeneration += 1
+          chapterLoadGeneration += 1
+          this.moduleName = moduleName
+          this.books = books
+          this.book = book.code
+          this.chapter = target.chapter
+          this.data = data
+          this.selectedVerse = target.verseStart
+          this.rangeEnd = target.verseEnd ?? target.verseStart
+          this.loadingChapter = false
+          this.error = null
+          this.persistPos()
+          const label = module.label
+          const ref = formatPassageRef({ ...target, book: book.name, moduleName: null })
+          if (moduleName !== target.moduleName) {
+            return { ok: true, notice: `The linked translation (${target.moduleName}) could not open this passage. Opened ${ref} in your default translation, ${label}.` }
+          }
+          return book.code === target.book ? { ok: true }
+            : { ok: true, notice: `Resolved this passage link to ${ref} in ${label}.` }
+        } catch {
+          if (!current()) return unavailable
         }
-        moduleLoadGeneration += 1
-        chapterLoadGeneration += 1
-        this.moduleName = target.moduleName
-        this.books = books
-        this.book = target.book
-        this.chapter = target.chapter
-        this.data = data
-        this.selectedVerse = target.verseStart
-        this.rangeEnd = target.verseEnd ?? target.verseStart
-        this.loadingChapter = false
-        this.error = null
-        this.persistPos()
-        return { ok: true }
-      } catch {
-        return unavailable
       }
+      return unavailable
     },
     async setModule(name: string): Promise<void> {
       const userId = this.activeUserId

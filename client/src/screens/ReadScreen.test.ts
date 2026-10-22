@@ -80,6 +80,24 @@ function textAction(label: string) {
   return [...textActions()!.querySelectorAll('button')].find((button) => button.textContent?.trim() === label)!
 }
 
+describe('translation picker labels', () => {
+  it('shows a friendly label with missing metadata and still selects the original module ID', async () => {
+    const module = { ...pathologicalModule, name: 'enggnv1599eb', description: '', abbreviation: '', installed: true }
+    useLibrary().modules = [module]
+    useReader().moduleName = module.name
+    await flushPromises()
+    const control = wrapper.get('[aria-controls="reader-translation-picker"]')
+    expect(control.text()).toContain('Geneva 1599')
+    expect(control.attributes('title')).toContain(module.name)
+    await control.trigger('click')
+    const pick = vi.spyOn(useReader(), 'setModule').mockResolvedValue()
+    const option = wrapper.get('#reader-translation-picker .trans-item')
+    expect(option.text()).toBe('Geneva 1599')
+    await option.trigger('click')
+    expect(pick).toHaveBeenCalledExactlyOnceWith(module.name)
+  })
+})
+
 describe('word and phrase selection actions', () => {
   it('cancels a pending tagged-word lookup for double-click selection, Escape, and navigation', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
