@@ -183,6 +183,10 @@ const resultCount = computed(() => scriptureHits.value.length + (showNotes.value
         <span v-if="!semantic.searchable" class="mode-note">{{ semantic.statusText }}</span>
       </div>
 
+      <p v-if="semantic.searchable && semantic.status.lastError" class="status" role="status">
+        Semantic index is stale after a failed rebuild; meaning search still uses the old index.
+      </p>
+
       <div class="scopes">
         <button
           v-for="s in SCOPES"
