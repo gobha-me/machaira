@@ -6,7 +6,8 @@ import {
   type ConnectionSemanticSource,
   type ConnectionSources
 } from '../src/connections.ts'
-import type { ReadChapterResult, RepoModuleInfo } from '../src/sword.ts'
+import { mapVersificationReferences, type ReadChapterResult, type RepoModuleInfo } from '../src/sword.ts'
+import { CrossReferenceService } from '../src/cross-references.js'
 
 const web: RepoModuleInfo = {
   name: 'WEB', type: 'BIBLE', description: 'World English Bible', language: 'en',
@@ -152,4 +153,31 @@ describe('connections graph', () => {
     assert.ok(result.warnings.some((warning) => /Graph limited to 40/.test(warning)))
     assert.equal(result.edges.filter((edge) => edge.kind === 'thematic').length <= 20, true)
   })
+})
+
+it('builds attributed Journal edges from the offline dataset when embedded cross-references are absent', async () => {
+  const external = new CrossReferenceService(':memory:', (_module, refs, direction) =>
+    mapVersificationReferences(refs, direction === 'to-canonical' ? 'KJV' : 'OpenBible',
+      direction === 'to-canonical' ? 'OpenBible' : 'KJV'))
+  const withoutEmbedded: ConnectionSources = {
+    ...sources,
+    async chapter(module, book, number) {
+      const result = await sources.chapter(module, book, number)
+      return result ? { verses: result.verses.map((verse) => ({
+        ...verse, crossReferences: [], crossReferenceTargets: []
+      })) } : null
+    }
+  }
+  try {
+    const graph = await new ConnectionsService({
+      async neighbors() { return { state: 'unconfigured', results: [] } }
+    }, withoutEmbedded, external).graph('user-1', {
+      seeds: [{ module: 'WEB', book: 'John', chapter: 1, verseStart: 1 }]
+    })
+    assert.ok(graph.edges.some((edge) => edge.kind === 'cross-reference'))
+    assert.ok(graph.nodes.some((node) => node.book === 'Gen' && node.chapter === 1))
+    assert.ok(graph.nodes.every((node) => node.module === 'WEB'))
+    assert.equal(graph.crossReferenceAttribution?.license, 'CC BY 4.0')
+    assert.ok(graph.warnings.some((warning) => /outside the installed module/.test(warning)))
+  } finally { external.db.close() }
 })

@@ -47,7 +47,7 @@ export function usePassageMenu(opts: UsePassageMenuOptions = {}) {
   const crossReferencesAvailable = computed(() => selectionCrossReferences.value.length > 0)
   const crossReferencesReason = computed(
     () =>
-      `No embedded cross-references in ${reader.moduleName ?? 'this translation'} for ${
+      `No cross-references available in ${reader.moduleName ?? 'this translation'} for ${
         selectionLabel.value || 'this selection'
       }.`
   )

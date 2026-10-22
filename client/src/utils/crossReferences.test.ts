@@ -32,3 +32,23 @@ describe('passage cross-references', () => {
     expect(crossReferencesForVerses(chapter, [])).toEqual([])
   })
 })
+
+it('ranks selected external references across a range, keeps negative votes, and deduplicates by resolved target', () => {
+  const target = { book: 'John', chapter: 1, verseStart: 1, verseEnd: 3 }
+  const chapter: ChapterVerse[] = [
+    { ...verse(1, [' Authored shorthand ']), externalCrossReferences: [
+      { sourceVerse: 1, module: 'LSV', target, label: 'John 1:1–3', votes: -2 }
+    ] },
+    { ...verse(2, []), externalCrossReferences: [
+      { sourceVerse: 2, module: 'LSV', target, label: 'John 1:1–3', votes: 383 },
+      { sourceVerse: 2, module: 'LSV', target: { ...target, verseStart: 4, verseEnd: 4 }, label: 'John 1:4', votes: -3 }
+    ] }
+  ]
+  expect(crossReferencesForVerses(chapter, [1, 2])).toEqual([
+    { verse: 2, text: 'John 1:1–3', target, votes: 383 },
+    { verse: 2, text: 'John 1:4', target: { ...target, verseStart: 4, verseEnd: 4 }, votes: -3 },
+    { verse: 1, text: 'Authored shorthand' }
+  ])
+  expect(crossReferencesForVerses(chapter, [99])).toEqual([])
+  expect(crossReferencesForVerses(chapter, [1])[0]?.votes).toBe(-2)
+})

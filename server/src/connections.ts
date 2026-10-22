@@ -1,3 +1,4 @@
+import { CROSS_REFERENCE_ATTRIBUTION, type CrossReferenceService } from './cross-references.js'
 import { bookInfo } from './books.js'
 import type {
   SemanticIndexService,
@@ -41,6 +42,7 @@ export interface ConnectionsPayload {
   edges: ConnectionEdge[]
   semanticState: SemanticIndexStatus['state'] | 'unavailable'
   warnings: string[]
+  crossReferenceAttribution?: typeof CROSS_REFERENCE_ATTRIBUTION
 }
 
 export interface ConnectionSources {
@@ -168,7 +170,8 @@ function overlaps(left: ConnectionSeed, right: ConnectionSeed): boolean {
 export class ConnectionsService {
   constructor(
     private readonly semantic: ConnectionSemanticSource | SemanticIndexService,
-    private readonly sources: ConnectionSources = DEFAULT_SOURCES
+    private readonly sources: ConnectionSources = DEFAULT_SOURCES,
+    private readonly crossReferences?: Pick<CrossReferenceService, 'refs'>
   ) {}
 
   async graph(userId: string, input: unknown): Promise<ConnectionsPayload> {
@@ -262,6 +265,14 @@ export class ConnectionsService {
         authoredLabels += verse.crossReferences.length
         authoredTargets.push(...verse.crossReferenceTargets)
       }
+      const verseNumbers = selectedVerses(chapter, seed).map((verse) => verse.n).filter((n) => n > 0)
+      if (this.crossReferences && verseNumbers.length > 0) {
+        const external = await this.crossReferences.refs(seed.module, {
+          ...seed, verseStart: seed.verseStart ?? Math.min(...verseNumbers),
+          verseEnd: seed.verseEnd ?? Math.max(...verseNumbers)
+        }, MAX_CROSS_REFERENCES)
+        authoredTargets.unshift(...external.map((reference) => reference.target))
+      }
       const seenTargets = new Set<string>()
       const distinctTargets = authoredTargets.filter((value) => {
         const id = targetKey(value)
@@ -319,7 +330,8 @@ export class ConnectionsService {
       nodes: [...nodes.values()],
       edges: [...edges.values()],
       semanticState,
-      warnings: [...warnings]
+      warnings: [...warnings],
+      ...(this.crossReferences ? { crossReferenceAttribution: CROSS_REFERENCE_ATTRIBUTION } : {})
     }
   }
 }

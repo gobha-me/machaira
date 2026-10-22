@@ -5,7 +5,7 @@ import { mkdirSync } from 'node:fs'
 import NodeSwordInterface from 'node-sword-interface'
 import { bookInfo } from './books.js'
 import { stripMarkup, parseVerseMarkup, type VerseNote, type VerseSegment } from './text.js'
-import type { ScriptureTarget } from './scripture-reference.js'
+import { parseOsisTargets, type ScriptureTarget } from './scripture-reference.js'
 import { auditedCoverage } from './catalog-audit.js'
 import { scopeIncludesKind, scopedScriptureHits, type SearchScope } from './search-scope.js'
 
@@ -724,4 +724,43 @@ export function searchModules(
     }
     return results
   })
+}
+
+/** Strict, serialized mapping between OpenBible canonical keys and an installed Bible. */
+export function mapModuleReferences(
+  module: string, references: readonly string[], direction: 'to-canonical' | 'from-canonical'
+): Promise<ScriptureTarget[][]> {
+  return withSword(() => {
+    const nsi = sword(), local = nsi.getLocalModule(module)
+    if (!local || local.locked || String(local.type) !== 'Biblical Texts') return references.map(() => [])
+    const system = String(local.versification || 'KJV')
+    const books = new Set(nsi.getBookList(module) ?? [])
+    const present = (target: ScriptureTarget) => books.has(target.book) &&
+      target.chapter >= 1 && target.chapter <= nsi.getBookChapterCount(module, target.book) &&
+      target.verseStart !== null && target.verseStart >= 1 && target.verseEnd !== null &&
+      target.verseEnd <= nsi.getChapterVerseCount(module, target.book, target.chapter)
+    const cache = new Map<string, ScriptureTarget[]>()
+    return references.map((reference) => {
+      const cached = cache.get(reference)
+      if (cached) return cached
+      // Reject shorthand, headings, partial parses, and native key normalization.
+      if (!/^[1-3]?[A-Za-z]+\.[1-9]\d*\.[1-9]\d*$/.test(reference)) return []
+      const input = parseOsisTargets(reference)
+      if (input.length !== 1 || (direction === 'to-canonical' && !present(input[0]))) return []
+      const mapped = nsi.mapVersificationReference(reference,
+        direction === 'to-canonical' ? system : 'OpenBible',
+        direction === 'to-canonical' ? 'OpenBible' : system)
+      const targets = parseOsisTargets(mapped)
+      const result = direction === 'from-canonical' && !targets.every(present) ? [] : targets
+      cache.set(reference, result)
+      return result
+    })
+  })
+}
+
+/** System mapping used by the canonical dataset; also permits offline boundary verification. */
+export function mapVersificationReferences(references: readonly string[], sourceSystem: string, targetSystem: string): Promise<ScriptureTarget[][]> {
+  return withSword(() => references.map((reference) =>
+    parseOsisTargets(sword().mapVersificationReference(reference, sourceSystem, targetSystem))
+  ))
 }

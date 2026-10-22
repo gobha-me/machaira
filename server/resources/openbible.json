@@ -1,0 +1,11 @@
+{
+  "source": "https://www.openbible.info/labs/cross-references/",
+  "download": "https://a.openbible.info/data/cross-references.zip",
+  "license": "CC BY 4.0",
+  "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+  "snapshot": "2026-10-19",
+  "rows": 344799,
+  "bytes": 1965813,
+  "sha256": "5d81cbf6ac0c4c6afa89384b8daeddc18b3d40fa1de554e6f51558578d8012ca",
+  "changes": "Original TSV recompressed with gzip; no vote or reference changes."
+}

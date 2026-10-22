@@ -47,7 +47,7 @@ machaira/
   calls.
 - Per-user semantic indexes store Scripture or Generic Book locator metadata and provider-generated vectors in SQLite. A
   staged rebuild preserves the previous usable index if an embedding request fails.
-- Journal connection graphs are derived on demand from module-authored cross-references and the
+- Journal connection graphs are derived on demand from OpenBible.info and module-authored cross-references and the
   existing stored verse vectors. Opening a graph never makes a new embedding-provider request.
 - **`client/`** is a single-page app that talks to the server over `/api` (proxied in dev).
   Reading/study data plus per-user notes and highlights come from the server. IndexedDB retains
@@ -57,6 +57,26 @@ machaira/
 
 CrossWire modules can't be fetched directly from a browser (no CORS, and they ship in a binary
 `zText`/OSIS format), which is why the local server exists to decode them into JSON.
+
+## Cross-reference credits
+
+Cross-reference data by [OpenBible.info](https://www.openbible.info/labs/cross-references/),
+licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The bundled
+2026-10-19 snapshot contains 344,799 links with votes: 1,965,813 bytes (1.87 MiB) of
+recompressed TSV, with no reference or vote changes. At first start it is imported
+atomically into `cross-references.sqlite` beside the account database; subsequent starts
+reuse the checksum-versioned cache. Builds and runtime make no dataset network calls.
+References are ranked by votes and mapped to the reader's installed translation.
+Read, Study, and Journal show attribution. See [resource provenance and update instructions](server/resources/README.md)
+for supported versifications and numbering details.
+
+`GET /api/cross-references/:module/:book/:chapter?verseStart=1&verseEnd=3&limit=100`
+requires authentication and returns `{ references, attribution }`. Ranges are inclusive;
+results are deduplicated by resolved target and ranked by the highest link vote count
+(ties use canonical target order). Cross-chapter/book target ranges are split into
+navigable chapter ranges. Invalid, absent, locked, or unsupported sources return an empty
+list. Limits are 200 source verses and 200 returned targets (default 100); chapter
+payloads include the top 20 external references per verse for Read and Study.
 
 ## Requirements
 

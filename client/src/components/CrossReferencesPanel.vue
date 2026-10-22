@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import CrossReferenceCredits from './CrossReferenceCredits.vue'
+import type { ScriptureTarget } from '@machaira/scripture'
 import type { PassageCrossReference } from '../utils/crossReferences'
 
 withDefaults(
@@ -13,7 +15,7 @@ withDefaults(
   { variant: 'rail', closable: false }
 )
 
-defineEmits<{ (e: 'close'): void }>()
+defineEmits<{ (e: 'close'): void; (e: 'open-reference', target: ScriptureTarget): void }>()
 </script>
 
 <template>
@@ -42,7 +44,7 @@ defineEmits<{ (e: 'close'): void }>()
       v-if="!refLabel"
       class="xref-state"
     >
-      Select a passage to see embedded cross-references.
+      Select a passage to see cross-references.
     </p>
     <p
       v-else-if="!entries.length"
@@ -60,9 +62,20 @@ defineEmits<{ (e: 'close'): void }>()
         class="xref-entry"
       >
         <span class="xref-verse">{{ entry.verse }}</span>
-        <span class="xref-text serif">{{ entry.text }}</span>
+        <button
+          v-if="entry.target"
+          class="xref-text xref-link serif"
+          @click="$emit('open-reference', entry.target)"
+        >
+          {{ entry.text }} <small v-if="entry.votes !== undefined">({{ entry.votes }} votes)</small>
+        </button>
+        <span
+          v-else
+          class="xref-text serif"
+        >{{ entry.text }}</span>
       </div>
     </div>
+    <CrossReferenceCredits />
   </div>
 </template>
 
@@ -141,6 +154,8 @@ defineEmits<{ (e: 'close'): void }>()
   line-height: 1.6;
   color: var(--ink);
 }
+.xref-link { background: none; border: 0; padding: 0; text-align: left; cursor: pointer; color: var(--accent); }
+.xref-link small { font-size: 11px; color: var(--muted); }
 .page .xref-text {
   font-size: 15px;
 }
