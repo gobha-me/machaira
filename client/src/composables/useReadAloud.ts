@@ -1,6 +1,7 @@
 import { computed, onBeforeUnmount, ref, watch, type ComputedRef } from 'vue'
 import { api, ApiError, type TtsConfig, type TtsTier } from '../services/api'
 import { useTtsProvider } from '../stores/ttsProvider'
+import { splitSpeechText } from '../utils/speechChunks'
 
 export interface SpokenVerse {
   n: number
@@ -85,7 +86,8 @@ class RemoteAudioBuffer {
     private readonly verses: readonly SpokenVerse[],
     private readonly capacity: number,
     private readonly fetchAudio: ReadAloudEnvironment['fetchAudio'],
-    private readonly onReady: (index: number) => void
+    private readonly onReady: (index: number) => void,
+    private readonly concurrency = MAX_SYNTHESIS_CONCURRENCY
   ) {}
 
   private key(tier: RemoteTier, index: number): string {
@@ -140,7 +142,7 @@ class RemoteAudioBuffer {
 
   private pump(): void {
     while (!this.cancelled
-      && this.activeRequests < MAX_SYNTHESIS_CONCURRENCY
+      && this.activeRequests < this.concurrency
       && this.queue.length) {
       const entry = this.queue.shift()!
       if (this.entries.get(entry.key) !== entry) continue
@@ -378,6 +380,8 @@ export function createReadAloudController(
   // Count every successfully synthesized verse once, including audio already
   // consumed and evicted from the bounded buffer.
   const preparedVerses = new Set<number>()
+  const preparedChunks = new Set<number>()
+  const pendingChunksByVerse = new Map<number, number>()
   let buffer: RemoteAudioBuffer | null = null
   let bufferedTier: RemoteTier | null = null
   let sessionAudio: ReturnType<NonNullable<ReadAloudEnvironment['createAudio']>> | null = null
@@ -395,22 +399,27 @@ export function createReadAloudController(
     if (tier === 'browser') return browserSupported
     return remoteSupported && !!options.config()[tier]
   }))
+  function adjacentVerseIndex(offset: -1 | 1): number | null {
+    const current = currentIndex.value
+    if (current == null) return null
+    let target = current + offset
+    while (target >= 0 && target < verses.length && verses[target]!.n === verses[current]!.n) target += offset
+    if (target < 0 || target >= verses.length) return null
+    // Previous/next controls continue to address verses, even when a verse has
+    // several chunks. A previous verse always restarts at its first chunk.
+    while (target > 0 && verses[target - 1]!.n === verses[target]!.n) target -= 1
+    return target
+  }
+
   const canPrevious = computed(() => active.value
-    && !preparing.value
-    && !error.value
-    && currentIndex.value != null
-    && currentIndex.value > 0)
+    && !preparing.value && !error.value && adjacentVerseIndex(-1) != null)
   const canNext = computed(() => active.value
-    && !preparing.value
-    && !error.value
-    && currentIndex.value != null
-    && currentIndex.value + 1 < verses.length)
+    && !preparing.value && !error.value && adjacentVerseIndex(1) != null)
 
   const progress = computed(() => {
     if (completed.value) return 100
-    if (currentVerse.value == null) return 0
-    const index = verses.findIndex((verse) => verse.n === currentVerse.value)
-    return index < 0 || !verses.length ? 0 : Math.round(((index + 1) / verses.length) * 100)
+    const index = currentIndex.value
+    return index == null || !verses.length ? 0 : Math.round(((index + 1) / verses.length) * 100)
   })
 
   const preparationProgress = computed(() => preparationTarget.value
@@ -461,6 +470,8 @@ export function createReadAloudController(
     preparedCount.value = 0
     preparationTarget.value = 0
     preparedVerses.clear()
+    preparedChunks.clear()
+    pendingChunksByVerse.clear()
   }
 
   function playBrowser(text: string, token: number): Promise<void> {
@@ -714,15 +725,28 @@ export function createReadAloudController(
   }
 
   function start(): void {
+    if (!supported.value) return
     const chapterVerses = options.verses()
-    if (!supported.value || !chapterVerses.length) return
+    const found = chapterVerses.findIndex((verse) => verse.n === options.startVerse())
+    let chunked = false
+    // Snapshot the chapter tail and retain verse numbers across bounded chunks.
+    const queued = chapterVerses.slice(Math.max(0, found)).flatMap((verse) => {
+      const parts = splitSpeechText(verse.text)
+      chunked ||= parts.length > 1
+      return parts.map((text) => ({ ...verse, text }))
+    })
+    if (!queued.length) {
+      stop()
+      return
+    }
     generation += 1
     cancelSession()
     unavailable.clear()
-    const found = chapterVerses.findIndex((verse) => verse.n === options.startVerse())
-    // Snapshot the chapter tail so selection changes cannot truncate a running queue.
-    verses = chapterVerses.slice(Math.max(0, found)).map((verse) => ({ ...verse }))
-    preparationTarget.value = verses.length
+    verses = queued
+    for (const verse of verses) {
+      pendingChunksByVerse.set(verse.n, (pendingChunksByVerse.get(verse.n) ?? 0) + 1)
+    }
+    preparationTarget.value = pendingChunksByVerse.size
     config = copyConfig(options.config())
     if (config.order.some((tier) => tier !== 'browser' && config![tier]) && environment.createAudio) {
       // start() is called synchronously by Listen (also when browser speech is first).
@@ -734,9 +758,14 @@ export function createReadAloudController(
       }
     }
     buffer = new RemoteAudioBuffer(verses, config.remoteAudioCacheSize, environment.fetchAudio, (index) => {
-      preparedVerses.add(index)
+      if (preparedChunks.has(index)) return
+      preparedChunks.add(index)
+      const verse = verses[index]!.n
+      const remaining = pendingChunksByVerse.get(verse)! - 1
+      pendingChunksByVerse.set(verse, remaining)
+      if (remaining === 0) preparedVerses.add(verse)
       preparedCount.value = preparedVerses.size
-    })
+    }, chunked ? 1 : MAX_SYNTHESIS_CONCURRENCY)
     active.value = true
     playing.value = false
     completed.value = false
@@ -806,9 +835,8 @@ export function createReadAloudController(
 
   function seek(offset: -1 | 1): void {
     if (!active.value || preparing.value || currentIndex.value == null) return
-    const target = currentIndex.value + offset
-    if (target < 0 || target >= verses.length) return
-    beginRun(target)
+    const target = adjacentVerseIndex(offset)
+    if (target != null) beginRun(target)
   }
 
   function previous(): void {
