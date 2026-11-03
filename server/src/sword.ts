@@ -4,7 +4,7 @@ import { mkdirSync } from 'node:fs'
 // node-sword-interface is a CommonJS native addon.
 import NodeSwordInterface from 'node-sword-interface'
 import { bookInfo } from './books.js'
-import { stripMarkup, parseVerseMarkup, type VerseNote, type VerseSegment } from './text.js'
+import { stripMarkup, parseVerseMarkup, parseCommentaryMarkup, type VerseNote, type VerseSegment } from './text.js'
 import { parseOsisTargets, type ScriptureTarget } from './scripture-reference.js'
 import { auditedCoverage } from './catalog-audit.js'
 import { scopeIncludesKind, scopedScriptureHits, type SearchScope } from './search-scope.js'
@@ -531,7 +531,7 @@ export function readCommentaryChapter(
     const entries = raw
       .filter((v) => v.bibleBookShortTitle === book)
       .map((v) => {
-        const parsed = parseVerseMarkup(v.content)
+        const parsed = parseCommentaryMarkup(v.content, module)
         return { n: v.verseNr, text: parsed.text, notes: parsed.notes, segments: parsed.segments }
       })
       // Commentaries only carry entries for annotated verses; drop empty ones.
