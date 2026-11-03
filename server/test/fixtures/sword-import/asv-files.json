@@ -1,0 +1,9 @@
+[
+  "modules/texts/ztext/asv/nt.bzs",
+  "modules/texts/ztext/asv/ot.bzs",
+  "modules/texts/ztext/asv/ot.bzv",
+  "modules/texts/ztext/asv/nt.bzv",
+  "modules/texts/ztext/asv/ot.bzz",
+  "modules/texts/ztext/asv/nt.bzz",
+  "mods.d/asv.conf"
+]

@@ -1,6 +1,6 @@
 import { createWriteStream } from 'node:fs'
 import { access, copyFile, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
-import { dirname, join, normalize, posix, resolve, sep } from 'node:path'
+import { dirname, join, posix, resolve, sep } from 'node:path'
 import { tmpdir } from 'node:os'
 import { pipeline } from 'node:stream/promises'
 import yauzl, { type Entry, type ZipFile } from 'yauzl'
@@ -89,11 +89,34 @@ export function parseSwordModuleConfig(text: string): { name: string; driver: st
   if (sections.length !== 1) throw new SwordImportError('Each module configuration must contain exactly one module')
   const section = sections[0][1].trim()
   const driver = text.match(/^\s*ModDrv\s*=\s*(.+?)\s*$/mi)?.[1]?.trim()
-  const dataPath = text.match(/^\s*DataPath\s*=\s*(.+?)\s*$/mi)?.[1]?.trim().replace(/^\.\//, '')
+  const dataPath = text.match(/^\s*DataPath\s*=\s*(.+?)\s*$/mi)?.[1]?.trim()
   if (!section || !/^[A-Za-z0-9_.-]{1,80}$/.test(section)) throw new SwordImportError('Module configuration has an invalid name')
   if (!driver || !MODULE_DRIVERS.has(driver)) throw new SwordImportError('Module uses an unsupported SWORD driver')
-  if (!dataPath || dataPath.includes('..') || dataPath.startsWith('/')) throw new SwordImportError('Module configuration has an unsafe DataPath')
-  return { name: section, driver, dataPath: normalize(dataPath) }
+  // Validate before normalizing so an interior traversal cannot disappear. Keep
+  // the same POSIX path semantics as ZIP entries, independent of the host OS.
+  if (!dataPath || dataPath.includes('\\') || dataPath.includes('\0')
+    || posix.isAbsolute(dataPath) || dataPath.split('/').includes('..')) {
+    throw new SwordImportError('Module configuration has an unsafe DataPath')
+  }
+  const clean = posix.normalize(dataPath).replace(/\/+$/, '')
+  if (!clean.startsWith('modules/')) throw new SwordImportError('Module configuration has an unsafe DataPath')
+  return { name: section, driver, dataPath: clean }
+}
+
+export function validateSwordModuleFiles(config: ReturnType<typeof parseSwordModuleConfig>, files: string[]): void {
+  // RawLD/zLD and tree-key books configure a filename stem, while verse-based
+  // modules configure a directory. Match only native data suffixes for stems.
+  const suffixes: Record<string, string[]> = {
+    RawLD: ['.dat', '.idx'],
+    RawLD4: ['.dat', '.idx'],
+    zLD: ['.dat', '.idx', '.zdt', '.zdx'],
+    RawGenBook: ['.dat', '.idx', '.bdt']
+  }
+  const dataPrefix = config.dataPath
+  if (!files.some((file) => file === dataPrefix || file.startsWith(`${dataPrefix}/`)
+    || (suffixes[config.driver] ?? []).some((suffix) => file === `${dataPrefix}${suffix}`))) {
+    throw new SwordImportError(`Module ${config.name} is missing its configured data files`)
+  }
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -112,10 +135,7 @@ export async function importSwordZip(zipPath: string): Promise<{ modules: string
     for (const config of configs) {
       if (knownNames.has(config.name.toLocaleLowerCase())) throw new SwordImportError(`Module name ${config.name} already exists in the catalog`)
       knownNames.add(config.name.toLocaleLowerCase())
-      const dataPrefix = config.dataPath.replaceAll('\\', '/').replace(/^modules\//, 'modules/')
-      if (!files.some((file) => file === dataPrefix || file.startsWith(`${dataPrefix}/`))) {
-        throw new SwordImportError(`Module ${config.name} is missing its configured data files`)
-      }
+      validateSwordModuleFiles(config, files)
     }
     for (const relative of files.filter((file) => !file.startsWith('mods.d/'))) {
       const destination = join(SWORD_DATA_DIR, relative)
