@@ -380,6 +380,8 @@ export function createReadAloudController(
   // Count every successfully synthesized verse once, including audio already
   // consumed and evicted from the bounded buffer.
   const preparedVerses = new Set<number>()
+  const preparedChunks = new Set<number>()
+  const pendingChunksByVerse = new Map<number, number>()
   let buffer: RemoteAudioBuffer | null = null
   let bufferedTier: RemoteTier | null = null
   let sessionAudio: ReturnType<NonNullable<ReadAloudEnvironment['createAudio']>> | null = null
@@ -468,6 +470,8 @@ export function createReadAloudController(
     preparedCount.value = 0
     preparationTarget.value = 0
     preparedVerses.clear()
+    preparedChunks.clear()
+    pendingChunksByVerse.clear()
   }
 
   function playBrowser(text: string, token: number): Promise<void> {
@@ -739,7 +743,10 @@ export function createReadAloudController(
     cancelSession()
     unavailable.clear()
     verses = queued
-    preparationTarget.value = verses.length
+    for (const verse of verses) {
+      pendingChunksByVerse.set(verse.n, (pendingChunksByVerse.get(verse.n) ?? 0) + 1)
+    }
+    preparationTarget.value = pendingChunksByVerse.size
     config = copyConfig(options.config())
     if (config.order.some((tier) => tier !== 'browser' && config![tier]) && environment.createAudio) {
       // start() is called synchronously by Listen (also when browser speech is first).
@@ -751,7 +758,12 @@ export function createReadAloudController(
       }
     }
     buffer = new RemoteAudioBuffer(verses, config.remoteAudioCacheSize, environment.fetchAudio, (index) => {
-      preparedVerses.add(index)
+      if (preparedChunks.has(index)) return
+      preparedChunks.add(index)
+      const verse = verses[index]!.n
+      const remaining = pendingChunksByVerse.get(verse)! - 1
+      pendingChunksByVerse.set(verse, remaining)
+      if (remaining === 0) preparedVerses.add(verse)
       preparedCount.value = preparedVerses.size
     }, chunked ? 1 : MAX_SYNTHESIS_CONCURRENCY)
     active.value = true
