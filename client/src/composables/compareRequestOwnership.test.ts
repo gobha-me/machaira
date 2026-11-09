@@ -40,7 +40,14 @@ function harness() {
   const library = useLibrary()
   library.modules = [kjv]
   const reader = useReader()
-  reader.$patch({ moduleName: 'KJV', book: 'John', chapter: 3, selectedVerse: 1, rangeEnd: null })
+  reader.$patch({
+    moduleName: 'KJV', book: 'John', chapter: 3, selectedVerse: 1, rangeEnd: null,
+    data: {
+      module: 'KJV', book: 'John', bookName: 'John', chapter: 3,
+      // Range selection needs chapter verse numbers; no Scripture text is fabricated.
+      verses: [1, 2, 3, 4].map((n) => ({ n, text: '', notes: [], segments: [], crossReferences: [] }))
+    }
+  })
   const active = ref(true)
   const first = deferred<CompareReply>()
   const second = deferred<CompareReply>()
