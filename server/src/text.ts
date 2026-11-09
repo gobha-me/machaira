@@ -21,7 +21,19 @@ const ENTITIES: Record<string, string> = {
 }
 
 function decodeEntities(input: string): string {
-  return input.replace(/&[a-z#0-9]+;/gi, (m) => ENTITIES[m] ?? ' ')
+  return input.replace(/&[a-z#0-9]+;/gi, (entity) => {
+    const numeric = /^&#(x[0-9a-f]+|[0-9]+);$/i.exec(entity)
+    if (!numeric) return ENTITIES[entity] ?? ' '
+    const digits = numeric[1]
+    const codePoint = digits[0].toLowerCase() === 'x'
+      ? Number.parseInt(digits.slice(1), 16)
+      : Number(digits)
+    // XML references must name a Unicode scalar, not NUL or a surrogate. Keep
+    // invalid references visible instead of dropping content or throwing.
+    if (!Number.isSafeInteger(codePoint) || codePoint < 1 || codePoint > 0x10ffff
+      || (codePoint >= 0xd800 && codePoint <= 0xdfff)) return entity
+    return String.fromCodePoint(codePoint)
+  })
 }
 
 // Stripping tags leaves spaces before punctuation (e.g. `</w> ,`). Tighten those and
