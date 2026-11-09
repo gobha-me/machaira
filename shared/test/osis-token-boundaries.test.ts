@@ -37,7 +37,7 @@ describe('complete OSIS reference tokens', () => {
 
   for (const separator of [' ', '\t', '\n', ',', ';']) {
     it(`retains adjacent references and deduplicates them with separator ${JSON.stringify(separator)}`, () => {
-      const tokens = ['John.3.16oops', 'John.3.16', 'John.3.16-18', 'John.3.16-John.3.18', '1John.4.8']
+      const tokens = ['John.3.19oops', 'John.3.16', 'John.3.16-18', 'John.3.16-John.3.18', '1John.4.8']
       assert.deepEqual(parseOsisTargets(tokens.join(separator)), [
         { book: 'John', chapter: 3, verseStart: 16, verseEnd: 16 },
         { book: 'John', chapter: 3, verseStart: 16, verseEnd: 18 },
