@@ -297,10 +297,15 @@ export async function* streamProviderChat(
           if (!emitted) throw new AiProviderError('Provider returned no response text')
           return
         }
-        if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta' && event.delta.text) {
-          emitted = true
-          yield event.delta.text
-          combinedSignal.throwIfAborted()
+        if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+          if (typeof event.delta.text !== 'string') {
+            throw new AiProviderError('Provider sent a malformed stream event')
+          }
+          if (event.delta.text) {
+            emitted = true
+            yield event.delta.text
+            combinedSignal.throwIfAborted()
+          }
         }
       } else {
         const providerError = (payload as { error?: { message?: string } })?.error
