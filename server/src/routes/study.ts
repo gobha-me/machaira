@@ -8,7 +8,10 @@ export async function registerStudy(app: FastifyInstance): Promise<void> {
   app.get<{
     Params: { book: string; chapter: string; verse: string }
     Querystring: { modules?: string }
-  }>('/api/compare/:book/:chapter/:verse', async (req) => {
+  }>('/api/compare/:book/:chapter/:verse', async (req, reply) => {
+    if (req.query.modules !== undefined && typeof req.query.modules !== 'string') {
+      return reply.code(400).send({ error: 'modules must be a single string' })
+    }
     const { book } = req.params
     const chapter = Number(req.params.chapter)
     // :verse is either "N" (single verse) or "lo-hi" (a range).
@@ -46,6 +49,12 @@ export async function registerStudy(app: FastifyInstance): Promise<void> {
   app.get<{ Querystring: { modules?: string; q?: string; type?: string; scope?: string } }>(
     '/api/search',
     async (req, reply) => {
+      if (req.query.q !== undefined && typeof req.query.q !== 'string') {
+        return reply.code(400).send({ error: 'q must be a single string' })
+      }
+      if (req.query.modules !== undefined && typeof req.query.modules !== 'string') {
+        return reply.code(400).send({ error: 'modules must be a single string' })
+      }
       let scope
       try { scope = parseSearchScope(req.query.scope) }
       catch { return reply.code(400).send({ error: 'Invalid search scope' }) }
