@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { createServer, type ServerResponse } from 'node:http'
 import { describe, it } from 'node:test'
-import { AiProviderError, streamProviderChat, type AiProviderKind } from '../src/ai.ts'
+import { AiProviderError, streamProviderChat } from '../src/ai.ts'
 
 function deferred() {
   let resolve!: () => void
