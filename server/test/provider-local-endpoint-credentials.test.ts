@@ -45,7 +45,7 @@ function fixture(t: TestContext, kind: ServiceKind) {
     async request() {
       if (kind === 'chat') {
         let text = ''
-        for await (const delta of streamProviderChat(chat.credentials('owner'), chatInput)) text += delta
+        for await (const delta of streamProviderChat(chat.credentials('owner'), chatInput, new AbortController().signal)) text += delta
         assert.equal(text, 'A safe reply')
       } else {
         assert.deepEqual(await requestEmbeddings(embeddings.credentials('owner'), ['light', 'truth']), [[1, 0], [1, 1]])
