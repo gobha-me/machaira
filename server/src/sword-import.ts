@@ -32,7 +32,17 @@ function isSymlink(entry: Entry): boolean {
 
 function openZip(path: string): Promise<ZipFile> {
   return new Promise((resolveZip, reject) => {
-    yauzl.open(path, { lazyEntries: true }, (error, zip) => error || !zip ? reject(error) : resolveZip(zip))
+    yauzl.open(path, { lazyEntries: true }, (error, zip) => {
+      if (error || !zip) {
+        // ZIP parsing failures describe the upload; filesystem errors still
+        // describe a server failure and must keep their original status.
+        reject(error && 'code' in error
+          ? error
+          : new SwordImportError('Archive is not a valid ZIP file', { cause: error }))
+        return
+      }
+      resolveZip(zip)
+    })
   })
 }
 
