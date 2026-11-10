@@ -281,21 +281,22 @@ export class SttService {
     if (selected.apiKey) headers.authorization = `Bearer ${selected.apiKey}`
     const timeout = AbortSignal.timeout(10_000)
     const combined = signal ? AbortSignal.any([signal, timeout]) : timeout
-    let response: Response
+    let raw: string
     try {
-      response = await fetch(voiceEndpoint(selected.endpoint.baseUrl, 'models'), {
+      const response = await fetch(voiceEndpoint(selected.endpoint.baseUrl, 'models'), {
         headers, redirect: 'error', signal: combined
       })
+      if (!response.ok) {
+        throw new SttProviderError(
+          `STT provider rejected the connection check (${response.status}): ${await limitedProviderError(response)}`
+        )
+      }
+      raw = await limitedText(response)
     } catch (error) {
       if (combined.aborted) throw new SttProviderError('STT connection check timed out or was cancelled')
+      if (error instanceof SttProviderError) throw error
       throw new SttProviderError(`Could not reach STT provider: ${(error as Error).message}`)
     }
-    if (!response.ok) {
-      throw new SttProviderError(
-        `STT provider rejected the connection check (${response.status}): ${await limitedProviderError(response)}`
-      )
-    }
-    const raw = await limitedText(response)
     let modelAvailable: boolean | null = null
     try {
       const payload = JSON.parse(raw) as { data?: { id?: unknown }[] }
@@ -342,21 +343,22 @@ export class SttService {
       if (apiKey) headers.authorization = `Bearer ${apiKey}`
       const timeout = AbortSignal.timeout(tier === 'local' ? 300_000 : 120_000)
       const combined = signal ? AbortSignal.any([signal, timeout]) : timeout
-      let response: Response
+      let raw: string
       try {
-        response = await fetch(voiceEndpoint(selected.baseUrl, 'audio/transcriptions'), {
+        const response = await fetch(voiceEndpoint(selected.baseUrl, 'audio/transcriptions'), {
           method: 'POST', headers, body: form, redirect: 'error', signal: combined
         })
+        if (!response.ok) {
+          throw new SttProviderError(
+            `STT provider rejected the request (${response.status}): ${await limitedProviderError(response)}`
+          )
+        }
+        raw = await limitedText(response)
       } catch (error) {
         if (combined.aborted) throw new SttProviderError('STT request timed out or was cancelled')
+        if (error instanceof SttProviderError) throw error
         throw new SttProviderError(`Could not reach STT provider: ${(error as Error).message}`)
       }
-      if (!response.ok) {
-        throw new SttProviderError(
-          `STT provider rejected the request (${response.status}): ${await limitedProviderError(response)}`
-        )
-      }
-      const raw = await limitedText(response)
       let payload: unknown
       try {
         payload = JSON.parse(raw)
