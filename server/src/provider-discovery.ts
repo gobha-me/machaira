@@ -579,32 +579,32 @@ export class ProviderDiscoveryService {
     signal: AbortSignal,
     budget: ResponseBudget
   ): Promise<unknown> {
-    let response: Response
     try {
-      response = await this.fetcher(url, { headers, redirect: 'error', signal })
+      const response = await this.fetcher(url, { headers, redirect: 'error', signal })
+      if (response.status === 401 || response.status === 403) {
+        await response.body?.cancel().catch(() => undefined)
+        throw new ProviderDiscoveryError('Provider rejected the supplied credentials', 'provider_unauthorized')
+      }
+      if ([404, 405, 501].includes(response.status)) {
+        await response.body?.cancel().catch(() => undefined)
+        throw new ProviderDiscoveryError('This provider does not expose model discovery; enter the model ID manually', 'provider_unsupported')
+      }
+      if (!response.ok) {
+        await response.body?.cancel().catch(() => undefined)
+        throw new ProviderDiscoveryError(`Provider rejected model discovery (${response.status})`, 'provider_unreachable')
+      }
+      const raw = await this.readLimitedText(response, budget, MAX_RESPONSE_BYTES)
+      try {
+        return JSON.parse(raw)
+      } catch {
+        throw new ProviderDiscoveryError('Provider returned malformed JSON', 'provider_malformed')
+      }
     } catch (error) {
+      if (error instanceof ProviderDiscoveryError) throw error
       if (signal.aborted) {
         throw new ProviderDiscoveryError('Provider model discovery timed out or was cancelled', 'provider_timeout')
       }
       throw new ProviderDiscoveryError(`Could not reach provider: ${(error as Error).message}`, 'provider_unreachable')
-    }
-    if (response.status === 401 || response.status === 403) {
-      await response.body?.cancel().catch(() => undefined)
-      throw new ProviderDiscoveryError('Provider rejected the supplied credentials', 'provider_unauthorized')
-    }
-    if ([404, 405, 501].includes(response.status)) {
-      await response.body?.cancel().catch(() => undefined)
-      throw new ProviderDiscoveryError('This provider does not expose model discovery; enter the model ID manually', 'provider_unsupported')
-    }
-    if (!response.ok) {
-      await response.body?.cancel().catch(() => undefined)
-      throw new ProviderDiscoveryError(`Provider rejected model discovery (${response.status})`, 'provider_unreachable')
-    }
-    const raw = await this.readLimitedText(response, budget, MAX_RESPONSE_BYTES)
-    try {
-      return JSON.parse(raw)
-    } catch {
-      throw new ProviderDiscoveryError('Provider returned malformed JSON', 'provider_malformed')
     }
   }
 
