@@ -137,10 +137,11 @@ export function parseVerseMarkup(raw: string): ParsedVerse {
 
   const wordTokens: { text: string; strongs: string[] }[] = []
   const takeWord = (attrs: string, inner: string): string => {
-    const innerText = stripInline(inner)
     const strongs = parseLemma(attrs)
     // No Strong's key → let it fall through as ordinary (non-tappable) text.
-    if (strongs.length === 0) return ` ${innerText} `
+    // Keep raw markup here so the common path decodes entities only once.
+    if (strongs.length === 0) return ` ${inner} `
+    const innerText = stripInline(inner)
     const j = wordTokens.length
     wordTokens.push({ text: innerText, strongs })
     return `${WSENT}${j}${WSENT}`
