@@ -105,7 +105,7 @@ export class AiProviderService {
 
     const existing = this.get(userId)
     const identityChanged = existing !== null
-      && (existing.kind !== kind || existing.baseUrl !== baseUrl)
+      && (existing.kind !== kind || (kind === 'local' && existing.baseUrl !== baseUrl))
     const willHaveKey = apiKey !== undefined
       || (!identityChanged && body.clearApiKey !== true && existing?.hasApiKey === true)
     if (kind !== 'local' && !willHaveKey) {
