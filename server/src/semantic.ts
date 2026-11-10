@@ -297,9 +297,10 @@ export class EmbeddingProviderService {
       throw new SemanticInputError('Cannot replace and clear the API key together')
     }
 
-    const kindChanged = existing !== null && existing.kind !== kind
+    const identityChanged = existing !== null
+      && (existing.kind !== kind || existing.baseUrl !== baseUrl)
     const willHaveKey = apiKey !== undefined
-      || (!kindChanged && body.clearApiKey !== true && existing?.hasApiKey === true)
+      || (!identityChanged && body.clearApiKey !== true && existing?.hasApiKey === true)
     if (kind === 'openai-compatible' && !willHaveKey) {
       throw new SemanticInputError('An API key is required for this provider')
     }
@@ -317,7 +318,7 @@ export class EmbeddingProviderService {
       `).run(userId, kind, baseUrl, model, batchSize, Date.now())
       this.db.prepare('DELETE FROM embedding_provider_opt_outs WHERE user_id = ?').run(userId)
       if (apiKey !== undefined) this.secrets.set(userId, API_KEY_SECRET, apiKey)
-      else if (body.clearApiKey === true || kindChanged) this.secrets.remove(userId, API_KEY_SECRET)
+      else if (body.clearApiKey === true || identityChanged) this.secrets.remove(userId, API_KEY_SECRET)
     })()
     return this.get(userId)!
   }
