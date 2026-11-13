@@ -183,6 +183,8 @@ export function findDisplayReferences(value: string): ScriptureReferenceMatch[] 
     if ((start > 0 && WORD_CHARACTER.test(value[start - 1])) || WORD_CHARACTER.test(value[end] ?? '')) {
       continue
     }
+    // A range ending in chapter:verse cannot be represented by a single-chapter target.
+    if (match[4] !== undefined && /^\s*:\s*\d/.test(value.slice(end))) continue
     const parsed = target(match[1], match[2], match[3], match[4])
     if (parsed) results.push({ start, end, label: match[0], target: parsed })
   }
