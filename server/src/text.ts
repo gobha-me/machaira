@@ -88,15 +88,23 @@ const NOTE_TOKEN = new RegExp(`^${SENT}(\\d+)${SENT}$`)
 const WORD_TOKEN = new RegExp(`^${WSENT}(\\d+)${WSENT}$`)
 
 // `<w>` carries per-word Strong's keys as `lemma="strong:G3056"` (a lemma may list
-// several space-separated tokens). Only tagged modules (e.g. KJVA) emit these.
+// several space-separated tokens). The native renderer also uses `class` for these
+// tokens. Other attributes and partial tokens must not invent a lookup key.
 const W_TAG = /<w\b([^>]*)>([\s\S]*?)<\/w>/gi
-const LEMMA = /strong:([GH]\d+)/gi
+const W_ATTRIBUTE = /(?:^|\s)([^\s"'<>/=]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g
+const LEMMA = /^strong:([GH]\d+)$/i
 
 function parseLemma(attrs: string): string[] {
   const out: string[] = []
-  LEMMA.lastIndex = 0
-  let m: RegExpExecArray | null
-  while ((m = LEMMA.exec(attrs)) !== null) out.push(m[1].toUpperCase())
+  for (const attribute of attrs.matchAll(W_ATTRIBUTE)) {
+    const name = attribute[1].toLowerCase()
+    if (name !== 'lemma' && name !== 'class') continue
+    const value = attribute[2] ?? attribute[3] ?? attribute[4]
+    for (const token of value.split(/\s+/)) {
+      const match = token.match(LEMMA)
+      if (match) out.push(match[1].toUpperCase())
+    }
+  }
   return out
 }
 
