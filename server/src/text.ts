@@ -21,7 +21,19 @@ const ENTITIES: Record<string, string> = {
 }
 
 function decodeEntities(input: string): string {
-  return input.replace(/&[a-z#0-9]+;/gi, (m) => ENTITIES[m] ?? ' ')
+  return input.replace(/&[a-z#0-9]+;/gi, (entity) => {
+    const numeric = /^&#(x[0-9a-f]+|[0-9]+);$/i.exec(entity)
+    if (!numeric) return ENTITIES[entity] ?? ' '
+    const digits = numeric[1]
+    const codePoint = digits[0].toLowerCase() === 'x'
+      ? Number.parseInt(digits.slice(1), 16)
+      : Number(digits)
+    // XML references must name a Unicode scalar, not NUL or a surrogate. Keep
+    // invalid references visible instead of dropping content or throwing.
+    if (!Number.isSafeInteger(codePoint) || codePoint < 1 || codePoint > 0x10ffff
+      || (codePoint >= 0xd800 && codePoint <= 0xdfff)) return entity
+    return String.fromCodePoint(codePoint)
+  })
 }
 
 // Stripping tags leaves spaces before punctuation (e.g. `</w> ,`). Tighten those and
@@ -125,10 +137,11 @@ export function parseVerseMarkup(raw: string): ParsedVerse {
 
   const wordTokens: { text: string; strongs: string[] }[] = []
   const takeWord = (attrs: string, inner: string): string => {
-    const innerText = stripInline(inner)
     const strongs = parseLemma(attrs)
     // No Strong's key → let it fall through as ordinary (non-tappable) text.
-    if (strongs.length === 0) return ` ${innerText} `
+    // Keep raw markup here so the common path decodes entities only once.
+    if (strongs.length === 0) return ` ${inner} `
+    const innerText = stripInline(inner)
     const j = wordTokens.length
     wordTokens.push({ text: innerText, strongs })
     return `${WSENT}${j}${WSENT}`
