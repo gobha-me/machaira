@@ -79,7 +79,7 @@ export function useCompare(opts: UseCompareOptions = {}) {
     focus.value === focusEnd.value ? `${focus.value}` : `${focus.value}–${focusEnd.value}`
   )
 
-  async function runCompare() {
+  async function runCompare(seq: number) {
     // Re-checked here and not trusted from schedule time: a scheduled run fires up to SETTLE_MS
     // later, by which point Read's card can have closed or the chapter can have moved.
     const book = reader.book
@@ -87,7 +87,6 @@ export function useCompare(opts: UseCompareOptions = {}) {
       comparing.value = false
       return
     }
-    const seq = ++compareSeq
     comparing.value = true
     compareError.value = null
     try {
@@ -117,6 +116,9 @@ export function useCompare(opts: UseCompareOptions = {}) {
   // immediate is for seeding on open/mount, where there is no burst to coalesce and the delay
   // would just read as lag.
   function loadCompare({ immediate = false } = {}) {
+    // A new selection owns the state throughout the settle delay, including when
+    // an older request succeeds, fails, or finishes before the next fetch starts.
+    const seq = ++compareSeq
     clearTimeout(settleTimer)
     settleTimer = undefined
     if (!active.value || !reader.book || compareNames.value.length === 0) {
@@ -125,7 +127,7 @@ export function useCompare(opts: UseCompareOptions = {}) {
       return
     }
     if (immediate) {
-      void runCompare()
+      void runCompare(seq)
       return
     }
     // Claim the spinner up front: for the length of the delay the panel is showing the previous
@@ -133,11 +135,14 @@ export function useCompare(opts: UseCompareOptions = {}) {
     comparing.value = true
     settleTimer = setTimeout(() => {
       settleTimer = undefined
-      void runCompare()
+      void runCompare(seq)
     }, SETTLE_MS)
   }
 
-  onUnmounted(() => clearTimeout(settleTimer))
+  onUnmounted(() => {
+    compareSeq += 1
+    clearTimeout(settleTimer)
+  })
 
   // focus/focusEnd move now and the fetch settles later, so the label, the ‹/› bounds and the
   // range tint stay in step with the gesture while only the request waits.
