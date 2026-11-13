@@ -251,7 +251,7 @@ export class SttService {
     const parsed = parseEndpoint(staged, tier)
     if (!parsed) throw new VoiceConfigError(`${tier} STT is not configured`)
     const identityUnchanged = parsed.provider === saved?.provider && parsed.baseUrl === saved.baseUrl
-    const storedKey = identityUnchanged && !config.deploymentDefault
+    const storedKey = identityUnchanged && !parsed.clearApiKey && !config.deploymentDefault
       ? this.secrets.get(userId, tier === 'local' ? LOCAL_KEY : CLOUD_KEY)
       : null
     return {
