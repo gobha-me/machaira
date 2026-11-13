@@ -182,3 +182,21 @@ export function parseVerseMarkup(raw: string): ParsedVerse {
     crossReferenceTargets: targets
   }
 }
+
+/** Parse commentary while keeping module-specific conventions out of Scripture text. */
+export function parseCommentaryMarkup(raw: string, module: string): ParsedVerse {
+  if (module.toLowerCase() !== 'geneva') return parseVerseMarkup(raw)
+  // Geneva's ThML puts a Scripture quotation before a line break, then its
+  // parenthesized note labels. Only remove brace references paired with those
+  // labels; braces in explanatory prose and other modules remain literal.
+  const boundary = /<br\s*\/?>/i.exec(raw)
+  if (!boundary) return parseVerseMarkup(raw)
+  const quote = raw.slice(0, boundary.index)
+  const body = raw.slice(boundary.index + boundary[0].length)
+  const noteLabels = new Set([...body.matchAll(/\(([a-z]|\d+)\)(?=\s)/g)].map((match) => match[1]))
+  const references = new Set([...quote.matchAll(/\{([a-z]|\d+)\}/g)]
+    .map((match) => match[1]).filter((label) => noteLabels.has(label)))
+  const cleanQuote = quote.replace(/\{([a-z]|\d+)\}/g, (marker, label: string) => references.has(label) ? '' : marker)
+  const cleanBody = body.replace(/\(([a-z]|\d+)\)(?=\s)/g, (marker, label: string) => references.has(label) ? '' : marker)
+  return parseVerseMarkup(`${cleanQuote}${boundary[0]}${cleanBody}`)
+}
