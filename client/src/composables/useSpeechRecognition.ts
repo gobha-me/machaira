@@ -215,11 +215,13 @@ export function createSpeechRecognitionController(
     const needsRecording = viableTiers.value.some((tier) => tier !== 'browser')
     if (needsRecording && environment.capture && environment.createRecorder) {
       try {
-        stream = await environment.capture()
+        const capturedStream = await environment.capture()
         if (token !== generation) {
-          stopTracks()
+          // A cancelled permission request must only release its own tracks.
+          for (const track of capturedStream.getTracks()) track.stop()
           return
         }
+        stream = capturedStream
         recorder = environment.createRecorder(stream)
         recorderStopped = new Promise<void>((resolve) => { settleRecorder = resolve })
         recorder.ondataavailable = (event) => {
@@ -240,6 +242,7 @@ export function createSpeechRecognitionController(
         }
         recorder.start(1000)
       } catch (captureError) {
+        if (token !== generation) return
         stopTracks()
         recorder = null
         recorderFailure = (captureError as DOMException).name === 'NotAllowedError'
