@@ -42,9 +42,13 @@ export async function registerSources(app: FastifyInstance): Promise<void> {
     return { modules: await listCatalog(), diagnostics }
   })
 
-  app.get<{ Querystring: { type?: string } }>('/api/sources', async (req) => {
+  app.get<{ Querystring: { type?: unknown } }>('/api/sources', async (req, reply) => {
+    const requestedType = req.query.type
+    if (requestedType !== undefined && typeof requestedType !== 'string') {
+      return reply.code(400).send({ error: 'type must be a single string' })
+    }
     await ensureRepoConfig()
-    const type = (req.query.type?.toUpperCase() as ModuleType) ?? 'BIBLE'
+    const type = (requestedType?.toUpperCase() as ModuleType) ?? 'BIBLE'
     if (!VALID_TYPES.includes(type)) {
       return { modules: [], error: `invalid type; expected one of ${VALID_TYPES.join(', ')}` }
     }
