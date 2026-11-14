@@ -104,9 +104,10 @@ export class AiProviderService {
     }
 
     const existing = this.get(userId)
-    const kindChanged = existing !== null && existing.kind !== kind
+    const identityChanged = existing !== null
+      && (existing.kind !== kind || (kind === 'local' && existing.baseUrl !== baseUrl))
     const willHaveKey = apiKey !== undefined
-      || (!kindChanged && body.clearApiKey !== true && existing?.hasApiKey === true)
+      || (!identityChanged && body.clearApiKey !== true && existing?.hasApiKey === true)
     if (kind !== 'local' && !willHaveKey) {
       throw new AiInputError('An API key is required for this provider')
     }
@@ -122,7 +123,7 @@ export class AiProviderService {
           updated_at = excluded.updated_at
       `).run(userId, kind, baseUrl, model, Date.now())
       if (apiKey !== undefined) this.secrets.set(userId, API_KEY_SECRET, apiKey)
-      else if (body.clearApiKey === true || kindChanged) this.secrets.remove(userId, API_KEY_SECRET)
+      else if (body.clearApiKey === true || identityChanged) this.secrets.remove(userId, API_KEY_SECRET)
     })()
     return this.get(userId)!
   }
