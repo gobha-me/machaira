@@ -21,7 +21,19 @@ const ENTITIES: Record<string, string> = {
 }
 
 function decodeEntities(input: string): string {
-  return input.replace(/&[a-z#0-9]+;/gi, (m) => ENTITIES[m] ?? ' ')
+  return input.replace(/&[a-z#0-9]+;/gi, (entity) => {
+    const numeric = /^&#(x[0-9a-f]+|[0-9]+);$/i.exec(entity)
+    if (!numeric) return ENTITIES[entity] ?? ' '
+    const digits = numeric[1]
+    const codePoint = digits[0].toLowerCase() === 'x'
+      ? Number.parseInt(digits.slice(1), 16)
+      : Number(digits)
+    // XML references must name a Unicode scalar, not NUL or a surrogate. Keep
+    // invalid references visible instead of dropping content or throwing.
+    if (!Number.isSafeInteger(codePoint) || codePoint < 1 || codePoint > 0x10ffff
+      || (codePoint >= 0xd800 && codePoint <= 0xdfff)) return entity
+    return String.fromCodePoint(codePoint)
+  })
 }
 
 // Stripping tags leaves spaces before punctuation (e.g. `</w> ,`). Tighten those and
@@ -96,14 +108,6 @@ export interface ParsedVerse {
   crossReferenceTargets: ScriptureTarget[]
 }
 
-// Sentinels wrap a note (U+E000) or Strong's-tagged word (U+E001) index in the working
-// string; both are private-use and never appear in scripture text, so they survive
-// tag-stripping and can't collide.
-const SENT = String.fromCharCode(0xe000)
-const WSENT = String.fromCharCode(0xe001)
-const NOTE_TOKEN = new RegExp(`^${SENT}(\\d+)${SENT}$`)
-const WORD_TOKEN = new RegExp(`^${WSENT}(\\d+)${WSENT}$`)
-
 // `<w>` carries per-word Strong's keys as `lemma="strong:G3056"` (a lemma may list
 // several space-separated tokens). Only tagged modules (e.g. KJVA) emit these.
 const W_TAG = /<w\b([^>]*)>([\s\S]*?)<\/w>/gi
@@ -122,6 +126,14 @@ function noteLabel(i: number): string {
 }
 
 export function parseVerseMarkup(raw: string): ParsedVerse {
+  // Literal private-use characters are valid content too. Choose a prefix absent
+  // from the raw input, and recognize tokens before decoding text.
+  let prefix = '\uE000'
+  for (let i = 0; raw.includes(prefix); i++) prefix = `\uE000${i}:`
+  const sent = `${prefix}n`
+  const wsent = `${prefix}w`
+  const noteToken = new RegExp(`^${sent}(\\d+)${sent}$`)
+  const wordToken = new RegExp(`^${wsent}(\\d+)${wsent}$`)
   const crossReferences: string[] = []
   const crossReferenceTargets: ScriptureTarget[] = []
   const takeCrossReference = (markup: string, inner: string): string => {
@@ -137,18 +149,19 @@ export function parseVerseMarkup(raw: string): ParsedVerse {
   const take = (inner: string): string => {
     const i = noteTexts.length
     noteTexts.push(stripInline(inner))
-    return ` ${SENT}${i}${SENT} `
+    return ` ${sent}${i}${sent} `
   }
 
   const wordTokens: { text: string; strongs: string[] }[] = []
   const takeWord = (attrs: string, inner: string): string => {
-    const innerText = stripInline(inner)
     const strongs = parseLemma(attrs)
     // No Strong's key → let it fall through as ordinary (non-tappable) text.
-    if (strongs.length === 0) return ` ${innerText} `
+    // Keep raw markup here so the common path decodes entities only once.
+    if (strongs.length === 0) return ` ${inner} `
+    const innerText = stripInline(inner)
     const j = wordTokens.length
     wordTokens.push({ text: innerText, strongs })
-    return `${WSENT}${j}${WSENT}`
+    return `${wsent}${j}${wsent}`
   }
 
   let s = raw.replace(CROSS_REF_DIV, (markup, inner: string) => takeCrossReference(markup, inner))
@@ -157,15 +170,14 @@ export function parseVerseMarkup(raw: string): ParsedVerse {
   s = s.replace(TITLE_DIV, ' ')
   s = s.replace(GBF_NOTE, (_m, inner: string) => take(inner))
   s = s.replace(W_TAG, (_m, attrs: string, inner: string) => takeWord(attrs, inner))
-  s = tighten(decodeEntities(s.replace(TAG, ' ')).replace(/\s+/g, ' ')).trim()
-
+  s = s.replace(TAG, ' ')
   const notes: VerseNote[] = noteTexts.map((text, i) => ({ label: noteLabel(i), text }))
   const segments: VerseSegment[] = []
   let text = ''
   const append = (t: string): string => (text ? `${text} ${t}` : t)
-  const parts = s.split(new RegExp(`(${SENT}\\d+${SENT}|${WSENT}\\d+${WSENT})`))
+  const parts = s.split(new RegExp(`(${sent}\\d+${sent}|${wsent}\\d+${wsent})`))
   for (const part of parts) {
-    const wm = part.match(WORD_TOKEN)
+    const wm = part.match(wordToken)
     if (wm) {
       const w = wordTokens[Number(wm[1])]
       if (w && w.text) {
@@ -174,13 +186,13 @@ export function parseVerseMarkup(raw: string): ParsedVerse {
       }
       continue
     }
-    const nm = part.match(NOTE_TOKEN)
+    const nm = part.match(noteToken)
     if (nm) {
       const note = notes[Number(nm[1])]
       if (note) segments.push({ kind: 'note', label: note.label, text: note.text })
       continue
     }
-    const t = tighten(part.replace(/\s+/g, ' ')).trim()
+    const t = tighten(decodeEntities(part).replace(/\s+/g, ' ')).trim()
     if (t) {
       segments.push({ kind: 'text', text: t })
       text = append(t)
