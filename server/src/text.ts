@@ -197,6 +197,9 @@ export function parseCommentaryMarkup(raw: string, module: string): ParsedVerse 
   const references = new Set([...quote.matchAll(/\{([a-z]|\d+)\}/g)]
     .map((match) => match[1]).filter((label) => noteLabels.has(label)))
   const cleanQuote = quote.replace(/\{([a-z]|\d+)\}/g, (marker, label: string) => references.has(label) ? '' : marker)
-  const cleanBody = body.replace(/\(([a-z]|\d+)\)(?=\s)/g, (marker, label: string) => references.has(label) ? '' : marker)
+  // Each paired label introduces one explanation. Later occurrences of the same
+  // parenthesized text belong to the prose and must remain literal.
+  const remainingLabels = new Set(references)
+  const cleanBody = body.replace(/\(([a-z]|\d+)\)(?=\s)/g, (marker, label: string) => remainingLabels.delete(label) ? '' : marker)
   return parseVerseMarkup(`${cleanQuote}${boundary[0]}${cleanBody}`)
 }
