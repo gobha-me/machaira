@@ -400,6 +400,9 @@ export async function requestEmbeddings(
     throw new EmbeddingProviderError('Embedding provider returned the wrong number of vectors')
   }
   const ordered = data.map((entry, fallbackIndex) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      throw new EmbeddingProviderError('Embedding provider returned an invalid vector')
+    }
     const item = entry as { index?: unknown; embedding?: unknown }
     const index = typeof item.index === 'number' ? item.index : fallbackIndex
     if (!Array.isArray(item.embedding) || item.embedding.length < 1 || item.embedding.length > MAX_DIMENSION) {
