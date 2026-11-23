@@ -24,6 +24,7 @@
     "@vitejs/plugin-vue": "^5.2.1",
     "@vue/server-renderer": "^3.5.13",
     "@vue/test-utils": "^2.5.1",
+    "fake-indexeddb": "6.2.4",
     "happy-dom": "^20.14.6",
     "typescript": "^5.7.2",
     "vite": "^6.4.4",
