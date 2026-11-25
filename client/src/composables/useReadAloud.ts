@@ -275,6 +275,11 @@ function browserEnvironment(): ReadAloudEnvironment {
       : null,
     createAudio: audioAvailable ? () => {
       const audio = new Audio()
+      let unlockUrl: string | null = null
+      const releaseUnlock = () => {
+        if (unlockUrl) URL.revokeObjectURL(unlockUrl)
+        unlockUrl = null
+      }
       return {
         audio: audio as unknown as AudioLike,
         unlock: () => {
@@ -299,19 +304,25 @@ function browserEnvironment(): ReadAloudEnvironment {
           tag(36, 'data')
           view.setUint32(40, samples, true)
           wav.fill(128, 44)
-          audio.src = `data:audio/wav;base64,${btoa(String.fromCharCode(...wav))}`
+          // Match verse playback's blob: scheme, allowed by the server media CSP.
+          const url = URL.createObjectURL(new Blob([wav], { type: 'audio/wav' }))
+          audio.src = url
+          releaseUnlock()
+          unlockUrl = url
           // Unlock is best effort; actual verse playback offers gesture recovery.
           void audio.play().catch(() => {})
         },
         setSource: (blob) => {
           const url = URL.createObjectURL(blob)
           audio.src = url
+          releaseUnlock()
           return () => URL.revokeObjectURL(url)
         },
         dispose: () => {
           audio.pause()
           audio.removeAttribute('src')
           audio.load()
+          releaseUnlock()
         }
       }
     } : null,
