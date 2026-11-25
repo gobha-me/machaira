@@ -15,18 +15,18 @@
     "idb": "^8.0.4",
     "markdown-it": "^15.0.3",
     "pinia": "^2.2.6",
-    "vue": "^3.5.44",
-    "vue-router": "^4.6.4"
+    "vue": "^3.5.46",
+    "vue-router": "^4.6.5"
   },
   "devDependencies": {
     "@testing-library/dom": "^10.4.2",
-    "@testing-library/user-event": "^14.6.8",
+    "@testing-library/user-event": "^14.6.13",
     "@vitejs/plugin-vue": "^5.2.1",
     "@vue/server-renderer": "^3.5.13",
-    "@vue/test-utils": "^2.5.1",
+    "@vue/test-utils": "^2.6.0",
     "happy-dom": "^20.14.6",
     "typescript": "^5.7.2",
-    "vite": "^6.4.4",
+    "vite": "^6.4.6",
     "vitest": "^4.1.12",
     "vue-tsc": "^2.1.10"
   }
