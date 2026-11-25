@@ -354,7 +354,8 @@ function stubVoiceAudio() {
   const audio = { src: '', play, pause, load, removeAttribute, onended: null as (() => void) | null, onerror: null }
   const Audio = vi.fn(function () { return audio })
   vi.stubGlobal('Audio', Audio)
-  const createUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:voice-test')
+  const createUrl = vi.spyOn(URL, 'createObjectURL')
+    .mockReturnValue('blob:voice-test').mockReturnValueOnce('blob:voice-unlock')
   const revokeUrl = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
   return { audio, Audio, createUrl, revokeUrl }
 }
@@ -376,8 +377,8 @@ describe('Settings voice sample', () => {
       await wrapper.get('#tts-test-voice').trigger('click')
       expect(Audio).toHaveBeenCalledOnce()
       expect(audio.play).toHaveBeenCalledOnce()
-      expect(audio.src).toMatch(/^data:audio\/wav;base64,/)
-      expect(createUrl).not.toHaveBeenCalled()
+      expect(audio.src).toBe('blob:voice-unlock')
+      expect(createUrl).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ type: 'audio/wav' }))
       expect(wrapper.text()).toContain('Preparing voice sample…')
       expect(speech).toHaveBeenCalledWith('local', 'In the beginning God created the heaven and the earth.', expect.any(AbortSignal))
       expect(wrapper.find('#tts-test-voice').exists()).toBe(false)
@@ -388,7 +389,7 @@ describe('Settings voice sample', () => {
       expect(audio.src).toBe('blob:voice-test')
       const recovery = wrapper.findAll('button').find((button) => button.text() === 'Tap to start audio')
       expect(recovery).toBeDefined()
-      expect(revokeUrl).not.toHaveBeenCalled()
+      expect(revokeUrl).toHaveBeenCalledExactlyOnceWith('blob:voice-unlock')
       await recovery!.trigger('click')
       await flushPromises()
       expect(audio.play).toHaveBeenCalledTimes(3)
@@ -400,7 +401,7 @@ describe('Settings voice sample', () => {
       await flushPromises()
       expect(wrapper.text()).toContain('Voice sample complete')
       expect(wrapper.get('#tts-test-voice').attributes('disabled')).toBeUndefined()
-      expect(revokeUrl).toHaveBeenCalledExactlyOnceWith('blob:voice-test')
+      expect(revokeUrl.mock.calls).toEqual([['blob:voice-unlock'], ['blob:voice-test']])
     } finally {
       wrapper.unmount()
     }
@@ -425,7 +426,7 @@ describe('Settings voice sample', () => {
   })
 
   it('aborts a slow sample when leaving Settings and never plays its late response', async () => {
-    const { audio, createUrl } = stubVoiceAudio()
+    const { audio, createUrl, revokeUrl } = stubVoiceAudio()
     const pending = deferred<Blob>()
     const speech = vi.spyOn(api, 'ttsSpeech').mockReturnValue(pending.promise)
     const wrapper = await mountSettings(savedLocalVoice)
@@ -436,6 +437,7 @@ describe('Settings voice sample', () => {
     pending.resolve(new Blob(['late audio']))
     await flushPromises()
     expect(audio.play).toHaveBeenCalledOnce()
-    expect(createUrl).not.toHaveBeenCalled()
+    expect(createUrl).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ type: 'audio/wav' }))
+    expect(revokeUrl).toHaveBeenCalledExactlyOnceWith('blob:voice-unlock')
   })
 })
