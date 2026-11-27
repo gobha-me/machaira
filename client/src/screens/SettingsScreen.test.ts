@@ -4,6 +4,8 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { createSSRApp, h } from 'vue'
 import { renderToString } from '@vue/server-renderer'
+import { getByRole } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { api, ApiError, type DiscoveredModel, type ProviderDiscoveryResult, type TtsConfig } from '../services/api'
 import { useTtsProvider } from '../stores/ttsProvider'
@@ -12,6 +14,7 @@ import { useSemanticIndex } from '../stores/semanticIndex'
 import { useSttProvider } from '../stores/sttProvider'
 import { useUi } from '../stores/ui'
 import { useLibrary } from '../stores/library'
+import { useSettings } from '../stores/settings'
 import { pathologicalModule } from '../test/fixtures/moduleInfo'
 
 vi.mock('../services/db', () => ({
@@ -132,6 +135,48 @@ async function selectOpenOption(wrapper: VueWrapper, inputId: string, query: str
   expect(option, `expected a discovery option matching ${query}`).toBeDefined()
   await option!.trigger('mousedown')
 }
+
+it('lets readers change typography alongside the existing text size and spacing controls', async () => {
+  const deploymentProviders = vi.spyOn(api, 'deploymentProviders').mockResolvedValue({})
+  const pinia = createPinia()
+  const settings = useSettings(pinia)
+  const wrapper = mount(SettingsScreen, { attachTo: document.body, global: { plugins: [pinia] } })
+  try {
+    await flushPromises()
+    const user = userEvent.setup()
+    const lineHeight = getByRole(document.body, 'combobox', { name: 'Line height' })
+    const lineWidth = getByRole(document.body, 'combobox', { name: 'Maximum line width' })
+    const layout = getByRole(document.body, 'combobox', { name: 'Verse layout' })
+    const decrease = getByRole(document.body, 'button', { name: 'Decrease scripture text size' })
+    const increase = getByRole(document.body, 'button', { name: 'Increase scripture text size' })
+    const spacing = getByRole(document.body, 'switch', { name: 'Extra letter and word spacing' })
+
+    expect(lineHeight).toHaveProperty('value', '1.85')
+    expect(lineWidth).toHaveProperty('value', '620')
+    expect(layout).toHaveProperty('value', 'paragraph')
+
+    await user.selectOptions(lineHeight, '2.2')
+    await user.selectOptions(lineWidth, '280')
+    await user.selectOptions(layout, 'verse-per-line')
+    await user.click(decrease)
+    await user.click(decrease)
+    await user.click(decrease)
+    await user.click(spacing)
+    expect(settings.$state).toMatchObject({
+      lineHeight: 2.2, maxLineWidth: 280, verseLayout: 'verse-per-line', textScale: 0.9, extraSpacing: true
+    })
+    expect(wrapper.get('.step-val').text()).toBe('90%')
+    expect(spacing.getAttribute('aria-checked')).toBe('true')
+
+    await user.selectOptions(layout, 'paragraph')
+    await user.click(increase)
+    await user.click(spacing)
+    expect(settings.$state).toMatchObject({ verseLayout: 'paragraph', textScale: 0.95, extraSpacing: false })
+  } finally {
+    wrapper.unmount()
+    deploymentProviders.mockRestore()
+  }
+})
 
 describe('Settings provider controls', () => {
   it('labels translation choices with friendly names while keeping IDs as option values', async () => {

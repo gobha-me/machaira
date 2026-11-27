@@ -107,6 +107,21 @@ describe('account-synced reader contracts', () => {
     }
   })
 
+  it('accepts typography presets as partial preferences and rejects malformed choices', () => {
+    const allowed = { lineHeight: [1.5, 1.85, 2.2], maxLineWidth: [280, 620, 760], verseLayout: ['paragraph', 'verse-per-line'] }
+    for (const [key, values] of Object.entries(allowed)) {
+      for (const value of values) assert.deepEqual(parsePreferences({ [key]: value }), { [key]: value })
+    }
+    const invalid = {
+      lineHeight: [1.49, 1.8, 2.21, '1.85', NaN, Infinity, null],
+      maxLineWidth: [279, 500, 761, '620', NaN, Infinity, null],
+      verseLayout: ['', 'Paragraph', 'poetry', true, null]
+    }
+    for (const [key, values] of Object.entries(invalid)) {
+      for (const value of values) assert.equal(parsePreferences({ textScale: 1, [key]: value }), null, key)
+    }
+  })
+
   it('allows unset module choices and validates both scalar choices', () => {
     for (const key of ['defaultModuleName', 'commentaryModuleName']) {
       for (const value of [null, 'WEB', 'x'.repeat(128)]) {
@@ -131,6 +146,7 @@ describe('account-synced reader contracts', () => {
   it('round-trips a complete preferences object and rejects an invalid field among valid fields', () => {
     const preferences = {
       theme: 'ink', accent: '#a1B2c3', textScale: 1.2,
+      lineHeight: 1.7, maxLineWidth: 480, verseLayout: 'paragraph',
       ...Object.fromEntries(booleanPreferences.map((key, index) => [key, index % 2 === 0])),
       defaultModuleName: 'WEB', compareModuleNames: ['WEB', 'KJV'], commentaryModuleName: null
     }
