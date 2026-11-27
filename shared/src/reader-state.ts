@@ -6,11 +6,17 @@ export interface ReadingCursor {
   updated_at: number
 }
 
+export const READER_LINE_HEIGHTS: readonly number[] = [1.5, 1.7, 1.85, 2, 2.2]
+export const READER_LINE_WIDTHS: readonly number[] = [280, 360, 480, 620, 680, 760]
+
 export interface ReaderPreferences {
   theme: 'paper' | 'ink'
   accent: string
   textScale: number
   extraSpacing: boolean
+  lineHeight: number
+  maxLineWidth: number
+  verseLayout: 'paragraph' | 'verse-per-line'
   followAlong: boolean
   drawApocrypha: boolean
   alwaysCite: boolean
@@ -57,6 +63,9 @@ export function parsePreferences(value: unknown): Partial<ReaderPreferences> | n
     accent: (input) => typeof input === 'string' && (input === '' || /^#[0-9a-fA-F]{6}$/.test(input)),
     textScale: (input) => typeof input === 'number' && Number.isFinite(input) && input >= 0.9 && input <= 1.4,
     extraSpacing: (input) => typeof input === 'boolean',
+    lineHeight: (input) => typeof input === 'number' && READER_LINE_HEIGHTS.includes(input),
+    maxLineWidth: (input) => typeof input === 'number' && READER_LINE_WIDTHS.includes(input),
+    verseLayout: (input) => input === 'paragraph' || input === 'verse-per-line',
     followAlong: (input) => typeof input === 'boolean',
     drawApocrypha: (input) => typeof input === 'boolean',
     alwaysCite: (input) => typeof input === 'boolean',

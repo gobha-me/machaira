@@ -35,7 +35,8 @@ function openTodayReading() {
 }
 
 const versesStyle = computed(() => ({
-  fontSize: 'calc(var(--reader-font-base, 20px) * var(--vs))',
+  fontSize: 'calc(20px * var(--vs))',
+  lineHeight: settings.lineHeight,
   letterSpacing: settings.extraSpacing ? '0.03em' : 'normal',
   wordSpacing: settings.extraSpacing ? '0.12em' : 'normal'
 }))
@@ -626,6 +627,7 @@ function menuNote() {
         <div
           ref="readingEl"
           class="reading"
+          :style="{ maxWidth: `${settings.maxLineWidth}px` }"
         >
           <div
             v-if="reader.loadingChapter"
@@ -677,6 +679,7 @@ function menuNote() {
               ref="selectionRoot"
               data-passage-context
               class="verses serif"
+              :class="{ 'verse-per-line': settings.verseLayout === 'verse-per-line' }"
               :style="versesStyle"
             >
               <template
@@ -1308,7 +1311,6 @@ function menuNote() {
   padding: 60px 40px 120px;
 }
 .reading {
-  max-width: 620px;
   min-width: 0;
 }
 .eyebrow {
@@ -1333,8 +1335,10 @@ h1 {
   overflow-wrap: anywhere;
 }
 .verses {
-  line-height: 1.85;
   text-wrap: pretty;
+}
+.verse-per-line > .verse {
+  display: block;
 }
 .verse {
   cursor: text;
@@ -1699,9 +1703,6 @@ h1 {
 }
 
 @media (max-width: 768px) {
-  .read {
-    --reader-font-base: 18px;
-  }
   .topbar {
     height: auto;
     min-height: 104px;
@@ -1783,7 +1784,6 @@ h1 {
   }
   .reading {
     width: 100%;
-    max-width: 680px;
     margin: 0 auto;
   }
   h1 {
