@@ -199,3 +199,75 @@ export function parseVerseMarkup(raw: string): ParsedVerse {
     crossReferenceTargets: targets
   }
 }
+
+/** Parse commentary while keeping module-specific conventions out of Scripture text. */
+export function parseCommentaryMarkup(raw: string, module: string): ParsedVerse {
+  if (module.toLowerCase() !== 'geneva') return parseVerseMarkup(raw)
+
+  // Keep offsets into the original ThML while hiding markup and structured notes.
+  // The first visible break separates the quotation from the explanations.
+  const mask = (markup: string): string => ' '.repeat(markup.length)
+  let quoteEnd = -1
+  let bodyStart = 0
+  const visible = raw
+    .replace(NOTE_DIV, mask)
+    .replace(TITLE_DIV, mask)
+    .replace(GBF_NOTE, mask)
+    .replace(OSIS_NOTE_BLOCKS, mask)
+    .replace(TAG, (tag, offset: number) => {
+      if (!/^<br\s*\/?>$/i.test(tag)) return mask(tag)
+      if (quoteEnd === -1) {
+        quoteEnd = offset
+        bodyStart = offset + tag.length
+      }
+      return '\n' + ' '.repeat(tag.length - 1)
+    })
+    .replace(/&(?:nbsp|#0*160|#x0*a0);/gi, mask)
+  if (quoteEnd === -1) return parseVerseMarkup(raw)
+
+  type Span = [start: number, end: number]
+  const noteLabels = new Map<string, Span>()
+  const body = visible.slice(bodyStart)
+  // A label starts an explanation at the start of the body, after a break, or
+  // after a sentence. Later prose may repeat a label that has already been used.
+  for (const match of body.matchAll(/(?:^|\n|[.!?]["'”’)\]]*(?=\s))\s*(\(([a-z]|\d+)\))(?=\s)/g)) {
+    const [prefixAndMarker, marker, label] = match
+    if (noteLabels.has(label)) continue
+    const end = bodyStart + match.index + prefixAndMarker.length
+    noteLabels.set(label, [end - marker.length, end])
+  }
+
+  const markers: Span[] = []
+  const pairedLabels = new Set<string>()
+  let depth = 0
+  let start = 0
+  let unmatchedClose = -2
+  const quote = visible.slice(0, quoteEnd)
+  for (const { 0: brace, index } of quote.matchAll(/[{}]/g)) {
+    if (brace === '{') {
+      if (depth === 0) start = index
+      depth++
+    } else if (depth === 0) {
+      unmatchedClose = index
+    } else {
+      depth--
+      if (depth !== 0 || start === unmatchedClose + 1 || quote[index + 1] === '}') continue
+      const label = /^\{([a-z]|\d+)\}$/.exec(quote.slice(start, index + 1))?.[1]
+      if (label && noteLabels.has(label)) {
+        markers.push([start, index + 1])
+        pairedLabels.add(label)
+      }
+    }
+  }
+  for (const [label, span] of noteLabels) {
+    if (pairedLabels.has(label)) markers.push(span)
+  }
+
+  let cleaned = ''
+  let offset = 0
+  for (const [start, end] of markers) {
+    cleaned += raw.slice(offset, start)
+    offset = end
+  }
+  return parseVerseMarkup(cleaned + raw.slice(offset))
+}
