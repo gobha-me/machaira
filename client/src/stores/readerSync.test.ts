@@ -71,6 +71,11 @@ describe('account reader sync', () => {
     first.settings.setTheme('ink')
     first.settings.setDefaultModule('KJV')
     first.settings.toggle('studyPartnerOpen')
+    first.settings.bumpTextScale(0.05)
+    first.settings.toggle('extraSpacing')
+    first.settings.setLineHeight(2.2)
+    first.settings.setMaxLineWidth(360)
+    first.settings.setVerseLayout('verse-per-line')
     await first.reader.setModule('KJV')
     await first.reader.setChapter(2)
     await vi.advanceTimersByTimeAsync(1000)
@@ -82,10 +87,23 @@ describe('account reader sync', () => {
     expect([second.reader.moduleName, second.reader.chapter, second.settings.theme, second.settings.defaultModuleName])
       .toEqual(['KJV', 2, 'ink', 'KJV'])
     expect(second.settings.studyPartnerOpen).toBe(true)
+    expect(second.settings.$state).toMatchObject({
+      lineHeight: 2.2, maxLineWidth: 360, verseLayout: 'verse-per-line', textScale: 1.05, extraSpacing: true
+    })
     expect(JSON.parse(localStorage.getItem(cursorKey('reader'))!).updated_at).toBe(remoteCursor!.updated_at)
     await vi.advanceTimersByTimeAsync(1000)
     expect(api.saveReadingCursor).toHaveBeenCalledTimes(1)
     expect(api.savePreferences).toHaveBeenCalledTimes(1)
+  })
+
+  it('retains legacy text size and spacing while supplying defaults for new typography choices', async () => {
+    vi.mocked(api.preferences).mockResolvedValue({ preferences: { textScale: 1.25, extraSpacing: true }, updated_at: 100 })
+    const { settings } = await login('reader')
+    expect(settings.$state).toMatchObject({
+      lineHeight: 1.85, maxLineWidth: 620, verseLayout: 'paragraph', textScale: 1.25, extraSpacing: true
+    })
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(api.savePreferences).not.toHaveBeenCalled()
   })
 
   it.each(['offline', 'server failure'])('keeps reading and preferences usable from cache after %s', async (message) => {
@@ -100,10 +118,13 @@ describe('account reader sync', () => {
     expect(reader.ready).toBe(true)
     expect(reader.error).toBeNull()
     settings.toggle('followAlong')
+    settings.setMaxLineWidth(480)
     await reader.setChapter(3)
     await vi.advanceTimersByTimeAsync(1000)
     expect(JSON.parse(localStorage.getItem(cursorKey('reader'))!).chapter).toBe(3)
-    expect(JSON.parse(localStorage.getItem(prefsKey('reader'))!).preferences.followAlong).toBe(false)
+    expect(JSON.parse(localStorage.getItem(prefsKey('reader'))!).preferences).toMatchObject({
+      followAlong: false, maxLineWidth: 480
+    })
     expect(reader.error).toBeNull()
     // A reconnect/login retries the dirty local values, with their original edit timestamps.
     vi.mocked(api.readingCursor).mockResolvedValue(position)

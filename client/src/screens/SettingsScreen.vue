@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { READER_LINE_HEIGHTS, READER_LINE_WIDTHS, type ReaderPreferences } from '@machaira/scripture'
 import { useSettings } from '../stores/settings'
 import { useReadingPlan } from '../stores/readingPlan'
 import { useReader } from '../stores/reader'
@@ -877,6 +878,7 @@ async function rebuildSemanticIndex(): Promise<void> {
           <div class="stepper">
             <button
               class="step hover-soft"
+              aria-label="Decrease scripture text size"
               @click="settings.bumpTextScale(-0.05)"
             >
               –
@@ -884,6 +886,7 @@ async function rebuildSemanticIndex(): Promise<void> {
             <span class="step-val">{{ settings.textScalePct }}</span>
             <button
               class="step hover-soft"
+              aria-label="Increase scripture text size"
               @click="settings.bumpTextScale(0.05)"
             >
               +
@@ -901,11 +904,74 @@ async function rebuildSemanticIndex(): Promise<void> {
           </div>
           <div class="spacer" />
           <Toggle
+            aria-label="Extra letter and word spacing"
             :model-value="settings.extraSpacing"
             @update:model-value="settings.toggle('extraSpacing')"
           />
         </div>
-        <div class="row bordered translation-default-row">
+        <div class="row bordered reading-select-row">
+          <label
+            class="row-title"
+            for="reader-line-height"
+          >Line height</label>
+          <div class="spacer" />
+          <select
+            id="reader-line-height"
+            class="setting-select"
+            :value="settings.lineHeight"
+            @change="settings.setLineHeight(Number(($event.target as HTMLSelectElement).value))"
+          >
+            <option
+              v-for="height in READER_LINE_HEIGHTS"
+              :key="height"
+              :value="height"
+            >
+              {{ height }}×
+            </option>
+          </select>
+        </div>
+        <div class="row bordered reading-select-row">
+          <label
+            class="row-title"
+            for="reader-line-width"
+          >Maximum line width</label>
+          <div class="spacer" />
+          <select
+            id="reader-line-width"
+            class="setting-select"
+            :value="settings.maxLineWidth"
+            @change="settings.setMaxLineWidth(Number(($event.target as HTMLSelectElement).value))"
+          >
+            <option
+              v-for="width in READER_LINE_WIDTHS"
+              :key="width"
+              :value="width"
+            >
+              {{ width }} px
+            </option>
+          </select>
+        </div>
+        <div class="row bordered reading-select-row">
+          <label
+            class="row-title"
+            for="reader-verse-layout"
+          >Verse layout</label>
+          <div class="spacer" />
+          <select
+            id="reader-verse-layout"
+            class="setting-select"
+            :value="settings.verseLayout"
+            @change="settings.setVerseLayout(($event.target as HTMLSelectElement).value as ReaderPreferences['verseLayout'])"
+          >
+            <option value="paragraph">
+              Paragraph
+            </option>
+            <option value="verse-per-line">
+              Verse per line
+            </option>
+          </select>
+        </div>
+        <div class="row bordered reading-select-row">
           <div class="row-text">
             <div class="row-title">
               Default translation
@@ -2455,11 +2521,11 @@ h1 {
   .discovery-controls .discovery-combobox { flex: 1 1 100%; width: 100%; }
   .priority-control { width: 100%; justify-content: flex-end; }
   .provider-field { flex-basis: 100%; }
-  .translation-default-row {
+  .reading-select-row {
     align-items: stretch;
     flex-direction: column;
   }
-  .translation-default-row .spacer {
+  .reading-select-row .spacer {
     display: none;
   }
   .setting-select {

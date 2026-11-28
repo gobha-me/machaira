@@ -8,7 +8,13 @@ import { buildApp } from '../src/app.ts'
 import { openDatabase } from '../src/database.ts'
 
 const cursor = { moduleName: 'WEB', book: 'Gen', chapter: 2, updated_at: 100 }
-const prefs = { preferences: { theme: 'ink', followAlong: false, studyPartnerOpen: true }, updated_at: 100 }
+const prefs = {
+  preferences: {
+    theme: 'ink', followAlong: false, studyPartnerOpen: true,
+    textScale: 0.9, extraSpacing: true, lineHeight: 2.2, maxLineWidth: 280, verseLayout: 'verse-per-line'
+  },
+  updated_at: 100
+}
 
 it('isolates both reader resources, authenticates every method, and keeps newer writes including ties', async () => {
   const app = await buildApp({ databasePath: ':memory:', secretKey: randomBytes(32), logger: false, registerFeatureRoutes: false })
@@ -20,7 +26,9 @@ it('isolates both reader resources, authenticates every method, and keeps newer 
     const memberCookie = String(member.headers['set-cookie']).split(';')[0]
     for (const [path, value, changed] of [
       ['reading-cursor', cursor, { ...cursor, chapter: 3 }],
-      ['preferences', prefs, { ...prefs, preferences: { theme: 'paper' } }]
+      ['preferences', prefs, {
+        ...prefs, preferences: { theme: 'paper', textScale: 1.4, extraSpacing: false, lineHeight: 1.5, maxLineWidth: 760, verseLayout: 'paragraph' }
+      }]
     ] as const) {
       const url = `/api/me/${path}`
       for (const method of ['GET', 'PUT'] as const) {
@@ -31,6 +39,7 @@ it('isolates both reader resources, authenticates every method, and keeps newer 
       assert.deepEqual((await put(ownerCookie, value)).json(), value)
       assert.equal((await app.inject({ url, headers: { cookie: memberCookie } })).body, 'null')
       assert.deepEqual((await put(memberCookie, { ...changed, updated_at: 101 })).json(), { ...changed, updated_at: 101 })
+      assert.deepEqual((await app.inject({ url, headers: { cookie: ownerCookie } })).json(), value)
       for (const updated_at of [99, 100]) {
         const stale = await put(ownerCookie, { ...changed, updated_at })
         assert.equal(stale.statusCode, 200)
@@ -58,6 +67,9 @@ it('rejects malformed, oversized and coercible inputs without changing stored da
       ['preferences', prefs, [
         { preferences: null }, { preferences: [] }, { preferences: { theme: 'sepia' } },
         { preferences: { followAlong: 'false' } }, { preferences: { textScale: 0.89 } }, { preferences: { textScale: 1.41 } },
+        { preferences: { ...prefs.preferences, lineHeight: '2.2' }, updated_at: 101 },
+        { preferences: { ...prefs.preferences, maxLineWidth: 761 }, updated_at: 101 },
+        { preferences: { ...prefs.preferences, verseLayout: 'poetry' }, updated_at: 101 },
         ...['false', 0, 1, null, [], {}].map((studyPartnerOpen) => ({ preferences: { studyPartnerOpen } })),
         { preferences: { accent: 'red' } }, { preferences: { defaultModuleName: '../WEB' } },
         { preferences: { compareModuleNames: ['WEB', 1] } }, { preferences: { compareModuleNames: Array(129).fill('WEB') } },

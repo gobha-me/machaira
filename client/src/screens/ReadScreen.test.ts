@@ -4,6 +4,7 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import userEvent from '@testing-library/user-event'
 import ReadScreen from './ReadScreen.vue'
+import readScreenSource from './ReadScreen.vue?raw'
 import { parseVerseMarkup } from '../../../server/src/text'
 import { useLibrary } from '../stores/library'
 import { useReader } from '../stores/reader'
@@ -79,6 +80,46 @@ function textActions() {
 function textAction(label: string) {
   return [...textActions()!.querySelectorAll('button')].find((button) => button.textContent?.trim() === label)!
 }
+
+it('applies default and customized typography to the rendered passage', async () => {
+  // Vitest does not load component stylesheets by default.
+  const stylesheet = document.createElement('style')
+  stylesheet.textContent = readScreenSource.match(/<style scoped>([\s\S]*?)<\/style>/)?.[1] ?? ''
+  document.head.append(stylesheet)
+  try {
+    const reading = wrapper.get<HTMLElement>('.reading').element
+    const passage = wrapper.get<HTMLElement>('[data-passage-context]').element
+    const verses = wrapper.findAll<HTMLElement>('[data-verse]').map((verse) => verse.element)
+    expect(verses).toHaveLength(2)
+    expect(reading.style.maxWidth).toBe('620px')
+    expect(passage.style.fontSize).toMatch(/^calc\(20px\s*\*\s*var\(--vs\)\)$/)
+    expect(passage.style.lineHeight).toBe('1.85')
+    expect(passage.style.letterSpacing).toBe('normal')
+    expect(passage.style.wordSpacing).toBe('normal')
+    for (const verse of verses) expect(getComputedStyle(verse).display).not.toBe('block')
+
+    const settings = useSettings()
+    settings.setLineHeight(2.2)
+    settings.setMaxLineWidth(360)
+    settings.setVerseLayout('verse-per-line')
+    settings.toggle('extraSpacing')
+    await flushPromises()
+
+    expect(reading.style.maxWidth).toBe('360px')
+    expect(passage.style.lineHeight).toBe('2.2')
+    expect(passage.style.letterSpacing).toBe('0.03em')
+    expect(passage.style.wordSpacing).toBe('0.12em')
+    for (const verse of verses) expect(getComputedStyle(verse).display).toBe('block')
+
+    settings.setMaxLineWidth(760)
+    settings.setVerseLayout('paragraph')
+    await flushPromises()
+    expect(reading.style.maxWidth).toBe('760px')
+    for (const verse of verses) expect(getComputedStyle(verse).display).not.toBe('block')
+  } finally {
+    stylesheet.remove()
+  }
+})
 
 describe('translation picker labels', () => {
   it('shows a friendly label with missing metadata and still selects the original module ID', async () => {

@@ -15,9 +15,16 @@ export async function registerReaderState(app: FastifyInstance, db: MachairaData
     VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET
     module_name = excluded.module_name, book = excluded.book, chapter = excluded.chapter, updated_at = excluded.updated_at
     WHERE excluded.updated_at > reading_cursors.updated_at`)
+  // Legacy clients omit typography settings from the snapshots they send.
   const savePreferences = db.prepare(`INSERT INTO user_preferences (user_id, preferences_json, updated_at)
     VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET
-    preferences_json = excluded.preferences_json, updated_at = excluded.updated_at
+    preferences_json = json_patch(excluded.preferences_json, (
+      SELECT json_group_object(key, value)
+      FROM json_each(user_preferences.preferences_json)
+      WHERE key IN ('lineHeight', 'maxLineWidth', 'verseLayout')
+        AND json_type(excluded.preferences_json, '$.' || key) IS NULL
+    )),
+    updated_at = excluded.updated_at
     WHERE excluded.updated_at > user_preferences.updated_at`)
 
   app.get('/api/me/reading-cursor', async (request) => getCursor(request.authUser!.id))

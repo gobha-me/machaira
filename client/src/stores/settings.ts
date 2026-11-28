@@ -22,6 +22,9 @@ function defaults(): ReaderPreferences {
     accent: DEFAULT_ACCENT_LIGHT,
     textScale: 1,
     extraSpacing: false,
+    lineHeight: 1.85,
+    maxLineWidth: 620,
+    verseLayout: 'paragraph',
     followAlong: true,
     drawApocrypha: true,
     alwaysCite: true,
@@ -106,6 +109,18 @@ export const useSettings = defineStore('settings', {
         Math.max(TEXT_SCALE_MIN, Math.round((this.textScale + delta) / TEXT_SCALE_STEP) * TEXT_SCALE_STEP)
       )
       this.textScale = Math.round(next * 100) / 100
+      this.persist()
+    },
+    setLineHeight(height: number) {
+      this.lineHeight = height
+      this.persist()
+    },
+    setMaxLineWidth(width: number) {
+      this.maxLineWidth = width
+      this.persist()
+    },
+    setVerseLayout(layout: ReaderPreferences['verseLayout']) {
+      this.verseLayout = layout
       this.persist()
     },
     toggle(
