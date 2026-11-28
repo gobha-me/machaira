@@ -442,6 +442,53 @@ describe('read-aloud listening bar', () => {
     await flushPromises()
   }
 
+  it('keeps Close usable while preparing and cancels pending audio', async () => {
+    const signals: AbortSignal[] = []
+    vi.spyOn(api, 'ttsSpeech').mockImplementation((_provider, _text, signal) => {
+      signals.push(signal!)
+      return new Promise<Blob>(() => {})
+    })
+    await configureLocalAudio()
+    await wrapper.get('button.listen').trigger('click')
+    expect(wrapper.get('button.play').attributes('disabled')).toBeDefined()
+    const close = wrapper.get('[aria-label="Close read-aloud"]')
+    expect(close.attributes('disabled')).toBeUndefined()
+    await close.trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.listenbar').exists()).toBe(false)
+    expect(signals.length).toBeGreaterThan(0)
+    expect(signals.every((signal) => signal.aborted)).toBe(true)
+  })
+
+  it('moves the verse highlight with audio and stops at chapter end', async () => {
+    const audios: ListeningAudio[] = []
+    await configureLocalAudio()
+    vi.stubGlobal('Audio', class extends ListeningAudio {
+      constructor() { super(); audios.push(this) }
+    })
+    vi.spyOn(api, 'ttsSpeech').mockResolvedValue(new Blob(['audio'], { type: 'audio/mpeg' }))
+    useSettings().followAlong = true
+    // happy-dom drops color-mix values; observe the style assigned by Vue.
+    const backgrounds = wrapper.findAll('.verse').map((verse) =>
+      vi.spyOn((verse.element as HTMLElement).style, 'setProperty'))
+    const assignedBackground = (index: number) => {
+      return backgrounds[index]!.mock.calls.filter(([name]) => name === 'background').at(-1)?.[1] ?? ''
+    }
+    await wrapper.get('button.listen').trigger('click')
+    await flushPromises()
+    expect(assignedBackground(0)).toContain('color-mix')
+    expect(assignedBackground(1)).not.toContain('color-mix')
+    audios[0]!.onended?.()
+    await flushPromises()
+    expect(assignedBackground(0)).not.toContain('color-mix')
+    expect(assignedBackground(1)).toContain('color-mix')
+    audios[0]!.onended?.()
+    await flushPromises()
+    expect(wrapper.get('.listen-sub').text()).toBe('Chapter complete')
+    expect(wrapper.get('button.play').attributes('aria-label')).toBe('Replay chapter')
+    expect(audios[0]!.play).toHaveBeenCalledTimes(3) // unlock and two verses
+  })
+
   it('shows chapter counts and a spinner before audio, then timeout and Retry, then pause after playback starts', async () => {
     vi.useFakeTimers()
     const speech = vi.spyOn(api, 'ttsSpeech').mockImplementation(() => new Promise<Blob>(() => {}))

@@ -35,16 +35,33 @@ function stripInline(input: string): string {
   return tighten(decodeEntities(input.replace(TAG, ' ')).replace(/\s+/g, ' ')).trim()
 }
 
+// Skip entire quoted attribute values when looking for an actual attribute, so
+// a title containing class="sword-note" cannot masquerade as a note annotation.
+const TAG_ATTRIBUTES = String.raw`(?:"[^"]*"|'[^']*'|[^'">])*?`
+
+function renderedDiv(className: 'sword-note' | 'sword-section-title', crossReference = false): RegExp {
+  const type = crossReference
+    ? `(?=${TAG_ATTRIBUTES}\\stype\\s*=\\s*(?:"crossReference"|'crossReference'|crossReference(?=\\s|>)))`
+    : ''
+  // Class names are complete whitespace-separated tokens, never substrings of
+  // another class. Both supported names above are fixed native-renderer tokens.
+  const classes = `\\sclass\\s*=\\s*(?:"(?:[^"]*\\s)?${className}(?:\\s[^"]*)?"|` +
+    `'(?:[^']*\\s)?${className}(?:\\s[^']*)?'|${className}(?=\\s|>))`
+  return new RegExp(
+    `<div\\b${type}${TAG_ATTRIBUTES}${classes}${TAG_ATTRIBUTES}>([\\s\\S]*?)<\\/div>`,
+    'gi'
+  )
+}
+
 // Rendered footnote/heading blocks (div form), legacy OSIS note forms, and GBF markers.
-const NOTE_DIV = /<div\b[^>]*\bsword-note\b[^>]*>([\s\S]*?)<\/div>/gi
-const TITLE_DIV = /<div\b[^>]*\bsword-section-title\b[^>]*>[\s\S]*?<\/div>/gi
+const NOTE_DIV = renderedDiv('sword-note')
+const TITLE_DIV = renderedDiv('sword-section-title')
 const GBF_NOTE = /\/f\b\s*\+?\s*([\s\S]*?)\/f\*/gi
 const OSIS_NOTE_BLOCKS = /<(note|rf|scripRef|milestone)\b[^>]*>[\s\S]*?<\/\1>/gi
 // Cross-reference notes are rendered as ordinary sword-note divs by the binding, with their
 // semantic type preserved as an attribute. Some callers/fixtures can still expose raw OSIS
 // <note> elements, so recognize both forms before the general note parser consumes them.
-const CROSS_REF_DIV =
-  /<div\b(?=[^>]*\bsword-note\b)(?=[^>]*\btype\s*=\s*["']crossReference["'])[^>]*>([\s\S]*?)<\/div>/gi
+const CROSS_REF_DIV = renderedDiv('sword-note', true)
 const CROSS_REF_OSIS =
   /<note\b(?=[^>]*\btype\s*=\s*["']crossReference["'])[^>]*>([\s\S]*?)<\/note>/gi
 

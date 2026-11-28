@@ -149,7 +149,8 @@ function unique(values: ScriptureTarget[]): ScriptureTarget[] {
 /** Parse explicit OSIS references such as Isa.40.3 and Isa.40.3-Isa.40.5. */
 export function parseOsisTargets(value: string): ScriptureTarget[] {
   const results: ScriptureTarget[] = []
-  const pattern = /(?:^|[\s;,])([1-4]?[A-Za-z]+)\.(\d+)\.(\d+)(?:-([1-4]?[A-Za-z]+)\.(\d+)\.(\d+)|-(\d+))?/g
+  // A target must occupy a complete token; malformed suffixes must not become links.
+  const pattern = /(?:^|[\s;,])([1-4]?[A-Za-z]+)\.(\d+)\.(\d+)(?:-([1-4]?[A-Za-z]+)\.(\d+)\.(\d+)|-(\d+))?(?=$|[\s;,])/g
   let match: RegExpExecArray | null
   while ((match = pattern.exec(value)) !== null) {
     const endBook = match[4] ?? match[1]

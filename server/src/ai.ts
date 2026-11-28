@@ -272,6 +272,7 @@ export async function* streamProviderChat(
     throw new AiProviderError(`Provider rejected the request (${response.status}): ${await limitedError(response)}`)
   }
   if (!response.headers.get('content-type')?.toLowerCase().includes('text/event-stream')) {
+    await response.body?.cancel().catch(() => undefined)
     throw new AiProviderError('Provider did not return an event stream')
   }
 
